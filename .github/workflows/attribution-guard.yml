@@ -1,0 +1,38 @@
+name: attribution-guard
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan commit messages and working tree
+        run: |
+          PATTERN='claude|anthropic|co-authored-by[[:space:]]*:|generated with|ai-generated|🤖'
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+            range="$base..HEAD"
+          else
+            range="HEAD"
+          fi
+          echo "scanning range: $range"
+          if git log --format='%H%n%B%n%an <%ae>%n%cn <%ce>' "$range" | grep -inE "$PATTERN"; then
+            echo "::error::AI attribution found in commit history"
+            exit 1
+          fi
+          if grep -rIlE "$PATTERN" . --exclude-dir=.git --exclude-dir=node_modules \
+               --exclude-dir=target --exclude-dir=build \
+               --exclude=attribution-guard.yml; then
+            echo "::error::AI attribution found in the working tree"
+            exit 1
+          fi
+          echo "attribution-guard: clean"

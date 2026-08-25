@@ -1,0 +1,90 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast feedback: formatting and the build environment gates. If this fails,
+  # nothing else is worth running.
+  validate:
+    name: format and enforce
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Spotless and enforcer
+        run: mvn -B --no-transfer-progress spotless:check enforcer:enforce
+
+  build:
+    name: build on JDK ${{ matrix.java }}
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 17 is the minimum toolchain, 21 is the virtual-thread target, 25 is
+        # the newest release we promise to build on. Published bytecode is
+        # Java 11 regardless.
+        java: ['17', '21', '25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - name: Build and test
+        run: mvn -B --no-transfer-progress clean verify
+      - name: Verify published bytecode targets Java 11
+        if: matrix.java == '17'
+        run: |
+          class=$(unzip -p acemq-amqp-api/target/acemq-amqp-api-*.jar \
+                  org/acemq/amqp/api/Capability.class | xxd -p -l 8 | cut -c13-16)
+          echo "class file major version: 0x$class (expected 0037 = 55 = Java 11)"
+          test "$class" = "0037"
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-jdk${{ matrix.java }}
+          path: '**/target/surefire-reports/**'
+          retention-days: 7
+
+  # Snapshots are published to GitHub Packages on every green push to main.
+  # Tagged releases additionally go to Maven Central; see RELEASING.md.
+  publish-snapshot:
+    name: publish snapshot to GitHub Packages
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+      - name: Deploy
+        run: mvn -B --no-transfer-progress -DskipTests deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

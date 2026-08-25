@@ -1,0 +1,14 @@
+target/
+.flattened-pom.xml
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+.DS_Store
+*.log
+.env

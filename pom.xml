@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.acemq</groupId>
+  <artifactId>acemq-amqp-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>AceMQ AMQP Parent</name>
+  <description>Broker-portable AMQP library for Java: reliable publishing, non-blocking
+    retries, topology planning and distributed messaging patterns.</description>
+  <url>https://github.com/AceMQ-Company/acemq-java-amqp</url>
+  <inceptionYear>2026</inceptionYear>
+
+  <organization>
+    <name>AceMQ</name>
+    <url>https://acemq.com</url>
+  </organization>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>felipeg48</id>
+      <name>Felipe Gutierrez</name>
+      <organization>AceMQ</organization>
+      <organizationUrl>https://acemq.com</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/AceMQ-Company/acemq-java-amqp.git</connection>
+    <developerConnection>scm:git:git@github.com:AceMQ-Company/acemq-java-amqp.git</developerConnection>
+    <url>https://github.com/AceMQ-Company/acemq-java-amqp</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub Issues</system>
+    <url>https://github.com/AceMQ-Company/acemq-java-amqp/issues</url>
+  </issueManagement>
+
+  <modules>
+    <module>acemq-amqp-api</module>
+    <module>acemq-transport-spi</module>
+    <module>acemq-amqp-core</module>
+    <module>acemq-amqp-patterns</module>
+    <module>acemq-transport-rabbitmq</module>
+    <module>acemq-amqp-test</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!-- Java 11 bytecode on a modern JDK: see ADR-015. Spring Boot 2.7 users
+         are frequently still on Java 11, so the published bytecode must run
+         there. Java 21 features live in multi-release JAR entries. -->
+    <maven.compiler.release>11</maven.compiler.release>
+    <java.baseline>11</java.baseline>
+    <build.jdk.min>17</build.jdk.min>
+
+    <!-- dependency versions -->
+    <slf4j.version>2.0.16</slf4j.version>
+    <rabbitmq.amqp.client.version>5.25.0</rabbitmq.amqp.client.version>
+    <micrometer.version>1.14.2</micrometer.version>
+    <opentelemetry.version>1.45.0</opentelemetry.version>
+    <jackson.version>2.18.2</jackson.version>
+
+    <!-- test versions -->
+    <junit.version>5.11.4</junit.version>
+    <assertj.version>3.27.0</assertj.version>
+    <mockito.version>5.14.2</mockito.version>
+    <testcontainers.version>1.20.4</testcontainers.version>
+    <awaitility.version>4.2.2</awaitility.version>
+    <logback.version>1.5.15</logback.version>
+
+    <!-- plugin versions -->
+    <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
+    <maven.failsafe.plugin.version>3.5.2</maven.failsafe.plugin.version>
+    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
+    <maven.javadoc.plugin.version>3.11.2</maven.javadoc.plugin.version>
+    <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
+    <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
+    <spotless.plugin.version>2.44.0</spotless.plugin.version>
+    <jacoco.plugin.version>0.8.12</jacoco.plugin.version>
+    <flatten.plugin.version>1.6.0</flatten.plugin.version>
+
+    <!-- coverage gates, raised as the modules fill in (doc 10, TEST gate) -->
+    <jacoco.line.coverage>0.00</jacoco.line.coverage>
+    <jacoco.branch.coverage>0.00</jacoco.branch.coverage>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-transport-spi</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-patterns</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-transport-rabbitmq</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-test</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.rabbitmq</groupId>
+        <artifactId>amqp-client</artifactId>
+        <version>${rabbitmq.amqp.client.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-core</artifactId>
+        <version>${micrometer.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-api</artifactId>
+        <version>${opentelemetry.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>${testcontainers.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <version>${mockito.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.awaitility</groupId>
+        <artifactId>awaitility</artifactId>
+        <version>${awaitility.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-classic</artifactId>
+        <version>${logback.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven.compiler.plugin.version}</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+            <compilerArgs>
+              <arg>-Xlint:all,-serial,-processing</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${maven.surefire.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven.failsafe.plugin.version}</version>
+          <executions>
+            <execution>
+              <goals>
+                <goal>integration-test</goal>
+                <goal>verify</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${maven.javadoc.plugin.version}</version>
+          <configuration>
+            <doclint>all,-missing</doclint>
+            <quiet>true</quiet>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${maven.source.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>${maven.gpg.plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <!-- Build environment gate: the toolchain must be new enough even though
+           we emit Java 11 bytecode. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-build-environment</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.8.0,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[${build.jdk.min},)</version>
+                  <message>Build with JDK ${build.jdk.min} or newer. The published
+                    bytecode still targets Java ${java.baseline}.</message>
+                </requireJavaVersion>
+                <banDuplicatePomDependencyVersions/>
+                <requireUpperBoundDeps/>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Formatting is enforced, not suggested: `mvn spotless:apply` fixes. -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.plugin.version}</version>
+        <configuration>
+          <java>
+            <!-- The Eclipse formatter is used rather than google-java-format or
+                 palantir-java-format because those reach into javac internals and
+                 break on newer JDKs (palantir fails outright on JDK 25). Formatting
+                 must give the same result on a contributor's JDK and in CI. -->
+            <eclipse>
+              <file>${maven.multiModuleProjectDirectory}/etc/eclipse-formatter.xml</file>
+            </eclipse>
+            <removeUnusedImports/>
+            <importOrder>
+              <order>java,javax,org,com,</order>
+            </importOrder>
+            <trimTrailingWhitespace/>
+            <endWithNewline/>
+            <licenseHeader>
+              <file>${maven.multiModuleProjectDirectory}/etc/license-header.txt</file>
+            </licenseHeader>
+          </java>
+          <!-- POM element order is deliberate and carries explanatory comments,
+               so it is left to humans. Java formatting is machine-enforced. -->
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <phase>validate</phase>
+            <goals><goal>check</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+          <execution>
+            <id>coverage-gate</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.line.coverage}</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.branch.coverage}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Keeps ${project.version} out of the published POMs' dependency
+           declarations, so consumers never see the CI-resolved revision. -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+        <version>${flatten.plugin.version}</version>
+        <configuration>
+          <updatePomFile>true</updatePomFile>
+          <flattenMode>ossrh</flattenMode>
+        </configuration>
+        <executions>
+          <execution>
+            <id>flatten</id>
+            <phase>process-resources</phase>
+            <goals><goal>flatten</goal></goals>
+          </execution>
+          <execution>
+            <id>flatten-clean</id>
+            <phase>clean</phase>
+            <goals><goal>clean</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <!-- Snapshots and pre-release builds go to GitHub Packages; tagged releases
+       additionally go to Maven Central. See docs: GitHub Packages requires
+       authentication even for public artifacts, so it cannot be the only
+       distribution channel for an open-source library. -->
+  <distributionManagement>
+    <repository>
+      <id>github</id>
+      <name>GitHub AceMQ-Company Apache Maven Packages</name>
+      <url>https://maven.pkg.github.com/AceMQ-Company/acemq-java-amqp</url>
+    </repository>
+    <snapshotRepository>
+      <id>github</id>
+      <name>GitHub AceMQ-Company Apache Maven Packages</name>
+      <url>https://maven.pkg.github.com/AceMQ-Company/acemq-java-amqp</url>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <profiles>
+    <!-- mvn -Prelease deploy : signed sources+javadoc, for Maven Central -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals><goal>jar-no-fork</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals><goal>jar</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>
