@@ -1,12 +1,20 @@
 # acemq-java-amqp
 
+[![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
+[![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
+[![version](https://img.shields.io/badge/version-0.0.1--SNAPSHOT-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
+[![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
+[![brokers](https://img.shields.io/badge/brokers-RabbitMQ%20%7C%20Qpid-lightgrey)](#requirements)
+
 Broker-portable AMQP library for Java. Reliable publishing, non-blocking retries,
 topology planning, and distributed messaging patterns as first-class types —
 against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
 
-> **Status: early development (`0.x`).** The public API is not yet stable and may
-> change in any release. The module skeleton and build gates are in place; the
-> engine is being implemented.
+> **Status: pre-release (`0.0.1-SNAPSHOT`).** Nothing is published yet and the
+> public API changes without notice. The current goal is a walking skeleton: one
+> working path from publish through the broker to consume and acknowledge, proven
+> against a real RabbitMQ, before any breadth is added.
 
 ## Why
 
@@ -79,12 +87,12 @@ releases from Maven Central, under the `org.acemq` group.
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.0.1-SNAPSHOT</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-transport-rabbitmq</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.0.1-SNAPSHOT</version>
 </dependency>
 ```
 
