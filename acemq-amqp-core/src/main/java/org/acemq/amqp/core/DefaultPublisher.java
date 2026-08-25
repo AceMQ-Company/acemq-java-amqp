@@ -15,14 +15,18 @@
  */
 package org.acemq.amqp.core;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.MetricNames;
 import org.acemq.amqp.api.PublishFailedException;
 import org.acemq.amqp.api.PublishResult;
 import org.acemq.amqp.api.Publisher;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.ConfirmResult;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.TransportConnection;
@@ -47,15 +51,22 @@ final class DefaultPublisher<T> implements Publisher<T> {
     private final String exchange;
     private final String routingKey;
     private final String origin;
+    private final Telemetry telemetry;
     private final AtomicBoolean closed = new AtomicBoolean();
 
     DefaultPublisher(
-            TransportConnection connection, Codec codec, String exchange, String routingKey, String origin) {
+            TransportConnection connection,
+            Codec codec,
+            String exchange,
+            String routingKey,
+            String origin,
+            Telemetry telemetry) {
         this.connection = connection;
         this.codec = codec;
         this.exchange = exchange == null ? "" : exchange;
         this.routingKey = routingKey == null ? "" : routingKey;
         this.origin = origin;
+        this.telemetry = telemetry;
     }
 
     @Override
@@ -83,29 +94,48 @@ final class DefaultPublisher<T> implements Publisher<T> {
         Envelope stamped = envelope.origin().isPresent() ? envelope : envelope.toBuilder().origin(origin).build();
 
         byte[] body = codec.encode(payload);
-        OutboundMessage message = OutboundMessage.body(body)
-                .exchange(exchange)
-                .routingKey(routingKey)
-                .headers(EnvelopeHeaders.toHeaders(stamped))
-                .messageId(stamped.id())
-                .contentType(codec.contentType())
-                .build();
 
-        ConfirmResult result = connection.send(message);
+        try (Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, stamped)) {
+            // Trace context is gathered inside the scope, so the headers carry the span that is
+            // being created here. That is what lets a consumer, in another process and possibly
+            // much later, attach its work to this publish.
+            Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(stamped));
+            headers.putAll(telemetry.propagationHeaders());
 
-        if (!result.isConfirmed()) {
-            throw new PublishFailedException("the broker did not confirm message " + stamped.id() + " to exchange '"
-                    + exchange + "' with routing key '" + routingKey + "': " + result.detail());
+            OutboundMessage message = OutboundMessage.body(body)
+                    .exchange(exchange)
+                    .routingKey(routingKey)
+                    .headers(headers)
+                    .messageId(stamped.id())
+                    .contentType(codec.contentType())
+                    .build();
+
+            ConfirmResult result;
+            try {
+                result = connection.send(message);
+            } catch (RuntimeException e) {
+                scope.failed(e);
+                throw e;
+            }
+
+            if (!result.isConfirmed()) {
+                scope.outcome(MetricNames.OUTCOME_FAILED);
+                throw new PublishFailedException("the broker did not confirm message " + stamped.id()
+                        + " to exchange '" + exchange + "' with routing key '" + routingKey + "': "
+                        + result.detail());
+            }
+            if (!result.isRouted()) {
+                scope.outcome(MetricNames.OUTCOME_UNROUTABLE);
+                throw new PublishFailedException("message " + stamped.id() + " was accepted by the broker but could"
+                        + " not be routed: nothing is bound to exchange '" + exchange + "' for routing key '"
+                        + routingKey + "'. The message has been discarded. Declare the binding, or publish with an"
+                        + " explicit allowance for unroutable messages if that is intended.");
+            }
+
+            scope.outcome(MetricNames.OUTCOME_CONFIRMED);
+            log.debug("published {} to {}/{} in {}", stamped.id(), exchange, routingKey, result.latency());
+            return new PublishResult(stamped.id(), result.isRouted(), result.latency());
         }
-        if (!result.isRouted()) {
-            throw new PublishFailedException("message " + stamped.id() + " was accepted by the broker but could not"
-                    + " be routed: nothing is bound to exchange '" + exchange + "' for routing key '" + routingKey
-                    + "'. The message has been discarded. Declare the binding, or publish with an explicit"
-                    + " allowance for unroutable messages if that is intended.");
-        }
-
-        log.debug("published {} to {}/{} in {}", stamped.id(), exchange, routingKey, result.latency());
-        return new PublishResult(stamped.id(), result.isRouted(), result.latency());
     }
 
     @Override

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.acemq.amqp.api.Capability;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Publisher;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Transport;
@@ -58,14 +59,23 @@ public final class AceMq implements AutoCloseable {
     private final TransportConnection connection;
     private final Codec codec;
     private final String origin;
+    private final Telemetry telemetry;
     private final CopyOnWriteArrayList<AutoCloseable> managed = new CopyOnWriteArrayList<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    private AceMq(Transport transport, TransportConnection connection, Codec codec, String origin) {
+    private AceMq(
+            Transport transport,
+            TransportConnection connection,
+            Codec codec,
+            String origin,
+            Telemetry telemetry) {
         this.transport = transport;
         this.connection = connection;
         this.codec = codec;
         this.origin = origin;
+        // Resolved once per connection rather than per message: the classpath does not change
+        // while the process runs, and probing on a hot path would be its own overhead.
+        this.telemetry = telemetry;
     }
 
     /**
@@ -81,16 +91,44 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Connects to a broker with an explicit telemetry sink.
+     *
+     * @param url broker URL
+     * @param telemetry where to report
+     * @return an open connection
+     */
+    public static AceMq connect(String url, Telemetry telemetry) {
+        return connect(ConnectionConfig.url(url).build(), telemetry);
+    }
+
+    /**
      * Connects to a broker with explicit settings.
      *
      * @param config connection settings
      * @return an open connection
      */
     public static AceMq connect(ConnectionConfig config) {
+        return connect(config, null);
+    }
+
+    /**
+     * Connects with an explicit telemetry sink.
+     *
+     * <p>Preferable to auto-detection wherever the answer is known. Auto-detection reaches for
+     * Micrometer's global registry and OpenTelemetry's global instance, both of which are
+     * process-wide state; passing a sink lets two connections report separately and lets a
+     * test observe only its own measurements.
+     *
+     * @param config connection settings
+     * @param telemetry where to report, or {@code null} to detect what is on the classpath
+     * @return an open connection
+     */
+    public static AceMq connect(ConnectionConfig config, Telemetry telemetry) {
         Transport transport = Transports.forScheme(config.scheme());
         log.debug("connecting with the {} transport to {}", transport.name(), config);
         TransportConnection connection = transport.connect(config);
-        return new AceMq(transport, connection, new StringCodec(), defaultOrigin(config));
+        Telemetry sink = telemetry != null ? telemetry : Telemetries.autoDetect(transport.name());
+        return new AceMq(transport, connection, new StringCodec(), defaultOrigin(config), sink);
     }
 
     /**
@@ -109,6 +147,14 @@ public final class AceMq implements AutoCloseable {
     /** @return whether the broker supports a capability */
     public boolean supports(Capability capability) {
         return transport.capabilities().contains(capability);
+    }
+
+    /**
+     * @return where this connection reports what it is doing; a no-op sink when neither
+     *     Micrometer nor OpenTelemetry is on the classpath
+     */
+    public Telemetry telemetry() {
+        return telemetry;
     }
 
     /** @return the transport's short name, such as {@code rabbitmq} */
@@ -181,7 +227,8 @@ public final class AceMq implements AutoCloseable {
      * @return a publisher, closed automatically when this instance closes
      */
     public <T> Publisher<T> publisher(String exchange, String routingKey) {
-        DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, codec, exchange, routingKey, origin);
+        DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, codec, exchange, routingKey, origin,
+                telemetry);
         managed.add(publisher);
         return publisher;
     }
@@ -215,7 +262,8 @@ public final class AceMq implements AutoCloseable {
             Class<T> payloadType,
             ConsumerOptions options,
             org.acemq.amqp.api.MessageHandler<T> handler) {
-        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, codec, queue, payloadType, options, handler);
+        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, codec, queue, payloadType, options, handler,
+                telemetry);
         managed.add(consumer);
         consumer.start();
         return consumer;

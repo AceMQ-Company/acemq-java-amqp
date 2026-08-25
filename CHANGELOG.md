@@ -76,6 +76,20 @@ While the version is `0.x` the public API may change in any release.
   test would catch it; the cost appears only as a round trip per replica on every
   confirm. Verified against a real five-node cluster.
 
+- Telemetry. Every publish and every delivery is timed and counted, and emits a
+  span; retries and dead letters are counted and recorded as span events.
+  `MetricNames` freezes the metric, tag and span names as public API, since a
+  dashboard or an alert is written against those strings.
+- Trace context travels with the message in the W3C `traceparent` header, so a
+  handler's span is a child of the publish that caused it even across processes.
+- `MicrometerSupport.telemetry(registry, transport)` and
+  `OpenTelemetrySupport.telemetry(openTelemetry, transport)` take an explicit
+  provider; `AceMq.connect(url, telemetry)` accepts one. Auto-detection remains
+  as a fallback but reaches for process-wide global state, which two connections
+  cannot share and a test cannot isolate.
+- Telemetry is off by default in the sense that matters: with neither library on
+  the classpath the engine uses a sink whose methods are empty.
+
 ### Fixed
 - Failsafe was configured but never bound, so `*IT` tests were skipped while the
   build reported success.
@@ -87,3 +101,8 @@ While the version is `0.x` the public API may change in any release.
   application header comparisons behave as written.
 - The publisher stamps `x-acemq-origin` when a caller supplies an envelope
   without one, so no message is published unattributed.
+- Optional telemetry dependencies are no longer named in any method that runs
+  unconditionally. Naming one, even as a local variable or a method parameter,
+  makes the JVM resolve it when the class or method is first used, so the guard
+  meant to protect it never runs and the first connection in an application
+  without that dependency fails with `NoClassDefFoundError`.

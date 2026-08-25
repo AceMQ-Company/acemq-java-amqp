@@ -24,6 +24,8 @@ import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.Message;
 import org.acemq.amqp.api.MessageHandler;
+import org.acemq.amqp.api.MetricNames;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.Acknowledger;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.Subscription;
@@ -52,6 +54,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final Class<T> payloadType;
     private final ConsumerOptions options;
     private final MessageHandler<T> handler;
+    private final Telemetry telemetry;
     private final AtomicLong acknowledged = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong retried = new AtomicLong();
@@ -66,18 +69,20 @@ final class DefaultConsumer<T> implements MessageConsumer {
             String queue,
             Class<T> payloadType,
             ConsumerOptions options,
-            MessageHandler<T> handler) {
+            MessageHandler<T> handler,
+            Telemetry telemetry) {
         this.connection = connection;
         this.codec = codec;
         this.queue = queue;
         this.payloadType = payloadType;
         this.options = options;
         this.handler = handler;
+        this.telemetry = telemetry;
         this.retries = options.retryPolicy()
                 .map(policy -> {
                     RetryTopology topology = RetryTopology.forQueue(queue, policy);
                     topology.declare(connection);
-                    return new RetryDispatcher(connection, topology);
+                    return new RetryDispatcher(connection, topology, telemetry);
                 })
                 .orElse(null);
     }
@@ -110,14 +115,25 @@ final class DefaultConsumer<T> implements MessageConsumer {
             return;
         }
 
+        try (Telemetry.Scope scope = telemetry.consumeStarted(queue, message.envelope())) {
+            dispatchWithin(scope, message, delivery, acknowledger);
+        }
+    }
+
+    /** Runs the handler and settles the delivery, recording how it went. */
+    private void dispatchWithin(
+            Telemetry.Scope scope, Message<T> message, InboundDelivery delivery, Acknowledger acknowledger) {
         try {
             handler.handle(message);
             acknowledged.incrementAndGet();
+            scope.outcome(MetricNames.OUTCOME_ACKED);
             acknowledger.accept();
         } catch (AceFatalException e) {
             // Fatal means retrying cannot help, so the retry ladder is skipped entirely and
             // the message goes straight to the dead-letter queue.
             rejected.incrementAndGet();
+            scope.failed(e);
+            scope.outcome(MetricNames.OUTCOME_DEAD_LETTERED);
             log.warn("handler rejected {} as unprocessable: {}", message, e.getMessage());
             if (retries != null) {
                 retries.onFailure(delivery, message.envelope(), e, true);
@@ -128,17 +144,21 @@ final class DefaultConsumer<T> implements MessageConsumer {
             }
         } catch (Exception e) {
             rejected.incrementAndGet();
+            scope.failed(e);
             if (retries != null) {
                 RetryDispatcher.Outcome outcome = retries.onFailure(delivery, message.envelope(), e, false);
                 if (outcome == RetryDispatcher.Outcome.RETRIED) {
                     retried.incrementAndGet();
+                    scope.outcome(MetricNames.OUTCOME_RETRIED);
                 } else {
                     deadLettered.incrementAndGet();
+                    scope.outcome(MetricNames.OUTCOME_DEAD_LETTERED);
                 }
                 // The message has already been republished elsewhere, so the original copy is
                 // acknowledged rather than rejected into a requeue loop.
                 acknowledger.accept();
             } else {
+                scope.outcome(MetricNames.OUTCOME_REJECTED);
                 log.warn("handler failed for {}", message, e);
                 acknowledger.reject(options.isRequeueOnFailure());
             }
@@ -146,6 +166,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
             // An Error means the process is in trouble, but the delivery still has to be
             // settled before the stack unwinds, or it is stuck until the connection dies.
             rejected.incrementAndGet();
+            scope.outcome(MetricNames.OUTCOME_REJECTED);
             acknowledger.reject(false);
             throw t;
         }

@@ -151,8 +151,10 @@
       </dependency>
       <dependency>
         <groupId>io.opentelemetry</groupId>
-        <artifactId>opentelemetry-api</artifactId>
+        <artifactId>opentelemetry-bom</artifactId>
         <version>${opentelemetry.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>

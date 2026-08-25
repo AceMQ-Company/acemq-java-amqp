@@ -23,6 +23,7 @@ import java.util.Optional;
 import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.RetryPolicy;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.TransportConnection;
@@ -51,11 +52,13 @@ final class RetryDispatcher {
     private final TransportConnection connection;
     private final RetryTopology topology;
     private final RetryPolicy policy;
+    private final Telemetry telemetry;
 
-    RetryDispatcher(TransportConnection connection, RetryTopology topology) {
+    RetryDispatcher(TransportConnection connection, RetryTopology topology, Telemetry telemetry) {
         this.connection = connection;
         this.topology = topology;
         this.policy = topology.policy();
+        this.telemetry = telemetry;
     }
 
     /**
@@ -97,6 +100,7 @@ final class RetryDispatcher {
 
         Envelope next = envelope.nextAttempt();
         publish(rung.get(), delivery, next, null);
+        telemetry.messageRetried(topology.sourceQueue(), next, wait);
         log.debug(
                 "retrying {} attempt {} of {} after {} via {}",
                 envelope.id(),
@@ -135,6 +139,7 @@ final class RetryDispatcher {
 
     private void deadLetter(InboundDelivery delivery, Envelope envelope, String reason) {
         publish(topology.deadLetterQueue(), delivery, envelope, reason);
+        telemetry.messageDeadLettered(topology.sourceQueue(), envelope, reason);
         log.warn(
                 "dead-lettered {} from {} after {} attempts: {}",
                 envelope.id(),
