@@ -1,0 +1,72 @@
+name: nightly-cluster
+
+# Five and nine node clusters are too slow for the ordinary build, so they run
+# here instead. Also runnable on demand, which is what you want when a change
+# touches queue placement or failover.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      size:
+        description: "Cluster size to run (5 or 9)"
+        required: false
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  cluster:
+    name: ${{ matrix.size }}-node cluster
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Five tolerates two failures; nine is where anything that scales with
+        # cluster size becomes obvious rather than merely theoretical.
+        size: [5, 9]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Start the cluster
+        env:
+          SIZE: ${{ matrix.size }}
+        run: |
+          docker compose -f "compose/cluster-$SIZE.yml" up -d --wait
+          ./compose/join-cluster.sh "$SIZE"
+
+      - name: Report cluster state
+        run: docker exec acemq-rabbit1 rabbitmqctl cluster_status
+
+      - name: Run the cluster suite
+        env:
+          SIZE: ${{ matrix.size }}
+        run: |
+          mvn -B --no-transfer-progress install -DskipTests -DskipITs
+          mvn -B --no-transfer-progress verify -pl acemq-transport-rabbitmq \
+              -Dit.test=LargeClusterIT -DfailIfNoSpecifiedTests=false \
+              -Dacemq.cluster.size="$SIZE"
+
+      - name: Collect broker logs on failure
+        if: failure()
+        env:
+          SIZE: ${{ matrix.size }}
+        run: |
+          for i in $(seq 1 "$SIZE"); do
+            echo "=== rabbit$i ==="
+            docker logs "acemq-rabbit$i" 2>&1 | tail -100 || true
+          done
+
+      - name: Stop the cluster
+        if: always()
+        env:
+          SIZE: ${{ matrix.size }}
+        run: docker compose -f "compose/cluster-$SIZE.yml" down -v

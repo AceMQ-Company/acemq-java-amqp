@@ -1,0 +1,123 @@
+# 9-node RabbitMQ cluster for the nightly cluster suite.
+#
+# Testcontainers handles one and three nodes inside the ordinary build. Five and
+# nine live here instead, because that many brokers do not fit a per-test
+# lifecycle on a hosted runner: they are started once for the job and torn down
+# at the end.
+#
+#   docker compose -f compose/cluster-9.yml up -d --wait
+#   ./compose/join-cluster.sh 9
+#   mvn verify -pl acemq-transport-rabbitmq -Dit.test=LargeClusterIT -Dacemq.cluster.size=9
+#   docker compose -f compose/cluster-9.yml down -v
+#
+# Every node shares an Erlang cookie and a pinned node name, which is what lets
+# them find each other; join-cluster.sh performs the join itself.
+
+name: acemq-cluster-9
+
+x-rabbit: &rabbit
+  image: rabbitmq:4-management
+  environment:
+    RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 10s
+    timeout: 10s
+    retries: 20
+  networks: [acemq]
+
+services:
+  rabbit1:
+    <<: *rabbit
+    hostname: rabbit1
+    container_name: acemq-rabbit1
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit1
+    ports:
+      - "5671:5672"
+      - "15672:15672"
+
+  rabbit2:
+    <<: *rabbit
+    hostname: rabbit2
+    container_name: acemq-rabbit2
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit2
+    ports:
+      - "5672:5672"
+
+  rabbit3:
+    <<: *rabbit
+    hostname: rabbit3
+    container_name: acemq-rabbit3
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit3
+    ports:
+      - "5673:5672"
+
+  rabbit4:
+    <<: *rabbit
+    hostname: rabbit4
+    container_name: acemq-rabbit4
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit4
+    ports:
+      - "5674:5672"
+
+  rabbit5:
+    <<: *rabbit
+    hostname: rabbit5
+    container_name: acemq-rabbit5
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit5
+    ports:
+      - "5675:5672"
+
+  rabbit6:
+    <<: *rabbit
+    hostname: rabbit6
+    container_name: acemq-rabbit6
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit6
+    ports:
+      - "5676:5672"
+
+  rabbit7:
+    <<: *rabbit
+    hostname: rabbit7
+    container_name: acemq-rabbit7
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit7
+    ports:
+      - "5677:5672"
+
+  rabbit8:
+    <<: *rabbit
+    hostname: rabbit8
+    container_name: acemq-rabbit8
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit8
+    ports:
+      - "5678:5672"
+
+  rabbit9:
+    <<: *rabbit
+    hostname: rabbit9
+    container_name: acemq-rabbit9
+    environment:
+      RABBITMQ_ERLANG_COOKIE: acemq-test-cookie
+      RABBITMQ_NODENAME: rabbit@rabbit9
+    ports:
+      - "5679:5672"
+
+networks:
+  acemq:
+    driver: bridge

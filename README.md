@@ -60,7 +60,7 @@ AceMQ aims to be that layer:
 | Bytecode target | **Java 11** — so Spring Boot 2.7 applications on Java 11 can consume this |
 | Build toolchain | **JDK 17 or newer** (CI builds on 17, 21 and 25) |
 | Maven | 3.8+ |
-| Brokers tested | RabbitMQ 3.13 and 4.x; Apache Qpid Broker-J from M3 |
+| Brokers tested | RabbitMQ 3.13 and 4.x, standalone and clustered at 3, 5 and 9 nodes; Apache Qpid Broker-J from M3 |
 
 Java 21 features such as virtual threads are delivered through multi-release JAR
 entries and selected at runtime, so modern deployments benefit without the
@@ -83,6 +83,17 @@ Docker environment exists:
 
 ```bash
 export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
+```
+
+Clusters of three nodes are started by the build itself. Five and nine node
+clusters run nightly, and can be driven by hand:
+
+```bash
+docker compose -f compose/cluster-5.yml up -d --wait
+./compose/join-cluster.sh 5
+mvn verify -pl acemq-transport-rabbitmq -Dit.test=LargeClusterIT \
+    -DfailIfNoSpecifiedTests=false -Dacemq.cluster.size=5
+docker compose -f compose/cluster-5.yml down -v
 ```
 
 Formatting is enforced with the Eclipse formatter (`etc/eclipse-formatter.xml`)

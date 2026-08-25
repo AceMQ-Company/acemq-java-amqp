@@ -64,6 +64,18 @@ While the version is `0.x` the public API may change in any release.
   retry behaviour is testable in milliseconds rather than only against a
   container.
 
+- Cluster testing at 1, 3, 5 and 9 nodes. One and three nodes run in the
+  ordinary build through a Testcontainers harness that joins real brokers into a
+  cluster; five and nine run nightly from `compose/cluster-<size>.yml`, since
+  that many brokers do not fit a per-test lifecycle on a hosted runner.
+- Failover coverage that a single node cannot provide: a quorum queue keeps its
+  messages when a node is lost, and publishing with confirms continues against a
+  degraded cluster that still holds a majority.
+- An assertion that a quorum queue is replicated to three nodes rather than to
+  every node in the cluster. Replicating everywhere still works, so no functional
+  test would catch it; the cost appears only as a round trip per replica on every
+  confirm. Verified against a real five-node cluster.
+
 ### Fixed
 - Failsafe was configured but never bound, so `*IT` tests were skipped while the
   build reported success.
