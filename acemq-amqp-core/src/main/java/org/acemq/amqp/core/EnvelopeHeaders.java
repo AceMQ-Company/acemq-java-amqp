@@ -60,6 +60,7 @@ final class EnvelopeHeaders {
         headers.put(AceHeaders.FIRST_SEEN, envelope.firstSeen().toEpochMilli());
         envelope.causationId().ifPresent(value -> headers.put(AceHeaders.CAUSATION, value));
         envelope.origin().ifPresent(value -> headers.put(AceHeaders.ORIGIN, value));
+        envelope.error().ifPresent(value -> headers.put(AceHeaders.ERROR, value));
         return headers;
     }
 
@@ -108,6 +109,11 @@ final class EnvelopeHeaders {
         String origin = string(source.get(AceHeaders.ORIGIN));
         if (origin != null) {
             builder.origin(origin);
+        }
+
+        String error = string(source.get(AceHeaders.ERROR));
+        if (error != null) {
+            builder.error(error);
         }
 
         Long firstSeen = epochMillis(source.get(AceHeaders.FIRST_SEEN));

@@ -30,6 +30,12 @@ public interface MessageConsumer extends AutoCloseable {
     /** @return how many messages have been rejected after a handler failure */
     long rejected();
 
+    /** @return how many messages have been sent to a retry queue for another attempt */
+    long retried();
+
+    /** @return how many messages have been dead-lettered or parked */
+    long deadLettered();
+
     /** Stops consuming, letting in-flight deliveries settle. */
     @Override
     void close();

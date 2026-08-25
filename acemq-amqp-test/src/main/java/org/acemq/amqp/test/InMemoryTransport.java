@@ -50,7 +50,12 @@ import org.acemq.amqp.transport.TransportConnection;
 public final class InMemoryTransport implements Transport {
 
     private static final Set<Capability> CAPABILITIES = Collections.unmodifiableSet(EnumSet.of(
-            Capability.EXCHANGE_ROUTING, Capability.TOPIC_WILDCARDS, Capability.PUBLISHER_CONFIRMS));
+            Capability.EXCHANGE_ROUTING,
+            Capability.TOPIC_WILDCARDS,
+            Capability.PUBLISHER_CONFIRMS,
+            // Queue-level time-to-live with a dead-letter target is implemented, which is what
+            // the retry ladder is built from. Claimed only because it genuinely works here.
+            Capability.DEAD_LETTER_NATIVE));
 
     /** Discards every in-memory broker and its contents. */
     public static void reset() {

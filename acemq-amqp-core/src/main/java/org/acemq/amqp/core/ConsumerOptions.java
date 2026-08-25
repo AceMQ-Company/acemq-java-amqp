@@ -15,18 +15,22 @@
  */
 package org.acemq.amqp.core;
 
+import org.acemq.amqp.api.RetryPolicy;
+
 /** How a consumer should behave. */
 public final class ConsumerOptions {
 
     private final int prefetch;
     private final boolean requeueOnFailure;
+    private final RetryPolicy retryPolicy;
 
-    private ConsumerOptions(int prefetch, boolean requeueOnFailure) {
+    private ConsumerOptions(int prefetch, boolean requeueOnFailure, RetryPolicy retryPolicy) {
         if (prefetch < 1) {
             throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
         }
         this.prefetch = prefetch;
         this.requeueOnFailure = requeueOnFailure;
+        this.retryPolicy = retryPolicy;
     }
 
     /**
@@ -37,7 +41,7 @@ public final class ConsumerOptions {
      *     behaviour: the message goes to a dead-letter queue if one is configured.
      */
     public static ConsumerOptions defaults() {
-        return new ConsumerOptions(50, false);
+        return new ConsumerOptions(50, false, null);
     }
 
     /**
@@ -45,7 +49,7 @@ public final class ConsumerOptions {
      * @return options with that prefetch
      */
     public static ConsumerOptions prefetch(int prefetch) {
-        return new ConsumerOptions(prefetch, false);
+        return new ConsumerOptions(prefetch, false, null);
     }
 
     /**
@@ -57,7 +61,30 @@ public final class ConsumerOptions {
      * @return options that requeue on failure
      */
     public ConsumerOptions requeueOnFailure() {
-        return new ConsumerOptions(prefetch, true);
+        return new ConsumerOptions(prefetch, true, retryPolicy);
+    }
+
+    /**
+     * Retries failures on a schedule, using queues in the broker rather than a sleeping
+     * handler.
+     *
+     * <p>Turning this on makes the consumer declare a retry rung per distinct delay, a
+     * dead-letter queue and a parking lot, all derived from the policy. A failed message is
+     * republished into the appropriate rung and comes back when its time-to-live expires; once
+     * the attempts or the age limit are used up it lands in the dead-letter queue with the
+     * reason attached.
+     *
+     * @param retryPolicy the schedule to follow
+     * @return options with retries enabled
+     */
+    public ConsumerOptions withRetry(RetryPolicy retryPolicy) {
+        return new ConsumerOptions(
+                prefetch, requeueOnFailure, java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"));
+    }
+
+    /** @return the retry schedule, when one is configured */
+    public java.util.Optional<RetryPolicy> retryPolicy() {
+        return java.util.Optional.ofNullable(retryPolicy);
     }
 
     public int prefetch() {

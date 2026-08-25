@@ -46,6 +46,24 @@ While the version is `0.x` the public API may change in any release.
   queues, dead-lettering or delayed delivery fails against it exactly as it
   would against a broker that lacks them.
 
+- `RetryPolicy`: fixed and exponential schedules with a multiplier, a ceiling,
+  jitter on by default, and two independent give-up conditions — attempts used
+  up, or the message grown older than a limit measured from its first publish.
+- A retry ladder that waits inside the broker. Each distinct delay gets a queue
+  with a time-to-live and a dead-letter target pointing back at the source, so a
+  failed message waits without occupying a consumer. Enable it with
+  `ConsumerOptions.withRetry(policy)`.
+- Convention-based `{queue}.dlq` and `{queue}.parked` queues. Exhausted or
+  over-age messages are dead-lettered with the reason attached; payloads that
+  cannot be decoded are parked immediately, since they will never decode.
+- `Envelope.error()` carries why a message was given up on, so a consumer of a
+  dead-letter queue reads it through the API rather than by knowing a header
+  name.
+- `MessageConsumer.retried()` and `deadLettered()` counters.
+- The in-memory transport implements queue time-to-live and dead-lettering, so
+  retry behaviour is testable in milliseconds rather than only against a
+  container.
+
 ### Fixed
 - Failsafe was configured but never bound, so `*IT` tests were skipped while the
   build reported success.

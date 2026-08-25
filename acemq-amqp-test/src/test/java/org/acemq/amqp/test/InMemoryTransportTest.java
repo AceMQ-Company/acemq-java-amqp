@@ -95,11 +95,16 @@ class InMemoryTransportTest {
 
         assertThat(mq.capabilities())
                 .containsExactlyInAnyOrder(
-                        Capability.EXCHANGE_ROUTING, Capability.TOPIC_WILDCARDS, Capability.PUBLISHER_CONFIRMS);
+                        Capability.EXCHANGE_ROUTING,
+                        Capability.TOPIC_WILDCARDS,
+                        Capability.PUBLISHER_CONFIRMS,
+                        // Queue time-to-live with a dead-letter target is genuinely
+                        // implemented, because the retry ladder is built on it.
+                        Capability.DEAD_LETTER_NATIVE);
         // Overstating these is how a fake lets broken code pass. Anything depending on them
         // must fail here exactly as it would against a broker that lacks them.
         assertThat(mq.capabilities())
-                .doesNotContain(Capability.QUORUM_QUEUES, Capability.DEAD_LETTER_NATIVE, Capability.DELAYED_DELIVERY);
+                .doesNotContain(Capability.QUORUM_QUEUES, Capability.DELAYED_DELIVERY, Capability.STREAMS);
     }
 
     @Test

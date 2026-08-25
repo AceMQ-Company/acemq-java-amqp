@@ -16,6 +16,7 @@
 package org.acemq.amqp.test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,14 +37,23 @@ import org.acemq.amqp.transport.TransportException;
  * clean slate use a unique name, which is cheaper and more reliable than tearing down shared
  * state.
  *
- * <p>What it does <em>not</em> do is as important as what it does. There is no replication, no
- * persistence and no dead-lettering yet. The capability set reported by {@link
- * InMemoryTransport} says so, and the conformance suite is what will keep this fake honest
- * against real brokers as behaviour is added.
+ * <p>What it does <em>not</em> do is as important as what it does. There is no replication and
+ * no persistence. Queue-level time-to-live and dead-lettering are implemented, because the
+ * retry ladder is built from them. The capability set reported by {@link InMemoryTransport}
+ * states exactly which of these are real, and the conformance suite is what will keep this fake
+ * honest against real brokers as behaviour is added.
  */
 final class InMemoryBroker {
 
     private static final Map<String, InMemoryBroker> BROKERS = new ConcurrentHashMap<>();
+
+    /** Fires queue expiries. One shared daemon thread is ample for test workloads. */
+    private static final java.util.concurrent.ScheduledExecutorService EXPIRY = java.util.concurrent.Executors
+            .newScheduledThreadPool(2, runnable -> {
+                Thread thread = new Thread(runnable, "acemq-memory-expiry");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private final String name;
     private final Map<String, Exchange> exchanges = new ConcurrentHashMap<>();
@@ -82,7 +92,41 @@ final class InMemoryBroker {
     }
 
     void declareQueue(String queueName, QueueType type, boolean durable, Map<String, Object> arguments) {
-        queues.computeIfAbsent(queueName, key -> new Queue(key, type));
+        Map<String, Object> args = arguments == null ? Collections.emptyMap() : arguments;
+        Queue queue = queues.computeIfAbsent(queueName, key -> new Queue(key, type));
+
+        // Queue-level time-to-live with a dead-letter target is what makes the retry ladder
+        // work: a message waits in a rung doing nothing, expires, and is routed onward. Without
+        // it here, retry behaviour could only ever be tested against a container.
+        Object ttl = args.get("x-message-ttl");
+        if (ttl instanceof Number) {
+            queue.expireAfter(
+                    ((Number) ttl).longValue(),
+                    asString(args.get("x-dead-letter-exchange")),
+                    asString(args.get("x-dead-letter-routing-key")),
+                    this);
+        }
+    }
+
+    private static String asString(Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    /**
+     * Routes a message that has expired out of a queue.
+     *
+     * <p>Kept separate from {@link #route} so the intent is visible in a stack trace: a message
+     * arriving here was not published by an application, it timed out of a rung.
+     */
+    void routeExpired(String exchange, String routingKey, OutboundMessage message) {
+        OutboundMessage rerouted = OutboundMessage.body(message.body())
+                .exchange(exchange == null ? "" : exchange)
+                .routingKey(routingKey == null ? "" : routingKey)
+                .headers(message.headers())
+                .messageId(message.messageId())
+                .contentType(message.contentType())
+                .build();
+        route(rerouted);
     }
 
     void bindQueue(String queueName, String exchangeName, String routingKey) {
@@ -227,6 +271,10 @@ final class InMemoryBroker {
         private final String name;
         private final QueueType type;
         private final LinkedBlockingDeque<OutboundMessage> messages = new LinkedBlockingDeque<>();
+        private volatile long timeToLiveMillis = -1;
+        private volatile String deadLetterExchange;
+        private volatile String deadLetterRoutingKey;
+        private volatile InMemoryBroker owner;
 
         Queue(String name, QueueType type) {
             this.name = name;
@@ -237,8 +285,30 @@ final class InMemoryBroker {
             return name;
         }
 
+        /** Configures queue-level expiry with a dead-letter target. */
+        void expireAfter(long millis, String exchange, String routingKey, InMemoryBroker owner) {
+            this.timeToLiveMillis = millis;
+            this.deadLetterExchange = exchange;
+            this.deadLetterRoutingKey = routingKey;
+            this.owner = owner;
+        }
+
         void offer(OutboundMessage message) {
             messages.addLast(message);
+            long ttl = timeToLiveMillis;
+            if (ttl >= 0) {
+                // The message is still visible in the queue while it waits, so depth() reports
+                // what an operator would see, and it is only routed onward if it is still here
+                // when the timer fires.
+                EXPIRY.schedule(
+                        () -> {
+                            if (messages.remove(message) && owner != null) {
+                                owner.routeExpired(deadLetterExchange, deadLetterRoutingKey, message);
+                            }
+                        },
+                        ttl,
+                        java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
         }
 
         /** Returns the message to the front of the queue, as a requeue does. */

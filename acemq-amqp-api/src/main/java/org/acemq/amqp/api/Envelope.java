@@ -45,6 +45,7 @@ public final class Envelope {
     private final int attempt;
     private final Instant firstSeen;
     private final String origin;
+    private final String error;
     private final Map<String, Object> headers;
 
     private Envelope(Builder builder) {
@@ -56,6 +57,7 @@ public final class Envelope {
         this.attempt = builder.attempt;
         this.firstSeen = builder.firstSeen != null ? builder.firstSeen : Instant.now();
         this.origin = builder.origin;
+        this.error = builder.error;
         this.headers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers));
         if (this.version < 1) {
             throw new IllegalArgumentException("version must be at least 1, was " + this.version);
@@ -115,6 +117,20 @@ public final class Envelope {
         return Optional.ofNullable(origin);
     }
 
+    /**
+     * Why this message was dead-lettered or parked.
+     *
+     * <p>Present only on a message read back from a dead-letter or parking queue. It is an
+     * envelope field rather than an ordinary header because AceMQ owns the {@code x-acemq-}
+     * namespace: were it left as a header it would be filtered out of {@link #headers()} and
+     * become invisible to the very code that needs it most.
+     *
+     * @return the failure reason recorded when the message was given up on
+     */
+    public Optional<String> error() {
+        return Optional.ofNullable(error);
+    }
+
     /** @return application headers, excluding the AceMQ-owned ones; never {@code null} */
     public Map<String, Object> headers() {
         return headers;
@@ -169,6 +185,7 @@ public final class Envelope {
                 .attempt(attempt)
                 .firstSeen(firstSeen)
                 .origin(origin)
+                .error(error)
                 .headers(headers);
     }
 
@@ -189,12 +206,14 @@ public final class Envelope {
                 && Objects.equals(causationId, that.causationId)
                 && firstSeen.equals(that.firstSeen)
                 && Objects.equals(origin, that.origin)
+                && Objects.equals(error, that.error)
                 && headers.equals(that.headers);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, type, version, correlationId, causationId, attempt, firstSeen, origin, headers);
+        return Objects.hash(
+                id, type, version, correlationId, causationId, attempt, firstSeen, origin, error, headers);
     }
 
     @Override
@@ -214,6 +233,7 @@ public final class Envelope {
         private int attempt = 1;
         private Instant firstSeen;
         private String origin;
+        private String error;
         private final Map<String, Object> headers = new LinkedHashMap<>();
 
         /** @param id message identifier; a random UUID is generated when left unset */
@@ -261,6 +281,12 @@ public final class Envelope {
         /** @param origin publishing process, conventionally {@code service@host} */
         public Builder origin(String origin) {
             this.origin = origin;
+            return this;
+        }
+
+        /** @param error why the message was dead-lettered or parked */
+        public Builder error(String error) {
+            this.error = error;
             return this;
         }
 

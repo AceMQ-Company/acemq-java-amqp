@@ -54,6 +54,9 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final MessageHandler<T> handler;
     private final AtomicLong acknowledged = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
+    private final AtomicLong retried = new AtomicLong();
+    private final AtomicLong deadLettered = new AtomicLong();
+    private final RetryDispatcher retries;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Subscription subscription;
 
@@ -70,6 +73,13 @@ final class DefaultConsumer<T> implements MessageConsumer {
         this.payloadType = payloadType;
         this.options = options;
         this.handler = handler;
+        this.retries = options.retryPolicy()
+                .map(policy -> {
+                    RetryTopology topology = RetryTopology.forQueue(queue, policy);
+                    topology.declare(connection);
+                    return new RetryDispatcher(connection, topology);
+                })
+                .orElse(null);
     }
 
     void start() {
@@ -86,11 +96,17 @@ final class DefaultConsumer<T> implements MessageConsumer {
             message = decode(delivery);
         } catch (Exception e) {
             // A payload that cannot be decoded will not decode on the next attempt either.
-            // Retrying it would occupy the queue forever, so it is rejected without requeue
-            // and lands in the dead-letter queue when one is configured.
+            // Retrying it would occupy the queue forever, so it goes to the parking lot when
+            // one exists, keeping the original bytes for inspection, and is otherwise
+            // rejected without requeue.
             rejected.incrementAndGet();
-            log.warn("rejecting a message on {} that could not be decoded; it will not be retried", queue, e);
-            acknowledger.reject(false);
+            if (retries != null) {
+                retries.park(delivery, e);
+                acknowledger.accept();
+            } else {
+                log.warn("rejecting a message on {} that could not be decoded; it will not be retried", queue, e);
+                acknowledger.reject(false);
+            }
             return;
         }
 
@@ -99,13 +115,33 @@ final class DefaultConsumer<T> implements MessageConsumer {
             acknowledged.incrementAndGet();
             acknowledger.accept();
         } catch (AceFatalException e) {
+            // Fatal means retrying cannot help, so the retry ladder is skipped entirely and
+            // the message goes straight to the dead-letter queue.
             rejected.incrementAndGet();
             log.warn("handler rejected {} as unprocessable: {}", message, e.getMessage());
-            acknowledger.reject(false);
+            if (retries != null) {
+                retries.onFailure(delivery, message.envelope(), e, true);
+                deadLettered.incrementAndGet();
+                acknowledger.accept();
+            } else {
+                acknowledger.reject(false);
+            }
         } catch (Exception e) {
             rejected.incrementAndGet();
-            log.warn("handler failed for {}", message, e);
-            acknowledger.reject(options.isRequeueOnFailure());
+            if (retries != null) {
+                RetryDispatcher.Outcome outcome = retries.onFailure(delivery, message.envelope(), e, false);
+                if (outcome == RetryDispatcher.Outcome.RETRIED) {
+                    retried.incrementAndGet();
+                } else {
+                    deadLettered.incrementAndGet();
+                }
+                // The message has already been republished elsewhere, so the original copy is
+                // acknowledged rather than rejected into a requeue loop.
+                acknowledger.accept();
+            } else {
+                log.warn("handler failed for {}", message, e);
+                acknowledger.reject(options.isRequeueOnFailure());
+            }
         } catch (Throwable t) {
             // An Error means the process is in trouble, but the delivery still has to be
             // settled before the stack unwinds, or it is stuck until the connection dies.
@@ -142,6 +178,16 @@ final class DefaultConsumer<T> implements MessageConsumer {
     @Override
     public long rejected() {
         return rejected.get();
+    }
+
+    @Override
+    public long retried() {
+        return retried.get();
+    }
+
+    @Override
+    public long deadLettered() {
+        return deadLettered.get();
     }
 
     @Override
