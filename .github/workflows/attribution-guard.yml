@@ -15,24 +15,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # The same script contributors run locally, so a clean local check means a
+      # clean CI check. It excludes the enforcement machinery itself, which by
+      # its nature has to name the strings it forbids.
       - name: Scan commit messages and working tree
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          PATTERN='claude|anthropic|co-authored-by[[:space:]]*:|generated with|ai-generated|🤖'
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
-            range="$base..HEAD"
+          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA" 2>/dev/null; then
+            range="$BASE_SHA..HEAD"
           else
             range="HEAD"
           fi
           echo "scanning range: $range"
-          if git log --format='%H%n%B%n%an <%ae>%n%cn <%ce>' "$range" | grep -inE "$PATTERN"; then
-            echo "::error::AI attribution found in commit history"
-            exit 1
-          fi
-          if grep -rIlE "$PATTERN" . --exclude-dir=.git --exclude-dir=node_modules \
-               --exclude-dir=target --exclude-dir=build \
-               --exclude=attribution-guard.yml; then
-            echo "::error::AI attribution found in the working tree"
-            exit 1
-          fi
-          echo "attribution-guard: clean"
+          ./etc/attribution-guard.sh --range "$range"

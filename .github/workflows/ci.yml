@@ -26,8 +26,11 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      # The validate phase is where spotless:check and the enforcer execution are
+      # bound. Calling the goals directly would run them without their configured
+      # executions, so the enforcer would find no rules and fail.
       - name: Spotless and enforcer
-        run: mvn -B --no-transfer-progress spotless:check enforcer:enforce
+        run: mvn -B --no-transfer-progress validate
 
   build:
     name: build on JDK ${{ matrix.java }}
