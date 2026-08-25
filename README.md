@@ -69,8 +69,18 @@ baseline rising.
 ## Building
 
 ```bash
-mvn clean verify        # build, test, coverage gate, format check
+mvn clean verify        # build, unit tests, integration tests, coverage, format
 mvn spotless:apply      # fix formatting
+mvn clean verify -DskipITs   # skip the tests that need Docker
+```
+
+Integration tests start real brokers with Testcontainers, so a running Docker
+daemon is required. On macOS with Docker Desktop the socket is not where
+Testcontainers looks by default, and the resulting error misleadingly claims no
+Docker environment exists:
+
+```bash
+export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
 ```
 
 Formatting is enforced with the Eclipse formatter (`etc/eclipse-formatter.xml`)

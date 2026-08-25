@@ -1,0 +1,25 @@
+/*
+ * Copyright 2026 AceMQ.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/**
+ * The contract a broker binding must satisfy.
+ *
+ * <p>Everything here is deliberately small and free of AceMQ semantics. Retries, dead
+ * lettering, idempotency and telemetry belong to the core; a transport only moves bytes and
+ * reports what the broker can do. Keeping the seam this narrow is what allows one engine to
+ * sit on top of AMQP 0-9-1 and AMQP 1.0 without either leaking into the other.
+ */
+
+package org.acemq.amqp.transport;

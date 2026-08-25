@@ -80,7 +80,7 @@
     <junit.version>5.11.4</junit.version>
     <assertj.version>3.27.0</assertj.version>
     <mockito.version>5.14.2</mockito.version>
-    <testcontainers.version>1.20.4</testcontainers.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
     <awaitility.version>4.2.2</awaitility.version>
     <logback.version>1.5.15</logback.version>
 
@@ -93,7 +93,7 @@
     <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
     <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
     <spotless.plugin.version>2.44.0</spotless.plugin.version>
-    <jacoco.plugin.version>0.8.12</jacoco.plugin.version>
+    <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
     <flatten.plugin.version>1.6.0</flatten.plugin.version>
 
     <!-- coverage gates, raised as the modules fill in (doc 10, TEST gate) -->
@@ -327,6 +327,16 @@
             <goals><goal>check</goal></goals>
           </execution>
         </executions>
+      </plugin>
+
+      <!-- Declared here, not merely managed: a plugin left in pluginManagement is
+           configured but never bound, so *IT tests are skipped and the build still
+           passes. An integration suite that silently does not run is worse than one
+           that fails. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${maven.failsafe.plugin.version}</version>
       </plugin>
 
       <plugin>
