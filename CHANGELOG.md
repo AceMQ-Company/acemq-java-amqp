@@ -37,6 +37,15 @@ While the version is `0.x` the public API may change in any release.
   confirms, unroutable detection, handler failure, undecodable payload, fatal
   rejection and consumer shutdown.
 
+- In-memory transport in `acemq-amqp-test`, selected by a `memory://` URL. It
+  implements the same SPI as a real broker binding, so the whole engine can be
+  exercised without Docker: exchange routing (direct, topic with correct `*` and
+  `#` semantics, fanout), prefetch modelled as a settlement window, requeue on
+  rejection, and refusal to redeclare an exchange with a different type. It
+  claims only the capabilities it implements, so code depending on quorum
+  queues, dead-lettering or delayed delivery fails against it exactly as it
+  would against a broker that lacks them.
+
 ### Fixed
 - Failsafe was configured but never bound, so `*IT` tests were skipped while the
   build reported success.

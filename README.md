@@ -49,7 +49,7 @@ AceMQ aims to be that layer:
 | `acemq-amqp-core` | The protocol-agnostic engine: publisher, consumer runtime, retry ladder, topology planner, codecs, interceptors, telemetry |
 | `acemq-amqp-patterns` | Outbox, idempotent consumer, saga, claim-check, request-reply, scheduling |
 | `acemq-transport-rabbitmq` | AMQP 0-9-1 binding over the RabbitMQ Java client |
-| `acemq-amqp-test` | In-memory transport, Testcontainers harness, fluent assertions |
+| `acemq-amqp-test` | In-memory transport (`memory://`), Testcontainers harness, fluent assertions |
 
 `acemq-transport-amqp10` (Qpid Proton-J) joins at milestone M3.
 
@@ -74,8 +74,10 @@ mvn spotless:apply      # fix formatting
 mvn clean verify -DskipITs   # skip the tests that need Docker
 ```
 
-Integration tests start real brokers with Testcontainers, so a running Docker
-daemon is required. On macOS with Docker Desktop the socket is not where
+Most tests need no broker at all: `acemq-amqp-test` provides an in-memory
+transport behind a `memory://` URL that implements the same SPI, so the engine
+can be exercised in milliseconds. Integration tests that do start real brokers
+with Testcontainers require a running Docker daemon. On macOS with Docker Desktop the socket is not where
 Testcontainers looks by default, and the resulting error misleadingly claims no
 Docker environment exists:
 
