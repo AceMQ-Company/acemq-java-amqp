@@ -98,6 +98,8 @@
     <flatten.plugin.version>1.6.0</flatten.plugin.version>
     <exec.plugin.version>3.5.0</exec.plugin.version>
     <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
+    <errorprone.version>2.50.0</errorprone.version>
+    <nullaway.version>0.14.0</nullaway.version>
 
     <!-- Coverage gates (doc 10, TEST gate).
          Two levels, because they answer different questions. The per-module gate
@@ -513,6 +515,68 @@
   </distributionManagement>
 
   <profiles>
+    <!-- Static analysis. ErrorProne compiles against javac internals, so it
+         trails new JDK releases by months; running the build on a JDK it does
+         not yet support fails the compile outright rather than degrading. The
+         profile therefore covers 17 up to but not including 24, which is what
+         CI's 17 and 21 jobs use. The 25 job builds the same code without it, so
+         nothing goes unbuilt — only unanalysed. Raise the upper bound when
+         ErrorProne supports the next JDK. -->
+    <profile>
+      <id>static-analysis</id>
+      <activation>
+        <jdk>[17,24)</jdk>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+              <compilerArgs>
+                <arg>-Xlint:all,-serial,-processing</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <!-- Required by ErrorProne from JDK 21 onwards; without it the
+                     compiler refuses outright and says so. -->
+                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                <!-- NullAway is told which packages it owns; everything else is
+                     treated as unannotated and left alone.
+
+                     It reports as a warning rather than an error, and the roughly
+                     fifty findings today are almost all the same shape: builder
+                     fields are null until build() is called, which NullAway cannot
+                     know without @Nullable on them. Adding those annotations means
+                     adding JSpecify, and acemq-amqp-api is documented as having no
+                     third-party dependencies, so that is a deliberate decision
+                     rather than a tidy-up. JSpecify at provided scope would keep
+                     the promise for consumers; it is the obvious next step and is
+                     recorded as one instead of being taken silently here. -->
+                <arg>-Xplugin:ErrorProne \
+                  -XepOpt:NullAway:AnnotatedPackages=org.acemq.amqp \
+                  -XepOpt:NullAway:TreatGeneratedAsUnannotated=true \
+                  -Xep:NullAway:WARN \
+                  -Xep:MissingSummary:OFF \
+                  -XepExcludedPaths:.*/target/generated-sources/.*</arg>
+              </compilerArgs>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>com.google.errorprone</groupId>
+                  <artifactId>error_prone_core</artifactId>
+                  <version>${errorprone.version}</version>
+                </path>
+                <path>
+                  <groupId>com.uber.nullaway</groupId>
+                  <artifactId>nullaway</artifactId>
+                  <version>${nullaway.version}</version>
+                </path>
+              </annotationProcessorPaths>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
     <!-- mvn -Prelease deploy : signed sources+javadoc, for Maven Central -->
     <profile>
       <id>release</id>

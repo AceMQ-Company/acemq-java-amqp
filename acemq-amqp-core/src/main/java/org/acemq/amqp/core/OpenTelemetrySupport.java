@@ -39,11 +39,6 @@ public final class OpenTelemetrySupport {
     }
 
     /**
-     * @param openTelemetry instance to use
-     * @param transport transport short name
-     * @return a sink emitting spans through that instance
-     */
-    /**
      * Emits spans through an OpenTelemetry instance you supply.
      *
      * @param openTelemetry the instance to use

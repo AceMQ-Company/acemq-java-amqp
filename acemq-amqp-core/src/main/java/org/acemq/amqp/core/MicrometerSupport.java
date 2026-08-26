@@ -44,11 +44,6 @@ public final class MicrometerSupport {
     }
 
     /**
-     * @param registry registry to record into
-     * @param transport transport short name
-     * @return a sink recording to that registry
-     */
-    /**
      * Records AceMQ activity into a registry you supply.
      *
      * <p>Preferable to auto-detection, which falls back to Micrometer's global registry: that

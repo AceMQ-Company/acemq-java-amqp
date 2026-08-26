@@ -154,7 +154,12 @@ final class InMemoryConnection implements TransportConnection {
         }
 
         void start() {
-            dispatcher.submit(this::pump);
+            // execute rather than submit: submit hands back a Future that nobody
+            // reads, so an exception escaping the pump loop would be captured in it
+            // and never seen. The dispatcher would stop, the queue would stop being
+            // consumed, and the test would hang rather than fail. With execute the
+            // exception reaches the thread's uncaught handler and is printed.
+            dispatcher.execute(this::pump);
         }
 
         private void pump() {

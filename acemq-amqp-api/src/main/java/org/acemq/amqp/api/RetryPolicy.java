@@ -123,9 +123,9 @@ public final class RetryPolicy {
         }
 
         List<Duration> schedule = new ArrayList<>();
-        double current = initialDelay.toMillis();
+        double current = (double) initialDelay.toMillis();
         for (int i = 1; i < maxAttempts; i++) {
-            long millis = (long) Math.min(current, maxDelay.toMillis());
+            long millis = (long) Math.min(current, (double) maxDelay.toMillis());
             schedule.add(Duration.ofMillis(millis));
             current *= multiplier;
         }

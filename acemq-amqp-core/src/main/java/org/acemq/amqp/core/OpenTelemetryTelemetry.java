@@ -88,6 +88,11 @@ final class OpenTelemetryTelemetry implements Telemetry {
         this.transport = transport;
     }
 
+    // The context scope returned by makeCurrent() is not leaked: it is handed to
+    // SpanScope, which closes it and ends the span. The analyser cannot see across
+    // that hand-off, and a try-with-resources here would close the scope before the
+    // message is even published.
+    @SuppressWarnings("MustBeClosedChecker")
     @Override
     public Scope publishStarted(String exchange, String routingKey, Envelope envelope) {
         String destination = exchange == null || exchange.isEmpty() ? routingKey : exchange;
@@ -104,6 +109,7 @@ final class OpenTelemetryTelemetry implements Telemetry {
         return new SpanScope(span, span.makeCurrent());
     }
 
+    @SuppressWarnings("MustBeClosedChecker") // Closed by SpanScope, as above.
     @Override
     public Scope consumeStarted(String queue, Envelope envelope) {
         // The parent lives in the message's own headers, written when it was published.

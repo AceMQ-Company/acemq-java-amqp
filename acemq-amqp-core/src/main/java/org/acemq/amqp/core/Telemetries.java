@@ -87,9 +87,13 @@ public final class Telemetries {
      * @param delegates sinks to fan out to
      * @return a sink reporting to all of them
      */
+    @SuppressWarnings("ReferenceEquality") // Telemetry.NONE is a singleton; identity is the point.
     public static Telemetry composite(Telemetry... delegates) {
         List<Telemetry> list = new ArrayList<>();
         for (Telemetry delegate : delegates) {
+            // Identity rather than equals: NONE is a specific instance meaning
+            // "record nothing", and another sink that merely compares equal to it
+            // would still be a sink worth calling.
             if (delegate != null && delegate != Telemetry.NONE) {
                 list.add(delegate);
             }

@@ -98,7 +98,22 @@ While the version is `0.x` the public API may change in any release.
 - `japicmp` wired for binary compatibility. It tolerates the absence of a
   previous version today and starts enforcing the moment `0.0.1` is released.
 
+- ErrorProne and NullAway, on JDK 17 through 23. ErrorProne compiles against
+  javac internals and trails new releases, so the JDK 25 job builds the same code
+  without it: unanalysed rather than unbuilt.
+
 ### Fixed
+- A resource leak reported by ErrorProne as an error: two OpenTelemetry context
+  scopes were opened per message. They are in fact closed, by `SpanScope`, which
+  the analyser cannot see across; both sites are annotated with the reason.
+- Two `Future` values were discarded in the in-memory transport. An exception
+  escaping the dispatch loop or a queue expiry would have been captured in the
+  unread future and lost, stopping consumption or stranding a message in a retry
+  rung with nothing to show why.
+- Two Javadoc comments had been left stacked on the same method by an earlier
+  edit, so the real documentation was silently discarded.
+- Dead fields in the in-memory broker, and an implicit long-to-double conversion
+  in the retry schedule.
 - Integration-test coverage was never recorded. JaCoCo attaches only to Surefire
   unless `prepare-agent-integration` is bound, and both agents default to writing
   the same `argLine` property, so one silently replaced the other. Failsafe now

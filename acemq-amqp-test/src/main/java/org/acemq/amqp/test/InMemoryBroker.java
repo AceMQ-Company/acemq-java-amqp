@@ -88,12 +88,12 @@ final class InMemoryBroker {
             throw new TransportException("exchange '" + exchangeName + "' already exists as type '" + existing.type
                     + "' and cannot be redeclared as '" + type + "'");
         }
-        exchanges.computeIfAbsent(exchangeName, key -> new Exchange(key, type));
+        exchanges.computeIfAbsent(exchangeName, key -> new Exchange(type));
     }
 
     void declareQueue(String queueName, QueueType type, boolean durable, Map<String, Object> arguments) {
         Map<String, Object> args = arguments == null ? Collections.emptyMap() : arguments;
-        Queue queue = queues.computeIfAbsent(queueName, key -> new Queue(key, type));
+        Queue queue = queues.computeIfAbsent(queueName, Queue::new);
 
         // Queue-level time-to-live with a dead-letter target is what makes the retry ladder
         // work: a message waits in a rung doing nothing, expires, and is routed onward. Without
@@ -243,12 +243,10 @@ final class InMemoryBroker {
     /** An exchange and the bindings hanging off it. */
     private static final class Exchange {
 
-        private final String name;
         private final String type;
         private final List<Binding> bindings = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-        Exchange(String name, String type) {
-            this.name = name;
+        Exchange(String type) {
             this.type = type;
         }
     }
@@ -269,16 +267,14 @@ final class InMemoryBroker {
     static final class Queue {
 
         private final String name;
-        private final QueueType type;
         private final LinkedBlockingDeque<OutboundMessage> messages = new LinkedBlockingDeque<>();
         private volatile long timeToLiveMillis = -1;
         private volatile String deadLetterExchange;
         private volatile String deadLetterRoutingKey;
         private volatile InMemoryBroker owner;
 
-        Queue(String name, QueueType type) {
+        Queue(String name) {
             this.name = name;
-            this.type = type;
         }
 
         String name() {
@@ -293,6 +289,7 @@ final class InMemoryBroker {
             this.owner = owner;
         }
 
+        @SuppressWarnings("FutureReturnValueIgnored") // The task below catches and reports its own failures.
         void offer(OutboundMessage message) {
             messages.addLast(message);
             long ttl = timeToLiveMillis;
@@ -300,10 +297,19 @@ final class InMemoryBroker {
                 // The message is still visible in the queue while it waits, so depth() reports
                 // what an operator would see, and it is only routed onward if it is still here
                 // when the timer fires.
+                // The returned future is deliberately unused, so the task catches its
+                // own failures: an exception here would otherwise be captured in that
+                // future and silently discarded, and a message would sit in a retry
+                // rung forever with no indication why.
                 EXPIRY.schedule(
                         () -> {
-                            if (messages.remove(message) && owner != null) {
-                                owner.routeExpired(deadLetterExchange, deadLetterRoutingKey, message);
+                            try {
+                                if (messages.remove(message) && owner != null) {
+                                    owner.routeExpired(deadLetterExchange, deadLetterRoutingKey, message);
+                                }
+                            } catch (RuntimeException e) {
+                                System.err.println("in-memory broker: expiry of a message from queue '" + name
+                                        + "' failed: " + e);
                             }
                         },
                         ttl,
