@@ -208,6 +208,21 @@ final class RabbitMqConnection implements TransportConnection {
     }
 
     @Override
+    public boolean queueExists(String name) {
+        // A passive declare asks without creating. It fails the channel when the queue is
+        // absent, which is why this runs on a throwaway channel rather than the publishing
+        // one: the question must not be able to break unrelated traffic.
+        try (Channel channel = connection.createChannel()) {
+            channel.queueDeclarePassive(name);
+            return true;
+        } catch (IOException e) {
+            return false;
+        } catch (Exception e) {
+            throw new TransportException("could not check whether queue '" + name + "' exists", e);
+        }
+    }
+
+    @Override
     public boolean isOpen() {
         return !closed.get() && connection.isOpen();
     }

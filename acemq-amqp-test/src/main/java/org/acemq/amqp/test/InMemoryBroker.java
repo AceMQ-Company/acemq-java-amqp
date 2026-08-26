@@ -146,6 +146,10 @@ final class InMemoryBroker {
         exchanges.values().forEach(exchange -> exchange.bindings.removeIf(binding -> binding.queue.equals(queueName)));
     }
 
+    boolean hasQueue(String queueName) {
+        return queues.containsKey(queueName);
+    }
+
     Queue queue(String queueName) {
         Queue queue = queues.get(queueName);
         if (queue == null) {

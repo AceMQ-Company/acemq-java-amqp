@@ -93,6 +93,19 @@ public interface TransportConnection extends AutoCloseable {
      */
     void deleteQueue(String name);
 
+    /**
+     * Reports whether a queue exists, without creating or altering it.
+     *
+     * <p>Separate from declaring because a planner has to be able to look before it
+     * touches anything. Declaring a queue that already exists with different arguments
+     * does not merely fail: on AMQP 0-9-1 it kills the channel, which is why a topology
+     * applied blindly at start-up fails in production rather than in review.
+     *
+     * @param name queue name
+     * @return {@code true} if the queue is already present
+     */
+    boolean queueExists(String name);
+
     /** @return whether the connection is usable */
     boolean isOpen();
 

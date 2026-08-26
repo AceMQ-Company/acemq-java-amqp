@@ -119,6 +119,14 @@ While the version is `0.x` the public API may change in any release.
   stored baseline, keeps the JSON for ninety days and opens an issue on a
   regression.
 
+- A topology planner. `Topology` declares what should exist as data;
+  `mq.topology().plan(...)` works out what would change and renders it for a
+  build log or a review; `apply(..., mode)` carries it out. `DRY_RUN` changes
+  nothing, `CREATE_ONLY` creates what is missing and touches nothing else, and
+  `VALIDATE` refuses to start when the topology is absent.
+- `TransportConnection.queueExists` asks the broker what is there without
+  creating it, implemented with a passive declare on RabbitMQ.
+
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context
   scopes were opened per message. They are in fact closed, by `SpanScope`, which

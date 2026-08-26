@@ -280,6 +280,19 @@ public final class AceMq implements AutoCloseable {
         connection.deleteQueue(name);
     }
 
+    /**
+     * Plans and applies a declared topology.
+     *
+     * <p>Preferable to the individual declare methods for anything beyond a single queue: it
+     * works out what would change before changing it, and can be asked to report without
+     * acting at all.
+     *
+     * @return a planner bound to this connection
+     */
+    public TopologyPlanner topology() {
+        return new TopologyPlanner(connection, transport);
+    }
+
     /** @return whether the underlying connection is usable */
     public boolean isOpen() {
         return !closed.get() && connection.isOpen();

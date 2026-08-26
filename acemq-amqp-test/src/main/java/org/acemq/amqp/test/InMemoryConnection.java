@@ -101,6 +101,12 @@ final class InMemoryConnection implements TransportConnection {
     }
 
     @Override
+    public boolean queueExists(String name) {
+        requireOpen();
+        return broker.hasQueue(name);
+    }
+
+    @Override
     public boolean isOpen() {
         return !closed.get();
     }
