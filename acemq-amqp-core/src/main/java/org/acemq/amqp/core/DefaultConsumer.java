@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.acemq.amqp.api.AceFatalException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.IdempotencyStore;
 import org.acemq.amqp.api.Message;
 import org.acemq.amqp.api.MessageHandler;
 import org.acemq.amqp.api.MetricNames;
@@ -60,6 +61,8 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong retried = new AtomicLong();
     private final AtomicLong deadLettered = new AtomicLong();
+    private final AtomicLong duplicates = new AtomicLong();
+    private final @Nullable IdempotencyStore idempotency;
     private final @Nullable RetryDispatcher retries;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile @Nullable Subscription subscription;
@@ -79,6 +82,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
         this.options = options;
         this.handler = handler;
         this.telemetry = telemetry;
+        this.idempotency = options.idempotencyStore().orElse(null);
         this.retries = options.retryPolicy()
                 .map(policy -> {
                     RetryTopology topology = RetryTopology.forQueue(queue, policy);
@@ -124,15 +128,35 @@ final class DefaultConsumer<T> implements MessageConsumer {
     /** Runs the handler and settles the delivery, recording how it went. */
     private void dispatchWithin(
             Telemetry.Scope scope, Message<T> message, InboundDelivery delivery, Acknowledger acknowledger) {
+        String messageId = message.envelope().id();
+
+        if (idempotency != null && !idempotency.claim(messageId)) {
+            // Already handled, or being handled right now by someone else. Acknowledging is
+            // correct rather than merely convenient: the work is done or in hand, and leaving
+            // the delivery unsettled would only cause it to be redelivered again later.
+            duplicates.incrementAndGet();
+            scope.outcome(MetricNames.OUTCOME_ACKED);
+            log.debug("skipping {}: already handled", messageId);
+            acknowledger.accept();
+            return;
+        }
+
         try {
             handler.handle(message);
             acknowledged.incrementAndGet();
+            if (idempotency != null) {
+                // Confirmed only after the handler returned. Recording it earlier would mean a
+                // crash mid-handler leaves the work undone and unrepeatable, because the
+                // message would look handled for ever after.
+                idempotency.confirm(messageId);
+            }
             scope.outcome(MetricNames.OUTCOME_ACKED);
             acknowledger.accept();
         } catch (AceFatalException e) {
             // Fatal means retrying cannot help, so the retry ladder is skipped entirely and
             // the message goes straight to the dead-letter queue.
             rejected.incrementAndGet();
+            releaseClaim(messageId);
             scope.failed(e);
             scope.outcome(MetricNames.OUTCOME_DEAD_LETTERED);
             log.warn("handler rejected {} as unprocessable: {}", message, e.getMessage());
@@ -145,6 +169,10 @@ final class DefaultConsumer<T> implements MessageConsumer {
             }
         } catch (Exception e) {
             rejected.incrementAndGet();
+            // Released before anything else: a failed attempt must leave the identifier
+            // looking untouched, or the retry that follows is discarded as a duplicate and the
+            // message is lost to a transient failure.
+            releaseClaim(messageId);
             scope.failed(e);
             if (retries != null) {
                 RetryDispatcher.Outcome outcome = retries.onFailure(delivery, message.envelope(), e, false);
@@ -167,6 +195,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
             // An Error means the process is in trouble, but the delivery still has to be
             // settled before the stack unwinds, or it is stuck until the connection dies.
             rejected.incrementAndGet();
+            releaseClaim(messageId);
             scope.outcome(MetricNames.OUTCOME_REJECTED);
             acknowledger.reject(false);
             throw t;
@@ -200,6 +229,26 @@ final class DefaultConsumer<T> implements MessageConsumer {
     @Override
     public long rejected() {
         return rejected.get();
+    }
+
+    /** Gives up a claim, tolerating a store that fails so it cannot break delivery. */
+    private void releaseClaim(String messageId) {
+        if (idempotency == null) {
+            return;
+        }
+        try {
+            idempotency.release(messageId);
+        } catch (RuntimeException e) {
+            // A store that cannot release leaves the identifier claimed until it expires,
+            // which delays a retry. Letting the exception escape would leave the delivery
+            // unsettled instead, which is worse.
+            log.warn("could not release the idempotency claim on {}", messageId, e);
+        }
+    }
+
+    @Override
+    public long duplicates() {
+        return duplicates.get();
     }
 
     @Override

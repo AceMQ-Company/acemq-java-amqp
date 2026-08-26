@@ -30,6 +30,12 @@ public interface MessageConsumer extends AutoCloseable {
     /** @return how many messages have been rejected after a handler failure */
     long rejected();
 
+    /**
+     * @return how many deliveries were recognised as already handled and acknowledged without
+     *     running the handler; zero unless an idempotency store is configured
+     */
+    long duplicates();
+
     /** @return how many messages have been sent to a retry queue for another attempt */
     long retried();
 

@@ -15,6 +15,7 @@
  */
 package org.acemq.amqp.core;
 
+import org.acemq.amqp.api.IdempotencyStore;
 import org.acemq.amqp.api.RetryPolicy;
 import org.jspecify.annotations.Nullable;
 
@@ -24,14 +25,20 @@ public final class ConsumerOptions {
     private final int prefetch;
     private final boolean requeueOnFailure;
     private final @Nullable RetryPolicy retryPolicy;
+    private final @Nullable IdempotencyStore idempotencyStore;
 
-    private ConsumerOptions(int prefetch, boolean requeueOnFailure, @Nullable RetryPolicy retryPolicy) {
+    private ConsumerOptions(
+            int prefetch,
+            boolean requeueOnFailure,
+            @Nullable RetryPolicy retryPolicy,
+            @Nullable IdempotencyStore idempotencyStore) {
         if (prefetch < 1) {
             throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
         }
         this.prefetch = prefetch;
         this.requeueOnFailure = requeueOnFailure;
         this.retryPolicy = retryPolicy;
+        this.idempotencyStore = idempotencyStore;
     }
 
     /**
@@ -42,7 +49,7 @@ public final class ConsumerOptions {
      *     behaviour: the message goes to a dead-letter queue if one is configured.
      */
     public static ConsumerOptions defaults() {
-        return new ConsumerOptions(50, false, null);
+        return new ConsumerOptions(50, false, null, null);
     }
 
     /**
@@ -50,7 +57,7 @@ public final class ConsumerOptions {
      * @return options with that prefetch
      */
     public static ConsumerOptions prefetch(int prefetch) {
-        return new ConsumerOptions(prefetch, false, null);
+        return new ConsumerOptions(prefetch, false, null, null);
     }
 
     /**
@@ -62,7 +69,7 @@ public final class ConsumerOptions {
      * @return options that requeue on failure
      */
     public ConsumerOptions requeueOnFailure() {
-        return new ConsumerOptions(prefetch, true, retryPolicy);
+        return new ConsumerOptions(prefetch, true, retryPolicy, idempotencyStore);
     }
 
     /**
@@ -80,7 +87,36 @@ public final class ConsumerOptions {
      */
     public ConsumerOptions withRetry(RetryPolicy retryPolicy) {
         return new ConsumerOptions(
-                prefetch, requeueOnFailure, java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"));
+                prefetch,
+                requeueOnFailure,
+                java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"),
+                idempotencyStore);
+    }
+
+    /**
+     * Handles each message at most once, by remembering which have been handled.
+     *
+     * <p>Brokers deliver at least once, so a duplicate is a normal event rather than a fault:
+     * a consumer that dies between doing the work and acknowledging it will see the message
+     * again. With a store configured, the second delivery is acknowledged without running the
+     * handler.
+     *
+     * <p>This makes the delivery idempotent, not the handler. Work the handler does outside
+     * the store's knowledge — a row written, a payment taken — is only protected to the extent
+     * that the store and that work fail together, which is why a store sharing the handler's
+     * database is stronger than one in memory.
+     *
+     * @param store where handled identifiers are remembered
+     * @return options with deduplication enabled
+     */
+    public ConsumerOptions idempotent(IdempotencyStore store) {
+        return new ConsumerOptions(
+                prefetch, requeueOnFailure, retryPolicy, java.util.Objects.requireNonNull(store, "store"));
+    }
+
+    /** @return the idempotency store, when one is configured */
+    public java.util.Optional<IdempotencyStore> idempotencyStore() {
+        return java.util.Optional.ofNullable(idempotencyStore);
     }
 
     /** @return the retry schedule, when one is configured */

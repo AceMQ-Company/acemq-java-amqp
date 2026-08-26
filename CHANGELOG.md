@@ -127,6 +127,14 @@ While the version is `0.x` the public API may change in any release.
 - `TransportConnection.queueExists` asks the broker what is there without
   creating it, implemented with a passive declare on RabbitMQ.
 
+- An idempotent consumer. `ConsumerOptions.idempotent(store)` handles each
+  message once however often the broker delivers it, which every broker worth
+  using does at least twice sooner or later. `IdempotencyStore` claims, confirms
+  on success and releases on failure, so a failed attempt can still be retried.
+- `InMemoryIdempotencyStore`, bounded by both retention and size, and the first
+  occupant of the previously empty patterns module.
+- `MessageConsumer.duplicates()` counts deliveries recognised as already handled.
+
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context
   scopes were opened per message. They are in fact closed, by `SpanScope`, which
