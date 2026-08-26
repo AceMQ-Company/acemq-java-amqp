@@ -100,6 +100,7 @@
     <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
     <errorprone.version>2.50.0</errorprone.version>
     <nullaway.version>0.14.0</nullaway.version>
+    <jspecify.version>1.0.1</jspecify.version>
 
     <!-- Coverage gates (doc 10, TEST gate).
          Two levels, because they answer different questions. The per-module gate
@@ -156,6 +157,17 @@
         <version>${project.version}</version>
       </dependency>
 
+      <!-- Nullness annotations. Provided scope, so they are visible while
+           compiling and absent from a consumer's classpath: acemq-amqp-api's
+           promise of no third-party dependencies holds for anyone using it.
+           JSpecify is the annotation set Spring Framework 7 and Boot 4 adopted,
+           which matters for a library whose main audience is Spring. -->
+      <dependency>
+        <groupId>org.jspecify</groupId>
+        <artifactId>jspecify</artifactId>
+        <version>${jspecify.version}</version>
+        <scope>provided</scope>
+      </dependency>
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>
@@ -222,6 +234,10 @@
   </dependencyManagement>
 
   <dependencies>
+    <dependency>
+      <groupId>org.jspecify</groupId>
+      <artifactId>jspecify</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -518,14 +534,18 @@
     <!-- Static analysis. ErrorProne compiles against javac internals, so it
          trails new JDK releases by months; running the build on a JDK it does
          not yet support fails the compile outright rather than degrading. The
-         profile therefore covers 17 up to but not including 24, which is what
-         CI's 17 and 21 jobs use. The 25 job builds the same code without it, so
-         nothing goes unbuilt — only unanalysed. Raise the upper bound when
+         profile therefore covers 21 up to but not including 24, matching CI's
+         JDK 21 job. The 17 and 25 jobs build the same code without it, so
+         nothing goes unbuilt — only unanalysed.
+
+         The lower bound is 21 rather than 17 because -XDaddTypeAnnotationsToSymbol
+         is required by ErrorProne from 21 onward and does not exist before it,
+         and javac rejects an unknown option outright. Raise the upper bound when
          ErrorProne supports the next JDK. -->
     <profile>
       <id>static-analysis</id>
       <activation>
-        <jdk>[17,24)</jdk>
+        <jdk>[21,24)</jdk>
       </activation>
       <build>
         <plugins>
@@ -554,6 +574,7 @@
                      recorded as one instead of being taken silently here. -->
                 <arg>-Xplugin:ErrorProne \
                   -XepOpt:NullAway:AnnotatedPackages=org.acemq.amqp \
+                  -XepOpt:NullAway:JSpecifyMode=true \
                   -XepOpt:NullAway:TreatGeneratedAsUnannotated=true \
                   -Xep:NullAway:WARN \
                   -Xep:MissingSummary:OFF \

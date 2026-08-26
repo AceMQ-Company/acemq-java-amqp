@@ -18,13 +18,15 @@ package org.acemq.amqp.transport;
 import java.time.Duration;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 /** Everything a transport needs in order to open a connection. */
 public final class ConnectionConfig {
 
     private final String url;
-    private final String username;
-    private final String password;
-    private final String virtualHost;
+    private final @Nullable String username;
+    private final @Nullable String password;
+    private final @Nullable String virtualHost;
     private final String clientName;
     private final Duration connectionTimeout;
     private final Duration confirmTimeout;
@@ -54,15 +56,15 @@ public final class ConnectionConfig {
         return url;
     }
 
-    public String username() {
+    public @Nullable String username() {
         return username;
     }
 
-    public String password() {
+    public @Nullable String password() {
         return password;
     }
 
-    public String virtualHost() {
+    public @Nullable String virtualHost() {
         return virtualHost;
     }
 
@@ -100,10 +102,10 @@ public final class ConnectionConfig {
     /** Builds {@link ConnectionConfig} instances. */
     public static final class Builder {
 
-        private String url;
-        private String username;
-        private String password;
-        private String virtualHost;
+        private @Nullable String url;
+        private @Nullable String username;
+        private @Nullable String password;
+        private @Nullable String virtualHost;
         private String clientName = "acemq";
         private Duration connectionTimeout = Duration.ofSeconds(10);
         private Duration confirmTimeout = Duration.ofSeconds(10);
@@ -114,13 +116,13 @@ public final class ConnectionConfig {
             return this;
         }
 
-        public Builder credentials(String username, String password) {
+        public Builder credentials(@Nullable String username, @Nullable String password) {
             this.username = username;
             this.password = password;
             return this;
         }
 
-        public Builder virtualHost(String virtualHost) {
+        public Builder virtualHost(@Nullable String virtualHost) {
             this.virtualHost = virtualHost;
             return this;
         }

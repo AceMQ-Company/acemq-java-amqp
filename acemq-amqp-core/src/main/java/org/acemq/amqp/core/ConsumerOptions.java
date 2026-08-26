@@ -16,15 +16,16 @@
 package org.acemq.amqp.core;
 
 import org.acemq.amqp.api.RetryPolicy;
+import org.jspecify.annotations.Nullable;
 
 /** How a consumer should behave. */
 public final class ConsumerOptions {
 
     private final int prefetch;
     private final boolean requeueOnFailure;
-    private final RetryPolicy retryPolicy;
+    private final @Nullable RetryPolicy retryPolicy;
 
-    private ConsumerOptions(int prefetch, boolean requeueOnFailure, RetryPolicy retryPolicy) {
+    private ConsumerOptions(int prefetch, boolean requeueOnFailure, @Nullable RetryPolicy retryPolicy) {
         if (prefetch < 1) {
             throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
         }

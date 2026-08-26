@@ -21,4 +21,5 @@
  * changes, which is exactly what this library exists to prevent.
  */
 
+@org.jspecify.annotations.NullMarked
 package org.acemq.amqp.transport.rabbitmq;

@@ -27,6 +27,7 @@ import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.TransportConnection;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,7 +149,8 @@ final class RetryDispatcher {
                 reason);
     }
 
-    private void publish(String queue, InboundDelivery delivery, Envelope envelope, String error) {
+    private void publish(
+            String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error) {
         // The reason travels as an envelope field, so a consumer of the dead-letter queue can
         // read it back through the API rather than having to know the wire header name.
         Envelope outgoing = error == null ? envelope : envelope.toBuilder().error(error).build();

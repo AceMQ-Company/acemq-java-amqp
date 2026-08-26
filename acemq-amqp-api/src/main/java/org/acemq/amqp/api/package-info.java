@@ -22,4 +22,5 @@
  * becomes a cross-language commitment.
  */
 
+@org.jspecify.annotations.NullMarked
 package org.acemq.amqp.api;

@@ -30,6 +30,7 @@ import org.acemq.amqp.transport.Acknowledger;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.Subscription;
 import org.acemq.amqp.transport.TransportConnection;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +62,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong deadLettered = new AtomicLong();
     private final RetryDispatcher retries;
     private final AtomicBoolean running = new AtomicBoolean();
-    private volatile Subscription subscription;
+    private volatile @Nullable Subscription subscription;
 
     DefaultConsumer(
             TransportConnection connection,

@@ -29,6 +29,7 @@ import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Transport;
 import org.acemq.amqp.transport.TransportConnection;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,7 +98,7 @@ public final class AceMq implements AutoCloseable {
      * @param telemetry where to report
      * @return an open connection
      */
-    public static AceMq connect(String url, Telemetry telemetry) {
+    public static AceMq connect(String url, @Nullable Telemetry telemetry) {
         return connect(ConnectionConfig.url(url).build(), telemetry);
     }
 
@@ -123,7 +124,7 @@ public final class AceMq implements AutoCloseable {
      * @param telemetry where to report, or {@code null} to detect what is on the classpath
      * @return an open connection
      */
-    public static AceMq connect(ConnectionConfig config, Telemetry telemetry) {
+    public static AceMq connect(ConnectionConfig config, @Nullable Telemetry telemetry) {
         Transport transport = Transports.forScheme(config.scheme());
         log.debug("connecting with the {} transport to {}", transport.name(), config);
         TransportConnection connection = transport.connect(config);

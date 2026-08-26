@@ -17,15 +17,17 @@ package org.acemq.amqp.transport;
 
 import java.time.Duration;
 
+import org.jspecify.annotations.Nullable;
+
 /** The broker's answer to one publish. */
 public final class ConfirmResult {
 
     private final boolean confirmed;
     private final boolean routed;
     private final Duration latency;
-    private final String detail;
+    private final @Nullable String detail;
 
-    private ConfirmResult(boolean confirmed, boolean routed, Duration latency, String detail) {
+    private ConfirmResult(boolean confirmed, boolean routed, Duration latency, @Nullable String detail) {
         this.confirmed = confirmed;
         this.routed = routed;
         this.latency = latency;
@@ -43,12 +45,12 @@ public final class ConfirmResult {
      * <p>Reported separately from a failure because the publish did succeed; whether an
      * unroutable message is an error is the core's decision, not the transport's.
      */
-    public static ConfirmResult unroutable(Duration latency, String detail) {
+    public static ConfirmResult unroutable(Duration latency, @Nullable String detail) {
         return new ConfirmResult(true, false, latency, detail);
     }
 
     /** The broker refused the message or never answered. */
-    public static ConfirmResult failed(Duration latency, String detail) {
+    public static ConfirmResult failed(Duration latency, @Nullable String detail) {
         return new ConfirmResult(false, false, latency, detail);
     }
 
@@ -65,7 +67,7 @@ public final class ConfirmResult {
     }
 
     /** @return why the publish was unroutable or failed, when the broker said */
-    public String detail() {
+    public @Nullable String detail() {
         return detail;
     }
 

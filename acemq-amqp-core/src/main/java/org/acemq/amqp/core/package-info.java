@@ -21,4 +21,5 @@
  * only to the transport SPI, which is why the same engine serves AMQP 0-9-1 and AMQP 1.0.
  */
 
+@org.jspecify.annotations.NullMarked
 package org.acemq.amqp.core;

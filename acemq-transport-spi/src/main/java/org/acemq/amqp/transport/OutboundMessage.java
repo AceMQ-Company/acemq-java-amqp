@@ -20,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * A message on its way to the broker, already encoded.
  *
@@ -32,8 +34,8 @@ public final class OutboundMessage {
     private final String routingKey;
     private final byte[] body;
     private final Map<String, Object> headers;
-    private final String messageId;
-    private final String contentType;
+    private final @Nullable String messageId;
+    private final @Nullable String contentType;
     private final boolean persistent;
     private final boolean mandatory;
 
@@ -74,11 +76,11 @@ public final class OutboundMessage {
         return headers;
     }
 
-    public String messageId() {
+    public @Nullable String messageId() {
         return messageId;
     }
 
-    public String contentType() {
+    public @Nullable String contentType() {
         return contentType;
     }
 
@@ -104,12 +106,12 @@ public final class OutboundMessage {
     /** Builds {@link OutboundMessage} instances. */
     public static final class Builder {
 
-        private String exchange;
-        private String routingKey;
-        private byte[] body;
+        private @Nullable String exchange;
+        private @Nullable String routingKey;
+        private byte @Nullable [] body;
         private final Map<String, Object> headers = new LinkedHashMap<>();
-        private String messageId;
-        private String contentType;
+        private @Nullable String messageId;
+        private @Nullable String contentType;
         private boolean persistent = true;
         private boolean mandatory = true;
 
@@ -140,12 +142,12 @@ public final class OutboundMessage {
             return this;
         }
 
-        public Builder messageId(String messageId) {
+        public Builder messageId(@Nullable String messageId) {
             this.messageId = messageId;
             return this;
         }
 
-        public Builder contentType(String contentType) {
+        public Builder contentType(@Nullable String contentType) {
             this.contentType = contentType;
             return this;
         }

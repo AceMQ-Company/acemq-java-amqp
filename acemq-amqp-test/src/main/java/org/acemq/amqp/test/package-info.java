@@ -21,4 +21,5 @@
  * can be run against both, which is how the fake is kept from quietly diverging.
  */
 
+@org.jspecify.annotations.NullMarked
 package org.acemq.amqp.test;

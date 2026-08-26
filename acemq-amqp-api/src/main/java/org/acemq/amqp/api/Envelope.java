@@ -23,6 +23,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The AceMQ metadata that travels with every message, independent of payload and broker.
  *
@@ -41,11 +43,11 @@ public final class Envelope {
     private final String type;
     private final int version;
     private final String correlationId;
-    private final String causationId;
+    private final @Nullable String causationId;
     private final int attempt;
     private final Instant firstSeen;
-    private final String origin;
-    private final String error;
+    private final @Nullable String origin;
+    private final @Nullable String error;
     private final Map<String, Object> headers;
 
     private Envelope(Builder builder) {
@@ -225,19 +227,19 @@ public final class Envelope {
     /** Builds {@link Envelope} instances. Not thread safe; use one builder per envelope. */
     public static final class Builder {
 
-        private String id;
-        private String type;
+        private @Nullable String id;
+        private @Nullable String type;
         private int version = 1;
-        private String correlationId;
-        private String causationId;
+        private @Nullable String correlationId;
+        private @Nullable String causationId;
         private int attempt = 1;
-        private Instant firstSeen;
-        private String origin;
-        private String error;
+        private @Nullable Instant firstSeen;
+        private @Nullable String origin;
+        private @Nullable String error;
         private final Map<String, Object> headers = new LinkedHashMap<>();
 
         /** @param id message identifier; a random UUID is generated when left unset */
-        public Builder id(String id) {
+        public Builder id(@Nullable String id) {
             this.id = id;
             return this;
         }
@@ -255,13 +257,13 @@ public final class Envelope {
         }
 
         /** @param correlationId flow identifier; defaults to the message identifier */
-        public Builder correlationId(String correlationId) {
+        public Builder correlationId(@Nullable String correlationId) {
             this.correlationId = correlationId;
             return this;
         }
 
         /** @param causationId identifier of the message that caused this one */
-        public Builder causationId(String causationId) {
+        public Builder causationId(@Nullable String causationId) {
             this.causationId = causationId;
             return this;
         }
@@ -273,19 +275,19 @@ public final class Envelope {
         }
 
         /** @param firstSeen first publish time; defaults to now */
-        public Builder firstSeen(Instant firstSeen) {
+        public Builder firstSeen(@Nullable Instant firstSeen) {
             this.firstSeen = firstSeen;
             return this;
         }
 
         /** @param origin publishing process, conventionally {@code service@host} */
-        public Builder origin(String origin) {
+        public Builder origin(@Nullable String origin) {
             this.origin = origin;
             return this;
         }
 
         /** @param error why the message was dead-lettered or parked */
-        public Builder error(String error) {
+        public Builder error(@Nullable String error) {
             this.error = error;
             return this;
         }
@@ -307,7 +309,7 @@ public final class Envelope {
         }
 
         /** @param headers application headers to add; AceMQ-owned names are ignored */
-        public Builder headers(Map<String, Object> headers) {
+        public Builder headers(@Nullable Map<String, Object> headers) {
             if (headers != null) {
                 headers.forEach((name, value) -> {
                     if (!AceHeaders.isAceHeader(name)) {

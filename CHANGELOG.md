@@ -98,7 +98,12 @@ While the version is `0.x` the public API may change in any release.
 - `japicmp` wired for binary compatibility. It tolerates the absence of a
   previous version today and starts enforcing the moment `0.0.1` is released.
 
-- ErrorProne and NullAway, on JDK 17 through 23. ErrorProne compiles against
+- JSpecify nullness annotations at `provided` scope, so they are visible while
+  compiling and absent from a consumer's classpath. Every package is
+  `@NullMarked`: non-null is the default and `@Nullable` is the exception. This
+  is the annotation set Spring Framework 7 and Boot 4 adopted, which matters for
+  a library whose main audience is Spring.
+- ErrorProne and NullAway, on JDK 21 through 23. ErrorProne compiles against
   javac internals and trails new releases, so the JDK 25 job builds the same code
   without it: unanalysed rather than unbuilt.
 

@@ -22,4 +22,5 @@
  * sit on top of AMQP 0-9-1 and AMQP 1.0 without either leaking into the other.
  */
 
+@org.jspecify.annotations.NullMarked
 package org.acemq.amqp.transport;

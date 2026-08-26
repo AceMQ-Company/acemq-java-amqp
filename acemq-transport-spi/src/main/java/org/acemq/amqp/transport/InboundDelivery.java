@@ -19,6 +19,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /** A message handed up from the broker, still encoded. */
 public final class InboundDelivery {
 
@@ -82,11 +84,11 @@ public final class InboundDelivery {
         return headers;
     }
 
-    public String messageId() {
+    public @Nullable String messageId() {
         return messageId;
     }
 
-    public String contentType() {
+    public @Nullable String contentType() {
         return contentType;
     }
 
