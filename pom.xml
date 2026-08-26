@@ -56,6 +56,7 @@
     <module>acemq-amqp-patterns</module>
     <module>acemq-transport-rabbitmq</module>
     <module>acemq-amqp-test</module>
+    <module>acemq-amqp-coverage</module>
   </modules>
 
   <properties>
@@ -95,10 +96,27 @@
     <spotless.plugin.version>2.44.0</spotless.plugin.version>
     <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
     <flatten.plugin.version>1.6.0</flatten.plugin.version>
+    <exec.plugin.version>3.5.0</exec.plugin.version>
+    <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
 
-    <!-- coverage gates, raised as the modules fill in (doc 10, TEST gate) -->
+    <!-- Coverage gates (doc 10, TEST gate).
+         Two levels, because they answer different questions. The per-module gate
+         catches a module whose own tests rot. The aggregate gate is the honest
+         number for the project: the engine is exercised almost entirely from the
+         test kit and the transport integration tests, so measuring it in
+         isolation reports close to nothing.
+         These are set at, not above, what is measured today, and are ratcheted
+         up as coverage rises. A gate set to an aspiration is a gate someone
+         eventually lowers. -->
     <jacoco.line.coverage>0.00</jacoco.line.coverage>
     <jacoco.branch.coverage>0.00</jacoco.branch.coverage>
+    <!-- Measured 85.2% line and 63.0% branch across the reactor. The gate sits a
+         couple of points below that so an ordinary change does not trip it, and
+         is raised whenever the real number rises. Doc 10 targets 85/75; branch
+         coverage reaches it once the error paths in the transports are tested. -->
+    <failsafeArgLine></failsafeArgLine>
+    <jacoco.aggregate.line.coverage>83.0</jacoco.aggregate.line.coverage>
+    <jacoco.aggregate.branch.coverage>60.0</jacoco.aggregate.branch.coverage>
   </properties>
 
   <dependencyManagement>
@@ -235,6 +253,13 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-failsafe-plugin</artifactId>
           <version>${maven.failsafe.plugin.version}</version>
+          <configuration>
+            <!-- @{} rather than ${}: a POM property is interpolated when the model
+                 is built, which resolves this to the empty default long before
+                 JaCoCo sets it, so integration-test coverage is silently lost.
+                 Surefire and Failsafe evaluate @{} late, at execution time. -->
+            <argLine>@{failsafeArgLine}</argLine>
+          </configuration>
           <executions>
             <execution>
               <goals>
@@ -262,6 +287,43 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-gpg-plugin</artifactId>
           <version>${maven.gpg.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>com.github.siom79.japicmp</groupId>
+          <artifactId>japicmp-maven-plugin</artifactId>
+          <version>${japicmp.plugin.version}</version>
+          <configuration>
+            <skipXmlReport>true</skipXmlReport>
+            <parameter>
+              <!-- Nothing has been released yet, so there is no previous version
+                   to compare against. Wiring it now rather than later means the
+                   first release is also the moment the gate starts working,
+                   instead of the moment someone remembers to add it. -->
+              <ignoreMissingOldVersion>true</ignoreMissingOldVersion>
+              <onlyModified>true</onlyModified>
+              <!-- A binary-incompatible change on anything but a major version is
+                   a broken upgrade for every consumer, so it fails the build.
+                   Source incompatibility is reported but tolerated while 0.x. -->
+              <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+              <breakBuildOnSourceIncompatibleModifications>false</breakBuildOnSourceIncompatibleModifications>
+              <includes>
+                <include>org.acemq.amqp</include>
+              </includes>
+              <excludes>
+                <!-- Internal implementations; only the API and SPI are promises. -->
+                <exclude>org.acemq.amqp.core.Default*</exclude>
+                <exclude>org.acemq.amqp.core.*Telemetry*</exclude>
+                <exclude>org.acemq.amqp.transport.rabbitmq.RabbitMqConnection</exclude>
+              </excludes>
+            </parameter>
+          </configuration>
+          <executions>
+            <execution>
+              <id>api-compatibility</id>
+              <phase>verify</phase>
+              <goals><goal>cmp</goal></goals>
+            </execution>
+          </executions>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -342,6 +404,11 @@
       </plugin>
 
       <plugin>
+        <groupId>com.github.siom79.japicmp</groupId>
+        <artifactId>japicmp-maven-plugin</artifactId>
+      </plugin>
+
+      <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>
         <version>${jacoco.plugin.version}</version>
@@ -354,6 +421,24 @@
             <id>report</id>
             <phase>test</phase>
             <goals><goal>report</goal></goals>
+          </execution>
+          <!-- Integration tests exercise a great deal of the engine, and without
+               these two the whole of it is invisible to coverage: the agent is
+               only attached to surefire otherwise. -->
+          <execution>
+            <id>prepare-agent-integration</id>
+            <goals><goal>prepare-agent-integration</goal></goals>
+            <configuration>
+              <!-- Both prepare-agent goals default to writing the argLine property,
+                   so the second overwrites the first and one of the two agents is
+                   silently lost. Failsafe is pointed at this one explicitly. -->
+              <propertyName>failsafeArgLine</propertyName>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report-integration</id>
+            <phase>post-integration-test</phase>
+            <goals><goal>report-integration</goal></goals>
           </execution>
           <execution>
             <id>coverage-gate</id>

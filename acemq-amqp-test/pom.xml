@@ -14,6 +14,14 @@
   <name>AceMQ AMQP Test Kit</name>
   <description>Testing support: an in-memory transport implementing the same SPI, a Testcontainers harness and fluent assertions for retry and dead-letter outcomes.</description>
 
+  <properties>
+    <!-- This module's own tests are a fair measure of it, unlike the engine,
+         which is covered from elsewhere and is gated by the aggregate report
+         in acemq-amqp-coverage. Reason: the test kit is exercised by its own suites. -->
+    <jacoco.line.coverage>0.80</jacoco.line.coverage>
+    <jacoco.branch.coverage>0.60</jacoco.branch.coverage>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>org.acemq</groupId>

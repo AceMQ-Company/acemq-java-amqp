@@ -14,6 +14,14 @@
   <name>AceMQ AMQP API</name>
   <description>The public, dependency-free API: messages, envelopes, publishers, consumers, topology and codecs. Every language port is transliterated from this module.</description>
 
+  <properties>
+    <!-- This module's own tests are a fair measure of it, unlike the engine,
+         which is covered from elsewhere and is gated by the aggregate report
+         in acemq-amqp-coverage. Reason: the API is tested directly by its own unit tests. -->
+    <jacoco.line.coverage>0.70</jacoco.line.coverage>
+    <jacoco.branch.coverage>0.70</jacoco.branch.coverage>
+  </properties>
+
   <dependencies>
   </dependencies>
 </project>

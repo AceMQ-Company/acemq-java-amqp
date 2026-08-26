@@ -90,7 +90,22 @@ While the version is `0.x` the public API may change in any release.
 - Telemetry is off by default in the sense that matters: with neither library on
   the classpath the engine uses a sink whose methods are empty.
 
+- An aggregate coverage report in `acemq-amqp-coverage`, enforced at 83 % line
+  and 60 % branch. The engine is exercised almost entirely from the test kit and
+  the transport integration tests, so a per-module measurement reported nothing
+  for the code that matters most.
+- Per-module coverage gates where a module's own tests are a fair measure of it.
+- `japicmp` wired for binary compatibility. It tolerates the absence of a
+  previous version today and starts enforcing the moment `0.0.1` is released.
+
 ### Fixed
+- Integration-test coverage was never recorded. JaCoCo attaches only to Surefire
+  unless `prepare-agent-integration` is bound, and both agents default to writing
+  the same `argLine` property, so one silently replaced the other. Failsafe now
+  reads its own property, and with `@{}` rather than `${}` so it is evaluated at
+  execution time instead of being interpolated to the empty default when the
+  model is built.
+- The coverage gate was set to zero and enforced nothing at all.
 - Failsafe was configured but never bound, so `*IT` tests were skipped while the
   build reported success.
 - JaCoCo raised to 0.8.15; 0.8.12 cannot instrument Java 25 class files, and its

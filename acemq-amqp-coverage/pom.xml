@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>acemq-amqp-coverage</artifactId>
+  <name>AceMQ AMQP Coverage Report</name>
+  <description>Aggregates coverage across every module and enforces the project-wide
+    threshold. Exists because the engine is exercised almost entirely from other modules'
+    tests, so a per-module measurement reports next to nothing for the code that matters
+    most.</description>
+
+  <properties>
+    <!-- Nothing to publish: this module exists to measure. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <maven.install.skip>true</maven.install.skip>
+    <maven.source.skip>true</maven.source.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-transport-spi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-patterns</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-transport-rabbitmq</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-test</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <!-- The per-module gate is disabled here: this module has no code of
+               its own, and the aggregate rule below is the one that matters. -->
+          <execution>
+            <id>coverage-gate</id>
+            <phase>none</phase>
+          </execution>
+          <execution>
+            <id>aggregate-report</id>
+            <phase>verify</phase>
+            <goals><goal>report-aggregate</goal></goals>
+            <configuration>
+              <includeCurrentProject>false</includeCurrentProject>
+              <dataFileIncludes>
+                <dataFileInclude>**/target/jacoco*.exec</dataFileInclude>
+              </dataFileIncludes>
+              <outputDirectory>${project.build.directory}/site/jacoco-aggregate</outputDirectory>
+            </configuration>
+          </execution>
+          <!-- jacoco:check is deliberately not used for the aggregate. It measures
+               the current module's classes against the current module's execution
+               data, and this module has neither, so it skips and reports success
+               without measuring anything. -->
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>${exec.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>aggregate-coverage-gate</id>
+            <phase>verify</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>python3</executable>
+              <arguments>
+                <argument>${maven.multiModuleProjectDirectory}/etc/check-coverage.py</argument>
+                <argument>${project.build.directory}/site/jacoco-aggregate/jacoco.csv</argument>
+                <argument>${jacoco.aggregate.line.coverage}</argument>
+                <argument>${jacoco.aggregate.branch.coverage}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
