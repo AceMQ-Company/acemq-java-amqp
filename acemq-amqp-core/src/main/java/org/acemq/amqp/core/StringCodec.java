@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Reads and writes UTF-8 text.
@@ -52,7 +53,7 @@ public final class StringCodec implements Codec {
     }
 
     @Override
-    public boolean canDecode(String contentType) {
+    public boolean canDecode(@Nullable String contentType) {
         return contentType == null || contentType.startsWith("text/");
     }
 }
