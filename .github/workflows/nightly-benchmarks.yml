@@ -46,6 +46,13 @@ jobs:
           java -jar acemq-amqp-benchmarks/target/benchmarks.jar \
                -rf json -rff benchmarks/results/current.json
 
+      # The budget is a ratio between two figures measured minutes apart on the
+      # same runner against the same broker, so it survives the noise that makes
+      # an absolute number from shared hardware meaningless. This is the check
+      # behind the claim in the README.
+      - name: Enforce the overhead budget against the raw client
+        run: python3 etc/check-overhead-budget.py benchmarks/results/current.json 5
+
       - name: Compare against the baseline
         # Hosted runners are noisy, so the threshold is deliberately looser than
         # the five percent budget in doc 10: a tighter one on shared hardware

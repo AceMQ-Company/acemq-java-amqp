@@ -39,6 +39,10 @@ AceMQ aims to be that layer:
 - **Observable from the start** — OpenTelemetry spans and Micrometer metrics are
   emitted by the core, with names fixed by the specification so every language
   port reports identically.
+- **And it does not cost you** — a confirmed publish through AceMQ measures
+  within noise of the same publish written by hand against the RabbitMQ client
+  (421 against 422 microseconds in the run recorded in `benchmarks/results`).
+  A nightly job re-measures it and fails if the gap exceeds five percent.
 
 ## Modules
 

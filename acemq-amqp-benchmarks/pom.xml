@@ -45,6 +45,20 @@
       <groupId>io.opentelemetry</groupId>
       <artifactId>opentelemetry-sdk</artifactId>
     </dependency>
+    <!-- The overhead benchmark compares against the client AceMQ wraps, and
+         needs a real broker to do it. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-transport-rabbitmq</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.rabbitmq</groupId>
+      <artifactId>amqp-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>rabbitmq</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-core</artifactId>
