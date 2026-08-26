@@ -134,6 +134,14 @@ While the version is `0.x` the public API may change in any release.
 - `InMemoryIdempotencyStore`, bounded by both retention and size, and the first
   occupant of the previously empty patterns module.
 - `MessageConsumer.duplicates()` counts deliveries recognised as already handled.
+- A transactional outbox. `OutboxStore` writes a message in the caller's own
+  transaction, so it becomes durable exactly when the work it announces does, and
+  `OutboxRelay` publishes it afterwards on its own thread. `JdbcOutboxStore` keeps
+  the outbox in a table beside the business data, claiming by lease so a relay that
+  dies mid-batch strands nothing.
+- The outbox and the idempotent consumer are two halves of one guarantee: the relay
+  publishes with the record's own identifier, which is what lets the consumer
+  recognise the copy a crashed relay sends again.
 
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context

@@ -65,6 +65,34 @@
       <artifactId>logback-classic</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- The outbox is SQL, so testing it needs a database. H2 runs in the unit
+         suite because it starts in milliseconds and catches every syntax and
+         mapping error; PostgreSQL runs in the integration suite because the
+         concurrent-claim behaviour is a property of a real engine and H2
+         agreeing about it would prove nothing. -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Test scope only, and only for the outbox integration test: proving that a
+         committed message reaches a consumer needs a real broker, and the in-memory
+         transport this module ships would be proving something about itself. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-transport-rabbitmq</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- Telemetry providers are optional for users of the library, so they are test
          scope here: their presence is exactly what these tests exercise. -->
     <dependency>

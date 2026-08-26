@@ -84,6 +84,11 @@
     <testcontainers.version>1.21.4</testcontainers.version>
     <awaitility.version>4.2.2</awaitility.version>
     <logback.version>1.5.15</logback.version>
+    <!-- Databases for the outbox tests. H2 answers "is the SQL correct?" in
+         milliseconds; PostgreSQL in a container answers "does the claim hold
+         under two relays?", which H2 cannot be trusted to reproduce. -->
+    <h2.version>2.3.232</h2.version>
+    <postgresql.version>42.7.5</postgresql.version>
 
     <!-- plugin versions -->
     <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
@@ -231,6 +236,16 @@
         <groupId>ch.qos.logback</groupId>
         <artifactId>logback-classic</artifactId>
         <version>${logback.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.h2database</groupId>
+        <artifactId>h2</artifactId>
+        <version>${h2.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
