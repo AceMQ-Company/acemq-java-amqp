@@ -72,7 +72,9 @@ While the version is `0.x` the public API may change in any release.
   messages when a node is lost, and publishing with confirms continues against a
   degraded cluster that still holds a majority.
 - An assertion that a quorum queue is replicated to three nodes rather than to
-  every node in the cluster. Replicating everywhere still works, so no functional
+  every node in the cluster, verified on real five and nine node clusters: on
+  nine nodes each queue still has exactly three replicas, placed on different
+  subsets of the cluster. Replicating everywhere still works, so no functional
   test would catch it; the cost appears only as a round trip per replica on every
   confirm. Verified against a real five-node cluster.
 
