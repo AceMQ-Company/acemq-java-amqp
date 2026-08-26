@@ -1,0 +1,2 @@
+org.acemq.amqp.core.BuiltInCodecProviders$Text
+org.acemq.amqp.core.BuiltInCodecProviders$Bytes

@@ -93,16 +93,16 @@
       <artifactId>acemq-transport-rabbitmq</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- Optional for users of the library, so test scope here: whether the JSON codec
-         works when Jackson is present is exactly what these tests exercise. -->
+    <!-- Test scope: XML is not a dependency of the engine, and its being discovered
+         here rather than compiled in is exactly what the registry tests check. -->
     <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-xml</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>com.fasterxml.jackson.datatype</groupId>
-      <artifactId>jackson-datatype-jsr310</artifactId>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-yaml</artifactId>
       <scope>test</scope>
     </dependency>
     <!-- Telemetry providers are optional for users of the library, so they are test

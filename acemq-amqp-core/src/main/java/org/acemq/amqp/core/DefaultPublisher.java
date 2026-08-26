@@ -17,7 +17,9 @@ package org.acemq.amqp.core;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
@@ -40,9 +42,26 @@ import org.slf4j.LoggerFactory;
  * the publish waits for a confirm, an unroutable message is an error rather than a shrug, and
  * the envelope is stamped onto the message so the consumer can tell what it received.
  *
+ * <h2>Choosing a format</h2>
+ *
+ * <p>A publisher writes one format, chosen when it is built:
+ *
+ * <pre>{@code
+ * Publisher<Order> orders = mq.publisher("orders", "order.placed", Order.class);          // JSON
+ * Publisher<Order> legacy = mq.publisher("legacy", "order", Order.class).asXml();
+ * Publisher<byte[]> files = mq.publisher("files", "file.new", byte[].class).asBytes();
+ * Publisher<Order> avro   = mq.publisher("events", "order", Order.class).as(new AvroCodec(registry));
+ * }</pre>
+ *
+ * <p>Chosen at the publisher rather than per message, and that is a decision rather than an
+ * omission. A queue whose messages are sometimes JSON and sometimes XML is a queue nobody can
+ * write a consumer against, so the useful place to decide is once, where the destination is
+ * named. It also has to be here for a duller reason: by the time {@code send} has returned there
+ * is nothing left to choose, because the message is already at the broker.
+ *
  * @param <T> payload type
  */
-final class DefaultPublisher<T> implements Publisher<T> {
+public final class DefaultPublisher<T> implements Publisher<T> {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultPublisher.class);
 
@@ -54,19 +73,100 @@ final class DefaultPublisher<T> implements Publisher<T> {
     private final Telemetry telemetry;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    private final Consumer<AutoCloseable> registrar;
+
     DefaultPublisher(
             TransportConnection connection,
             Codec codec,
             String exchange,
             String routingKey,
             String origin,
-            Telemetry telemetry) {
+            Telemetry telemetry,
+            Consumer<AutoCloseable> registrar) {
         this.connection = connection;
         this.codec = codec;
         this.exchange = exchange == null ? "" : exchange;
         this.routingKey = routingKey == null ? "" : routingKey;
         this.origin = origin;
         this.telemetry = telemetry;
+        this.registrar = registrar;
+    }
+
+    /**
+     * The same destination, written in a named format.
+     *
+     * @param format short format name, such as {@code json} or {@code xml}
+     * @return a publisher writing that format; this one is left alone
+     * @throws AceMqException if no module on the classpath provides that format
+     */
+    public DefaultPublisher<T> as(String format) {
+        return as(Codecs.byName(format));
+    }
+
+    /**
+     * The same destination, written with a codec of the caller's own.
+     *
+     * <p>How a format AceMQ does not ship is used: implement {@link Codec} and pass it. Avro and
+     * Protobuf belong here rather than behind a name of their own, because neither can be built
+     * without a schema and a method taking no arguments would only be able to fail.
+     *
+     * @param format the codec to write with
+     * @return a publisher writing that format; this one is left alone
+     */
+    public DefaultPublisher<T> as(Codec format) {
+        // A new publisher rather than a mutated one. Two threads sharing a publisher while a
+        // third changes its format is a race with no useful outcome, and a long-lived object
+        // that quietly changes what it writes is worse than one that does not.
+        DefaultPublisher<T> switched = new DefaultPublisher<>(
+                connection, Objects.requireNonNull(format, "format"), exchange, routingKey, origin, telemetry,
+                registrar);
+        registrar.accept(switched);
+        return switched;
+    }
+
+    /**
+     * @return the same destination, written as JSON; what a publisher does anyway unless the
+     *     connection was given a different codec
+     */
+    public DefaultPublisher<T> asJson() {
+        return as("json");
+    }
+
+    /**
+     * @return the same destination, written as XML
+     * @throws AceMqException unless org.acemq:acemq-amqp-codec-xml is on the classpath
+     */
+    public DefaultPublisher<T> asXml() {
+        return as("xml");
+    }
+
+    /**
+     * @return the same destination, written as YAML, for messages a person will read as well as
+     *     a program
+     * @throws AceMqException unless org.acemq:acemq-amqp-codec-yaml is on the classpath
+     */
+    public DefaultPublisher<T> asYaml() {
+        return as("yaml");
+    }
+
+    /**
+     * @return the same destination, written as UTF-8 text; for payloads that are already strings
+     */
+    public DefaultPublisher<T> asText() {
+        return as("text");
+    }
+
+    /**
+     * @return the same destination, written as raw bytes, for payloads something else has
+     *     already encoded
+     */
+    public DefaultPublisher<T> asBytes() {
+        return as("bytes");
+    }
+
+    /** @return the format this publisher writes */
+    public Codec codec() {
+        return codec;
     }
 
     @Override

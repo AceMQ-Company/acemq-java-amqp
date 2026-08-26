@@ -23,6 +23,14 @@
       <groupId>org.acemq</groupId>
       <artifactId>acemq-transport-spi</artifactId>
     </dependency>
+    <!-- Required, not optional. JSON is the format published unless the application
+         says otherwise, and a default that depended on what happened to be on the
+         classpath would mean the same code writing different bytes in different
+         deployments. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-json</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
@@ -39,19 +47,5 @@
       <artifactId>opentelemetry-api</artifactId>
       <optional>true</optional>
     </dependency>
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <optional>true</optional>
-    </dependency>
-    <!-- Without this, Jackson refuses an Instant outright, and an Instant in an
-         event payload is not an unusual thing to want. It registers itself through
-         the ServiceLoader, so findAndRegisterModules picks it up and no class here
-         has to name it. -->
-    <dependency>
-      <groupId>com.fasterxml.jackson.datatype</groupId>
-      <artifactId>jackson-datatype-jsr310</artifactId>
-      <optional>true</optional>
-    </dependency>
-  </dependencies>
+</dependencies>
 </project>

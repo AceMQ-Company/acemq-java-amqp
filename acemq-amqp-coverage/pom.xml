@@ -35,6 +35,18 @@
     </dependency>
     <dependency>
       <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-json</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-xml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-yaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-core</artifactId>
     </dependency>
     <dependency>

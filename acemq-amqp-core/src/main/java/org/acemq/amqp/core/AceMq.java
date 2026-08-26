@@ -17,13 +17,13 @@ package org.acemq.amqp.core;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.acemq.amqp.api.Capability;
 import org.acemq.amqp.api.Codec;
-import org.acemq.amqp.api.Publisher;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.amqp.transport.QueueType;
@@ -42,12 +42,16 @@ import org.slf4j.LoggerFactory;
  *     mq.declareQueue("orders.new");
  *     mq.bind("orders.new", "orders", "order.placed");
  *
- *     Publisher<String> publisher = mq.publisher("orders", "order.placed");
- *     publisher.send("{\"id\":\"o-1\"}");
+ *     Publisher<Order> publisher = mq.publisher("orders", "order.placed", Order.class);
+ *     publisher.send(new Order("o-1", 42.00));
  *
- *     mq.consume("orders.new", String.class, message -> process(message.payload()));
+ *     mq.consume("orders.new", Order.class, message -> process(message.payload()));
  * }
  * }</pre>
+ *
+ * <p>Payloads are JSON unless the publisher is told otherwise, and a consumer reads whatever
+ * format arrives. Neither side has to say anything about serialisation for the common case;
+ * {@link DefaultPublisher#asXml()} and its neighbours are there for the rest.
  *
  * <p>Instances are thread safe and long lived. Closing one closes every consumer and publisher
  * created from it, so a try-with-resources block cannot leak a subscription.
@@ -58,7 +62,20 @@ public final class AceMq implements AutoCloseable {
 
     private final Transport transport;
     private final TransportConnection connection;
-    private final Codec codec;
+
+    /**
+     * What publishers write, and what consumers read, and deliberately not the same thing.
+     *
+     * <p>Publishing uses one format, because the bytes on a queue are a contract with services
+     * that are not being redeployed, and a queue carrying two formats at once is one no consumer
+     * can be written against. Consuming uses every format on the classpath, because a consumer
+     * that refuses a message it could have read has turned somebody else's deployment into its
+     * own outage. Write one, read all: that asymmetry is what makes changing format two ordinary
+     * releases rather than a flag day.
+     */
+    private final Codec publishCodec;
+
+    private final Codec consumeCodec;
     private final String origin;
     private final Telemetry telemetry;
     private final CopyOnWriteArrayList<AutoCloseable> managed = new CopyOnWriteArrayList<>();
@@ -67,12 +84,14 @@ public final class AceMq implements AutoCloseable {
     private AceMq(
             Transport transport,
             TransportConnection connection,
-            Codec codec,
+            Codec publishCodec,
+            Codec consumeCodec,
             String origin,
             Telemetry telemetry) {
         this.transport = transport;
         this.connection = connection;
-        this.codec = codec;
+        this.publishCodec = publishCodec;
+        this.consumeCodec = consumeCodec;
         this.origin = origin;
         // Resolved once per connection rather than per message: the classpath does not change
         // while the process runs, and probing on a hot path would be its own overhead.
@@ -154,14 +173,14 @@ public final class AceMq implements AutoCloseable {
     /**
      * Connects with an explicit telemetry sink and codec.
      *
-     * <p>The codec is named rather than detected. Jackson is on nearly every classpath by
-     * accident, so a core that found it and switched to JSON would change what appears on the
-     * wire for an application that asked for nothing — and the wire is a contract with services
-     * that are not being redeployed. Silence therefore means text, whatever is available.
+     * <p>Passing a codec fixes the format in both directions. Without one, publishers write JSON
+     * and consumers read every format on the classpath, which is what most applications want and
+     * what makes a format migration two ordinary releases. An application that has named a codec
+     * has said it wants one format, and should not find its consumers quietly accepting others.
      *
      * @param config connection settings
      * @param telemetry where to report, or {@code null} to detect what is on the classpath
-     * @param codec how payloads become bytes and back, or {@code null} for UTF-8 text
+     * @param codec the single format to read and write, or {@code null} for the defaults
      * @return an open connection
      */
     public static AceMq connect(ConnectionConfig config, @Nullable Telemetry telemetry, @Nullable Codec codec) {
@@ -169,7 +188,11 @@ public final class AceMq implements AutoCloseable {
         log.debug("connecting with the {} transport to {}", transport.name(), config);
         TransportConnection connection = transport.connect(config);
         Telemetry sink = telemetry != null ? telemetry : Telemetries.autoDetect(transport.name());
-        return new AceMq(transport, connection, codec != null ? codec : new StringCodec(), defaultOrigin(config), sink);
+        // A codec the caller named is used for both directions: having asked for one format, an
+        // application should not find its consumers quietly accepting others.
+        Codec publish = codec != null ? codec : Codecs.forPublishing();
+        Codec consume = codec != null ? codec : Codecs.forConsuming();
+        return new AceMq(transport, connection, publish, consume, defaultOrigin(config), sink);
     }
 
     /**
@@ -267,11 +290,32 @@ public final class AceMq implements AutoCloseable {
      * @param <T> payload type
      * @return a publisher, closed automatically when this instance closes
      */
-    public <T> Publisher<T> publisher(String exchange, String routingKey) {
-        DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, codec, exchange, routingKey, origin,
-                telemetry);
+    public <T> DefaultPublisher<T> publisher(String exchange, String routingKey) {
+        DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, publishCodec, exchange, routingKey, origin,
+                telemetry, managed::add);
         managed.add(publisher);
         return publisher;
+    }
+
+    /**
+     * Creates a publisher for one destination and one payload type.
+     *
+     * <p>Preferable to the two-argument form, which infers the payload type from whatever the
+     * result is assigned to and so will happily produce a {@code Publisher<Anything>}. Naming the
+     * type makes the mistake a compile error instead of a message no consumer can read.
+     *
+     * <p>Writes JSON. Call {@link DefaultPublisher#asXml()}, {@link DefaultPublisher#asText()} or
+     * {@link DefaultPublisher#as(Codec)} on the result for anything else.
+     *
+     * @param exchange target exchange, or the empty string to publish straight to a queue
+     * @param routingKey routing key, or the queue name when publishing without an exchange
+     * @param payloadType type this publisher sends
+     * @param <T> payload type
+     * @return a publisher, closed automatically when this instance closes
+     */
+    public <T> DefaultPublisher<T> publisher(String exchange, String routingKey, Class<T> payloadType) {
+        Objects.requireNonNull(payloadType, "payloadType");
+        return publisher(exchange, routingKey);
     }
 
     /**
@@ -303,8 +347,8 @@ public final class AceMq implements AutoCloseable {
             Class<T> payloadType,
             ConsumerOptions options,
             org.acemq.amqp.api.MessageHandler<T> handler) {
-        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, codec, queue, payloadType, options, handler,
-                telemetry);
+        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, consumeCodec, queue, payloadType, options,
+                handler, telemetry);
         managed.add(consumer);
         consumer.start();
         return consumer;

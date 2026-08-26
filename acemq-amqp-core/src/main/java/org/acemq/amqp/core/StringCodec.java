@@ -24,8 +24,14 @@ import org.jspecify.annotations.Nullable;
 /**
  * Reads and writes UTF-8 text.
  *
- * <p>Deliberately dependency free, so the core has a working codec without pulling in a
- * serialisation library. Structured payloads should use a JSON or schema-aware codec.
+ * <p>Dependency free, so the core has a working codec whatever else is on the classpath.
+ * Structured payloads belong in JSON or a schema-aware format.
+ *
+ * <p>An object that is not text is refused rather than written out. This used to call
+ * {@code String.valueOf}, which turned an object with no {@code toString} into
+ * {@code OrderPlaced@4b1210ee} on the wire: published, confirmed, and useless to whoever read
+ * it, with nothing anywhere reporting a problem. A publish that cannot mean what the caller
+ * intended should fail at the publish.
  */
 public final class StringCodec implements Codec {
 
@@ -38,7 +44,16 @@ public final class StringCodec implements Codec {
 
     @Override
     public byte[] encode(Object payload) {
-        return String.valueOf(payload).getBytes(StandardCharsets.UTF_8);
+        if (payload instanceof CharSequence) {
+            return payload.toString().getBytes(StandardCharsets.UTF_8);
+        }
+        if (payload instanceof Number || payload instanceof Boolean || payload instanceof Character) {
+            // These have a toString that means what it says, and refusing them would be pedantry.
+            return payload.toString().getBytes(StandardCharsets.UTF_8);
+        }
+        throw new AceMqException("the text codec publishes text and was given a "
+                + payload.getClass().getName() + ", whose toString would go on the wire as-is."
+                + " Publish with asJson() to have the object encoded, or send a String.");
     }
 
     @Override

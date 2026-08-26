@@ -52,6 +52,9 @@
   <modules>
     <module>acemq-amqp-api</module>
     <module>acemq-transport-spi</module>
+    <module>acemq-amqp-codec-json</module>
+    <module>acemq-amqp-codec-xml</module>
+    <module>acemq-amqp-codec-yaml</module>
     <module>acemq-amqp-core</module>
     <module>acemq-amqp-patterns</module>
     <module>acemq-transport-rabbitmq</module>
@@ -145,6 +148,21 @@
       </dependency>
       <dependency>
         <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-codec-json</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-codec-xml</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-codec-yaml</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
         <artifactId>acemq-amqp-core</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -205,6 +223,16 @@
       <dependency>
         <groupId>com.fasterxml.jackson.datatype</groupId>
         <artifactId>jackson-datatype-jsr310</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-xml</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.dataformat</groupId>
+        <artifactId>jackson-dataformat-yaml</artifactId>
         <version>${jackson.version}</version>
       </dependency>
 

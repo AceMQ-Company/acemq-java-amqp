@@ -13,9 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.acemq.amqp.core;
+package org.acemq.amqp.codec.json;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Objects;
 
 import org.acemq.amqp.api.AceMqException;
@@ -29,30 +30,23 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 /**
  * Reads and writes JSON, using Jackson.
  *
- * <p>Opt-in rather than automatic. Jackson is on nearly every classpath by accident, so a core
- * that detected it and switched would change the format on the wire for applications that had
- * asked for nothing — a silent change to a contract other services depend on. The default stays
- * {@link StringCodec}; this is used when it is named.
- *
- * <p>Jackson itself is an optional dependency, which means this class exists in the jar whether
- * or not the application brings Jackson. That is safe because nothing else in the engine
- * mentions it: the class is loaded only when an application refers to it, and an application
- * that refers to it has Jackson.
+ * <p>What a publisher uses unless told otherwise, because an application publishing an object
+ * means to publish the object rather than whatever its {@code toString} produces.
  *
  * <p>Two settings of the default mapper are decisions rather than taste, and both are about
  * messages outliving the code that wrote them.
  *
  * <p>Unknown properties are ignored. A producer that adds a field must not break every consumer
- * deployed before it; refusing the message would make every additive change a coordinated
- * release across teams, which is the coupling messaging exists to avoid.
+ * deployed before it; refusing the message would make every additive change a release
+ * coordinated across teams, which is the coupling messaging exists to avoid.
  *
  * <p>Dates are written as ISO-8601 text rather than as numbers. A timestamp of {@code 1735689600}
  * needs a shared assumption about units and epoch to read; {@code 2025-01-01T00:00:00Z} does not,
  * which matters when the consumer is in Go or Python and reading a millisecond count as seconds
  * puts a message fifty thousand years in the past.
  *
- * <p>An application with its own configured mapper should pass it, so the messages match what the
- * rest of the service produces.
+ * <p>An application with its own configured mapper should pass it, so that messages match what
+ * the rest of the service produces.
  */
 public final class JsonCodec implements Codec {
 
@@ -120,7 +114,7 @@ public final class JsonCodec implements Codec {
             // codec useless in the interoperating case it mostly exists for.
             return true;
         }
-        String type = contentType.toLowerCase(java.util.Locale.ROOT);
+        String type = contentType.toLowerCase(Locale.ROOT);
         return type.startsWith(CONTENT_TYPE) || type.startsWith("application/") && type.contains("+json");
     }
 

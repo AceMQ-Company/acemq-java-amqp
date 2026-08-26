@@ -150,6 +150,22 @@ While the version is `0.x` the public API may change in any release.
 - `CompositeCodec`, which writes one format and reads several, so changing format is
   two ordinary releases rather than a flag day.
 - `Codec.decode(body, type, contentType)` and `AceMq.connect(..., Codec)`.
+- Serialisation that needs saying nothing. `publisher.send(new OrderPlaced(...))` is
+  JSON, and a consumer reads whatever format arrived. Publishers write one format,
+  chosen once: `.asJson()`, `.asXml()`, `.asYaml()`, `.asText()`, `.asBytes()`,
+  `.as(myCodec)`.
+- A codec registry discovered with `ServiceLoader`, the way transports already are.
+  `acemq-amqp-codec-json` is a required dependency of the core, so the default never
+  depends on the classpath; `acemq-amqp-codec-xml` and `acemq-amqp-codec-yaml` are
+  optional, and asking for a format that is not installed names the artifact to add.
+- `mq.publisher(exchange, routingKey, PayloadType.class)`, so the payload type is
+  real rather than inferred from whatever the result is assigned to.
+
+### Fixed
+
+- The text codec no longer publishes an object's `toString`. Sending a POJO used to
+  put `OrderPlaced@4b1210ee` on the wire: published, confirmed, and useless to
+  whoever read it, with nothing anywhere reporting a problem.
 
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context

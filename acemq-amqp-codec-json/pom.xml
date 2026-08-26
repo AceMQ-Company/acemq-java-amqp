@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-parent</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>acemq-amqp-codec-json</artifactId>
+  <name>AceMQ AMQP JSON Codec</name>
+  <description>JSON payloads, using Jackson. The format AceMQ publishes in by default, so this
+    module is a required dependency of the core rather than an optional one: which format an
+    application writes should not depend on what happens to be on its classpath.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <!-- Without this, Jackson refuses an Instant outright, and an Instant in an
+         event payload is not an unusual thing to want. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
+  </dependencies>
+</project>
