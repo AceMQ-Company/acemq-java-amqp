@@ -15,6 +15,8 @@
  */
 package org.acemq.amqp.api;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Turns payloads into bytes and back.
  *
@@ -44,8 +46,28 @@ public interface Codec {
     <T> T decode(byte[] body, Class<T> target);
 
     /**
-     * @param contentType content type of a received message, possibly {@code null}
+     * Decodes a received message, told what the sender said it was.
+     *
+     * <p>The engine calls this one, because a codec that dispatches between several formats
+     * cannot choose without knowing the content type. A codec that handles a single format has
+     * no use for it and need not override this.
+     *
+     * @param body encoded bytes
+     * @param target type to produce
+     * @param contentType content type the message arrived with, or {@code null} when the sender
+     *     did not set one
+     * @param <T> target type
+     * @return the decoded payload
+     * @throws AceMqException if the bytes cannot be decoded
+     */
+    default <T> T decode(byte[] body, Class<T> target, @Nullable String contentType) {
+        return decode(body, target);
+    }
+
+    /**
+     * @param contentType content type of a received message, or {@code null} when the sender did
+     *     not set one
      * @return whether this codec can decode it
      */
-    boolean canDecode(String contentType);
+    boolean canDecode(@Nullable String contentType);
 }

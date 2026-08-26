@@ -125,11 +125,51 @@ public final class AceMq implements AutoCloseable {
      * @return an open connection
      */
     public static AceMq connect(ConnectionConfig config, @Nullable Telemetry telemetry) {
+        return connect(config, telemetry, null);
+    }
+
+    /**
+     * Connects to a broker, reading and writing payloads with the given codec.
+     *
+     * @param url broker URL
+     * @param codec how payloads become bytes and back
+     * @return an open connection
+     */
+    public static AceMq connect(String url, Codec codec) {
+        return connect(ConnectionConfig.url(url).build(), null, codec);
+    }
+
+    /**
+     * Connects to a broker with an explicit telemetry sink and codec.
+     *
+     * @param url broker URL
+     * @param telemetry where to report, or {@code null} to detect what is on the classpath
+     * @param codec how payloads become bytes and back
+     * @return an open connection
+     */
+    public static AceMq connect(String url, @Nullable Telemetry telemetry, Codec codec) {
+        return connect(ConnectionConfig.url(url).build(), telemetry, codec);
+    }
+
+    /**
+     * Connects with an explicit telemetry sink and codec.
+     *
+     * <p>The codec is named rather than detected. Jackson is on nearly every classpath by
+     * accident, so a core that found it and switched to JSON would change what appears on the
+     * wire for an application that asked for nothing — and the wire is a contract with services
+     * that are not being redeployed. Silence therefore means text, whatever is available.
+     *
+     * @param config connection settings
+     * @param telemetry where to report, or {@code null} to detect what is on the classpath
+     * @param codec how payloads become bytes and back, or {@code null} for UTF-8 text
+     * @return an open connection
+     */
+    public static AceMq connect(ConnectionConfig config, @Nullable Telemetry telemetry, @Nullable Codec codec) {
         Transport transport = Transports.forScheme(config.scheme());
         log.debug("connecting with the {} transport to {}", transport.name(), config);
         TransportConnection connection = transport.connect(config);
         Telemetry sink = telemetry != null ? telemetry : Telemetries.autoDetect(transport.name());
-        return new AceMq(transport, connection, new StringCodec(), defaultOrigin(config), sink);
+        return new AceMq(transport, connection, codec != null ? codec : new StringCodec(), defaultOrigin(config), sink);
     }
 
     /**

@@ -206,7 +206,9 @@ final class DefaultConsumer<T> implements MessageConsumer {
         Envelope envelope = EnvelopeHeaders.fromHeaders(
                 delivery.headers(), delivery.messageId(),
                 delivery.routingKey().isEmpty() ? "message" : delivery.routingKey());
-        T payload = codec.decode(delivery.body(), payloadType);
+        // The content type goes to the codec, because a codec that reads more than one format
+        // cannot choose between them without knowing what the sender said it wrote.
+        T payload = codec.decode(delivery.body(), payloadType, delivery.contentType());
         return new ReceivedMessage<>(payload, envelope, queue, delivery.routingKey(), Instant.now());
     }
 

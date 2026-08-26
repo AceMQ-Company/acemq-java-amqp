@@ -142,6 +142,14 @@ While the version is `0.x` the public API may change in any release.
 - The outbox and the idempotent consumer are two halves of one guarantee: the relay
   publishes with the record's own identifier, which is what lets the consumer
   recognise the copy a crashed relay sends again.
+- `JsonCodec`, so a payload can be an object rather than a string. Named rather than
+  detected: Jackson is on nearly every classpath by accident, and switching format
+  on that basis would change a contract the application never asked to change.
+  Unknown fields are ignored and dates are written as ISO-8601 text, both so that a
+  message can outlive the code that wrote it.
+- `CompositeCodec`, which writes one format and reads several, so changing format is
+  two ordinary releases rather than a flag day.
+- `Codec.decode(body, type, contentType)` and `AceMq.connect(..., Codec)`.
 
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context
