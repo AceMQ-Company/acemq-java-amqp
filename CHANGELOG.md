@@ -103,6 +103,9 @@ While the version is `0.x` the public API may change in any release.
   `@NullMarked`: non-null is the default and `@Nullable` is the exception. This
   is the annotation set Spring Framework 7 and Boot 4 adopted, which matters for
   a library whose main audience is Spring.
+- Nullness checking is now an error rather than a warning: the codebase reports
+  zero NullAway findings. Test sources are excluded, because several tests pass
+  null deliberately to prove a guard throws.
 - ErrorProne and NullAway, on JDK 21 through 23. ErrorProne compiles against
   javac internals and trails new releases, so the JDK 25 job builds the same code
   without it: unanalysed rather than unbuilt.

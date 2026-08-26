@@ -23,6 +23,7 @@ import java.util.Map;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.MetricNames;
 import org.acemq.amqp.api.Telemetry;
+import org.jspecify.annotations.Nullable;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
@@ -72,7 +73,7 @@ final class OpenTelemetryTelemetry implements Telemetry {
         }
 
         @Override
-        public String get(Map<String, Object> carrier, String key) {
+        public @Nullable String get(@Nullable Map<String, Object> carrier, String key) {
             Object value = carrier == null ? null : carrier.get(key);
             return value == null ? null : value.toString();
         }

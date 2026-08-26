@@ -34,6 +34,7 @@ import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Subscription;
 import org.acemq.amqp.transport.TransportConnection;
 import org.acemq.amqp.transport.TransportException;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -250,7 +251,7 @@ final class RabbitMqConnection implements TransportConnection {
      * reasons that have nothing to do with the application. Nested lists and maps are
      * converted too, since a header value may contain them.
      */
-    private static Map<String, Object> portableHeaders(Map<String, Object> headers) {
+    private static @Nullable Map<String, Object> portableHeaders(@Nullable Map<String, Object> headers) {
         if (headers == null) {
             return null;
         }
@@ -259,7 +260,7 @@ final class RabbitMqConnection implements TransportConnection {
         return portable;
     }
 
-    private static Object portableValue(Object value) {
+    private static @Nullable Object portableValue(@Nullable Object value) {
         if (value instanceof com.rabbitmq.client.LongString) {
             return value.toString();
         }
@@ -285,7 +286,7 @@ final class RabbitMqConnection implements TransportConnection {
      * that failure away from the publishing channel, which would otherwise take every
      * in-flight publish down with it.
      */
-    private <T> T withChannel(String description, ChannelOperation<T> operation) {
+    private <T> @Nullable T withChannel(String description, ChannelOperation<T> operation) {
         try (Channel channel = connection.createChannel()) {
             return operation.run(channel);
         } catch (Exception e) {
@@ -305,6 +306,7 @@ final class RabbitMqConnection implements TransportConnection {
 
     @FunctionalInterface
     private interface ChannelOperation<T> {
+        @Nullable
         T run(Channel channel) throws Exception;
     }
 

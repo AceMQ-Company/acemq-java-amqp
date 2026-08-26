@@ -21,6 +21,7 @@ import java.util.Map;
 
 import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Envelope;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Flattens an {@link Envelope} into wire headers and reads it back.
@@ -77,7 +78,8 @@ final class EnvelopeHeaders {
      * @param fallbackType type to assume when the type header is absent
      * @return the reconstructed envelope
      */
-    static Envelope fromHeaders(Map<String, Object> headers, String fallbackMessageId, String fallbackType) {
+    static Envelope fromHeaders(
+            @Nullable Map<String, Object> headers, @Nullable String fallbackMessageId, String fallbackType) {
         Map<String, Object> source = headers == null ? new LinkedHashMap<>() : headers;
 
         String type = string(source.get(AceHeaders.TYPE));
@@ -139,7 +141,7 @@ final class EnvelopeHeaders {
      * anything long, and it is not a {@code CharSequence}, so {@code toString()} is the only
      * portable way to read it.
      */
-    private static String string(Object value) {
+    private static @Nullable String string(@Nullable Object value) {
         if (value == null) {
             return null;
         }
@@ -147,7 +149,7 @@ final class EnvelopeHeaders {
         return text.isEmpty() ? null : text;
     }
 
-    private static Integer integer(Object value) {
+    private static @Nullable Integer integer(@Nullable Object value) {
         if (value instanceof Number) {
             return ((Number) value).intValue();
         }
@@ -163,7 +165,7 @@ final class EnvelopeHeaders {
         }
     }
 
-    private static Long epochMillis(Object value) {
+    private static @Nullable Long epochMillis(@Nullable Object value) {
         if (value instanceof Number) {
             return ((Number) value).longValue();
         }

@@ -29,8 +29,8 @@ public final class InboundDelivery {
     private final String routingKey;
     private final byte[] body;
     private final Map<String, Object> headers;
-    private final String messageId;
-    private final String contentType;
+    private final @Nullable String messageId;
+    private final @Nullable String contentType;
     private final boolean redelivered;
 
     public InboundDelivery(
@@ -38,9 +38,9 @@ public final class InboundDelivery {
             String exchange,
             String routingKey,
             byte[] body,
-            Map<String, Object> headers,
-            String messageId,
-            String contentType,
+            @Nullable Map<String, Object> headers,
+            @Nullable String messageId,
+            @Nullable String contentType,
             boolean redelivered) {
         this.queue = queue;
         this.exchange = exchange == null ? "" : exchange;

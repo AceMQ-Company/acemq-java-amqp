@@ -576,9 +576,9 @@
                   -XepOpt:NullAway:AnnotatedPackages=org.acemq.amqp \
                   -XepOpt:NullAway:JSpecifyMode=true \
                   -XepOpt:NullAway:TreatGeneratedAsUnannotated=true \
-                  -Xep:NullAway:WARN \
+                  -Xep:NullAway:ERROR \
                   -Xep:MissingSummary:OFF \
-                  -XepExcludedPaths:.*/target/generated-sources/.*</arg>
+                  -XepExcludedPaths:(.*/target/generated-sources/.*|.*/src/test/java/.*)</arg>
               </compilerArgs>
               <annotationProcessorPaths>
                 <path>

@@ -60,7 +60,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong retried = new AtomicLong();
     private final AtomicLong deadLettered = new AtomicLong();
-    private final RetryDispatcher retries;
+    private final @Nullable RetryDispatcher retries;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile @Nullable Subscription subscription;
 

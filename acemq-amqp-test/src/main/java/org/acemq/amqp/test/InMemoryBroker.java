@@ -27,6 +27,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.TransportException;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An in-process broker: exchanges, bindings, queues and routing, with no network and no
@@ -108,7 +109,7 @@ final class InMemoryBroker {
         }
     }
 
-    private static String asString(Object value) {
+    private static @Nullable String asString(@Nullable Object value) {
         return value == null ? null : value.toString();
     }
 
@@ -118,7 +119,7 @@ final class InMemoryBroker {
      * <p>Kept separate from {@link #route} so the intent is visible in a stack trace: a message
      * arriving here was not published by an application, it timed out of a rung.
      */
-    void routeExpired(String exchange, String routingKey, OutboundMessage message) {
+    void routeExpired(@Nullable String exchange, @Nullable String routingKey, OutboundMessage message) {
         OutboundMessage rerouted = OutboundMessage.body(message.body())
                 .exchange(exchange == null ? "" : exchange)
                 .routingKey(routingKey == null ? "" : routingKey)
@@ -269,9 +270,9 @@ final class InMemoryBroker {
         private final String name;
         private final LinkedBlockingDeque<OutboundMessage> messages = new LinkedBlockingDeque<>();
         private volatile long timeToLiveMillis = -1;
-        private volatile String deadLetterExchange;
-        private volatile String deadLetterRoutingKey;
-        private volatile InMemoryBroker owner;
+        private volatile @Nullable String deadLetterExchange;
+        private volatile @Nullable String deadLetterRoutingKey;
+        private volatile @Nullable InMemoryBroker owner;
 
         Queue(String name) {
             this.name = name;
@@ -282,7 +283,8 @@ final class InMemoryBroker {
         }
 
         /** Configures queue-level expiry with a dead-letter target. */
-        void expireAfter(long millis, String exchange, String routingKey, InMemoryBroker owner) {
+        void expireAfter(
+                long millis, @Nullable String exchange, @Nullable String routingKey, InMemoryBroker owner) {
             this.timeToLiveMillis = millis;
             this.deadLetterExchange = exchange;
             this.deadLetterRoutingKey = routingKey;

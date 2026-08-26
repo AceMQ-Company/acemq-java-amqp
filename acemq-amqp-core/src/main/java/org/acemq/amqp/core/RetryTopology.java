@@ -28,6 +28,7 @@ import java.util.Set;
 import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.TransportConnection;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Builds the queues that make a retry happen inside the broker rather than inside a handler.
@@ -208,7 +209,7 @@ final class RetryTopology {
     }
 
     /** Lower-cases a name the way queue naming conventions expect. */
-    static String normalise(String name) {
+    static @Nullable String normalise(@Nullable String name) {
         return name == null ? null : name.toLowerCase(Locale.ROOT);
     }
 }

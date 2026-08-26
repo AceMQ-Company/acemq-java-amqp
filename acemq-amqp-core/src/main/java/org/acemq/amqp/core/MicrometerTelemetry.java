@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.MetricNames;
 import org.acemq.amqp.api.Telemetry;
+import org.jspecify.annotations.Nullable;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -120,12 +121,13 @@ final class MicrometerTelemetry implements Telemetry {
         private final String durationMetric;
         private final String countMetric;
         private final Tags tags;
-        private final AtomicInteger gauge;
+        private final @Nullable AtomicInteger gauge;
         private final Timer.Sample sample;
-        private String outcome;
+        private @Nullable String outcome;
         private boolean closed;
 
-        MeterScope(String durationMetric, String countMetric, Tags tags, AtomicInteger gauge) {
+        MeterScope(
+                String durationMetric, String countMetric, Tags tags, @Nullable AtomicInteger gauge) {
             this.durationMetric = durationMetric;
             this.countMetric = countMetric;
             this.tags = tags;
