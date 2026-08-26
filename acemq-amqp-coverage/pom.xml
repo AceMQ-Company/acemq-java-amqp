@@ -92,6 +92,12 @@
             <phase>verify</phase>
             <goals><goal>exec</goal></goals>
             <configuration>
+              <!-- With tests skipped there is no execution data, so the gate would
+                   fail on an empty report. That is the right answer for a normal
+                   build and the wrong one for the release job, which skips tests
+                   precisely because the build jobs have already run them and
+                   enforced this gate. -->
+              <skip>${skipTests}</skip>
               <executable>python3</executable>
               <arguments>
                 <argument>${maven.multiModuleProjectDirectory}/etc/check-coverage.py</argument>

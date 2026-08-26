@@ -115,6 +115,8 @@
          is raised whenever the real number rises. Doc 10 targets 85/75; branch
          coverage reaches it once the error paths in the transports are tested. -->
     <failsafeArgLine></failsafeArgLine>
+    <!-- Declared so the coverage gate can ask whether tests ran at all. -->
+    <skipTests>false</skipTests>
     <jacoco.aggregate.line.coverage>83.0</jacoco.aggregate.line.coverage>
     <jacoco.aggregate.branch.coverage>60.0</jacoco.aggregate.branch.coverage>
   </properties>
