@@ -110,6 +110,13 @@ While the version is `0.x` the public API may change in any release.
   javac internals and trails new releases, so the JDK 25 job builds the same code
   without it: unanalysed rather than unbuilt.
 
+- `acemq-amqp-benchmarks`, a JMH module behind `-Pbenchmarks` so an ordinary
+  build never waits for it (ADR-017). It measures what instrumentation costs,
+  which doc 10 requires to be a published number rather than a promise.
+- A nightly workflow that runs the benchmarks, compares each one against a
+  stored baseline, keeps the JSON for ninety days and opens an issue on a
+  regression.
+
 ### Fixed
 - A resource leak reported by ErrorProne as an error: two OpenTelemetry context
   scopes were opened per message. They are in fact closed, by `SpanScope`, which

@@ -97,6 +97,8 @@
     <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
     <flatten.plugin.version>1.6.0</flatten.plugin.version>
     <exec.plugin.version>3.5.0</exec.plugin.version>
+    <maven.shade.plugin.version>3.6.0</maven.shade.plugin.version>
+    <jmh.version>1.37</jmh.version>
     <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
     <errorprone.version>2.50.0</errorprone.version>
     <nullaway.version>0.14.0</nullaway.version>
@@ -531,6 +533,16 @@
   </distributionManagement>
 
   <profiles>
+    <!-- Benchmarks are slow and are not part of an ordinary build. ADR-017 keeps
+         them in the reactor so they measure the current commit rather than a
+         published snapshot, and behind this profile so nobody waits for them. -->
+    <profile>
+      <id>benchmarks</id>
+      <modules>
+        <module>acemq-amqp-benchmarks</module>
+      </modules>
+    </profile>
+
     <!-- Static analysis. ErrorProne compiles against javac internals, so it
          trails new JDK releases by months; running the build on a JDK it does
          not yet support fails the compile outright rather than degrading. The

@@ -1,0 +1,86 @@
+name: nightly-benchmarks
+
+# Benchmarks are too slow for a pull request, so they run here and compare each
+# result against the stored baseline. A run that produces a number nobody
+# compares is a number nobody reads, so the comparison is the point of the job
+# and the reason it can fail.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      update-baseline:
+        description: "Commit this run as the new baseline"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed only by the final step, which files an issue when a benchmark
+      # regresses; without it that step fails and the regression goes unreported.
+      issues: write
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          # JDK 21: the static-analysis profile is active here, so the benchmarks
+          # measure the code as it is actually analysed and shipped.
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build the benchmarks
+        run: mvn -B --no-transfer-progress clean install -Pbenchmarks -DskipTests -DskipITs
+
+      - name: Run
+        run: |
+          mkdir -p benchmarks/results
+          java -jar acemq-amqp-benchmarks/target/benchmarks.jar \
+               -rf json -rff benchmarks/results/current.json
+
+      - name: Compare against the baseline
+        # Hosted runners are noisy, so the threshold is deliberately looser than
+        # the five percent budget in doc 10: a tighter one on shared hardware
+        # produces false alarms, and an alert nobody trusts is an alert nobody
+        # reads. The budget itself is measured against the raw client in the same
+        # run, where machine noise largely cancels out.
+        run: |
+          python3 etc/compare-benchmarks.py \
+                  benchmarks/results/current.json \
+                  benchmarks/results/baseline.json 15
+
+      - name: Publish the result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/results/current.json
+          retention-days: 90
+
+      - name: Open an issue on regression
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh issue create \
+            --title "Benchmark regression on $(echo "$SHA" | cut -c1-7)" \
+            --label "area:core" \
+            --body "The nightly benchmark run regressed against the stored baseline.
+
+          Commit: $SHA
+          Run: $RUN_URL
+
+          The comparison output in that run names which benchmarks moved and by how
+          much. If the change is expected, update benchmarks/results/baseline.json
+          in the same pull request that causes it, so the baseline and the reason
+          for it arrive together."
