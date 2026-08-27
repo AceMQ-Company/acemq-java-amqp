@@ -20,12 +20,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.acemq.amqp.api.AceMqException;
-import org.apache.avro.Schema;
+import org.acemq.amqp.api.SchemaDefinition;
+import org.acemq.amqp.api.SchemaRegistry;
 
 /**
  * A registry held in this process's memory.
  *
- * <p>For tests, and for the case where every schema is known at start up and registered from
+ * <p>Format-neutral, and so no longer anything to do with Avro; it lives here only until the
+ * registry moves to a repository of its own. For tests, and for the case where every schema is known at start up and registered from
  * resources on the classpath. Not for anything else, and the reason is not squeamishness: the
  * identifiers it hands out are assigned in the order schemas happen to be registered, so two
  * instances of the same service can disagree about what identifier three means, and a restart can
@@ -38,8 +40,8 @@ import org.apache.avro.Schema;
  */
 public final class InMemorySchemaRegistry implements SchemaRegistry {
 
-    private final Map<Schema, Integer> ids = new ConcurrentHashMap<>();
-    private final Map<Integer, Schema> schemas = new ConcurrentHashMap<>();
+    private final Map<SchemaDefinition, Integer> ids = new ConcurrentHashMap<>();
+    private final Map<Integer, SchemaDefinition> schemas = new ConcurrentHashMap<>();
     private final AtomicInteger next = new AtomicInteger(1);
 
     /**
@@ -52,13 +54,13 @@ public final class InMemorySchemaRegistry implements SchemaRegistry {
      * @param schema the schema it stands for
      * @return this registry, for chaining
      */
-    public InMemorySchemaRegistry register(int id, Schema schema) {
-        Schema existing = schemas.putIfAbsent(id, schema);
+    public InMemorySchemaRegistry register(int id, SchemaDefinition schema) {
+        SchemaDefinition existing = schemas.putIfAbsent(id, schema);
         if (existing != null && !existing.equals(schema)) {
             // Silently overwriting would make every message already written under this
             // identifier decode as the wrong thing, which is worse than refusing to start.
-            throw new AceMqException("schema id " + id + " is already registered to " + existing.getFullName()
-                    + " and cannot be reassigned to " + schema.getFullName());
+            throw new AceMqException("schema id " + id + " is already registered to " + existing.subject()
+                    + " and cannot be reassigned to " + schema.subject());
         }
         ids.put(schema, id);
         next.updateAndGet(current -> Math.max(current, id + 1));
@@ -66,7 +68,7 @@ public final class InMemorySchemaRegistry implements SchemaRegistry {
     }
 
     @Override
-    public int idFor(Schema schema) {
+    public int idFor(SchemaDefinition schema) {
         return ids.computeIfAbsent(schema, added -> {
             int id = next.getAndIncrement();
             schemas.put(id, added);
@@ -75,8 +77,8 @@ public final class InMemorySchemaRegistry implements SchemaRegistry {
     }
 
     @Override
-    public Schema schemaFor(int id) {
-        Schema schema = schemas.get(id);
+    public SchemaDefinition schemaFor(int id) {
+        SchemaDefinition schema = schemas.get(id);
         if (schema == null) {
             throw new AceMqException("this registry does not know schema id " + id
                     + ". A message was written with a schema this process has never registered, which is what"

@@ -18,10 +18,14 @@ package org.acemq.amqp.codec.avro;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
+import org.acemq.amqp.api.SchemaDefinition;
+import org.acemq.amqp.api.SchemaRegistry;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
@@ -70,6 +74,13 @@ public final class AvroCodec implements Codec {
 
     private static final byte MAGIC = 0;
     private static final int HEADER_BYTES = 5;
+
+    /**
+     * Schemas parsed back from the registry, kept so that a definition is turned into a Schema
+     * once rather than on every message. Parsing Avro text is not cheap and the answer never
+     * changes: an identifier stands for one schema forever.
+     */
+    private final Map<Integer, Schema> parsed = new ConcurrentHashMap<>();
 
     private final @Nullable Schema fixedSchema;
     private final @Nullable SchemaRegistry registry;
@@ -125,7 +136,7 @@ public final class AvroCodec implements Codec {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             if (registry != null) {
-                int id = registry.idFor(schema);
+                int id = registry.idFor(definitionOf(schema));
                 out.write(MAGIC);
                 out.write((id >>> 24) & 0xFF);
                 out.write((id >>> 16) & 0xFF);
@@ -154,7 +165,14 @@ public final class AvroCodec implements Codec {
                             + " written by a codec with a fixed schema or by something else entirely.");
                 }
                 int id = (body[1] & 0xFF) << 24 | (body[2] & 0xFF) << 16 | (body[3] & 0xFF) << 8 | body[4] & 0xFF;
-                writerSchema = registry.schemaFor(id);
+                writerSchema = parsed.computeIfAbsent(id, known -> {
+                    SchemaDefinition definition = registry.schemaFor(known);
+                    if (!"avro".equals(definition.format())) {
+                        throw new AceMqException("schema id " + known + " is registered as " + definition.format()
+                                + ", and this codec reads avro. The message was written by something else.");
+                    }
+                    return new Schema.Parser().parse(definition.definition());
+                });
                 offset = HEADER_BYTES;
             } else {
                 writerSchema = requireFixedSchema();
@@ -189,6 +207,16 @@ public final class AvroCodec implements Codec {
         return type.startsWith(contentType().toLowerCase(Locale.ROOT))
                 || type.startsWith("avro/")
                 || type.contains("avro");
+    }
+
+    /**
+     * @param schema an Avro schema
+     * @return the same schema as a registry sees it, so it can be registered before anything is
+     *     published
+     */
+    public static SchemaDefinition definitionOf(Schema schema) {
+        Objects.requireNonNull(schema, "schema");
+        return new SchemaDefinition("avro", schema.getFullName(), schema.toString());
     }
 
     private Schema schemaOf(Object payload) {

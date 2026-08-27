@@ -159,7 +159,8 @@ class SchemaCodecTest {
 
         @Test
         void puts_the_schema_identifier_on_the_front_where_confluent_clients_look_for_it() {
-            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(7, schema(V1));
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(7,
+                    AvroCodec.definitionOf(schema(V1)));
 
             byte[] encoded = AvroCodec.registered(registry).encode(order(schema(V1), "o-1", 1));
 
@@ -175,8 +176,9 @@ class SchemaCodecTest {
 
         @Test
         void a_reader_on_the_old_schema_survives_a_producer_adding_a_field() {
-            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1, schema(V1)).register(2,
-                    schema(V2));
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
+                    .register(1, AvroCodec.definitionOf(schema(V1))).register(2,
+                            AvroCodec.definitionOf(schema(V2)));
 
             // Producer has been redeployed and writes the new record.
             byte[] fromNewProducer = AvroCodec.registered(registry).encode(order(schema(V2), "o-9", 500));
@@ -190,7 +192,8 @@ class SchemaCodecTest {
 
         @Test
         void refuses_bytes_that_have_no_identifier_on_them() {
-            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1, schema(V1));
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1,
+                    AvroCodec.definitionOf(schema(V1)));
             byte[] withoutHeader = AvroCodec.of(schema(V1)).encode(order(schema(V1), "o-1", 1));
 
             assertThatThrownBy(() -> AvroCodec.registered(registry).decode(withoutHeader, GenericRecord.class))
@@ -200,7 +203,8 @@ class SchemaCodecTest {
 
         @Test
         void says_so_when_it_has_never_seen_the_identifier_a_message_carries() {
-            InMemorySchemaRegistry writer = new InMemorySchemaRegistry().register(42, schema(V1));
+            InMemorySchemaRegistry writer = new InMemorySchemaRegistry().register(42,
+                    AvroCodec.definitionOf(schema(V1)));
             byte[] written = AvroCodec.registered(writer).encode(order(schema(V1), "o-1", 1));
 
             // A different process, which is exactly when an in-memory registry stops working.
@@ -212,12 +216,13 @@ class SchemaCodecTest {
 
         @Test
         void will_not_quietly_reassign_an_identifier_to_a_different_schema() {
-            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1, schema(V1));
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1,
+                    AvroCodec.definitionOf(schema(V1)));
 
             // Overwriting would make every message already written under this identifier decode
             // as something else, which is worse than refusing to start.
-            assertThatThrownBy(() -> registry.register(1, schema(
-                    "{\"type\":\"record\",\"name\":\"Other\",\"fields\":[]}")))
+            assertThatThrownBy(() -> registry.register(1, AvroCodec.definitionOf(schema(
+                    "{\"type\":\"record\",\"name\":\"Other\",\"fields\":[]}"))))
                     .isInstanceOf(AceMqException.class)
                     .hasMessageContaining("already registered");
             assertThat(registry.size()).isEqualTo(1);
@@ -227,7 +232,8 @@ class SchemaCodecTest {
         @Timeout(20)
         void reaches_a_consumer_through_a_broker() {
             connect("avro-roundtrip");
-            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1, schema(V1));
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1,
+                    AvroCodec.definitionOf(schema(V1)));
             List<String> received = new CopyOnWriteArrayList<>();
 
             // The consumer has to be told, and this is the one place that is true. Avro bytes
