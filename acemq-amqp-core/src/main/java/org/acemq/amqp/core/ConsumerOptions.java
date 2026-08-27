@@ -15,6 +15,7 @@
  */
 package org.acemq.amqp.core;
 
+import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.IdempotencyStore;
 import org.acemq.amqp.api.RetryPolicy;
 import org.jspecify.annotations.Nullable;
@@ -26,12 +27,14 @@ public final class ConsumerOptions {
     private final boolean requeueOnFailure;
     private final @Nullable RetryPolicy retryPolicy;
     private final @Nullable IdempotencyStore idempotencyStore;
+    private final @Nullable Codec codec;
 
     private ConsumerOptions(
             int prefetch,
             boolean requeueOnFailure,
             @Nullable RetryPolicy retryPolicy,
-            @Nullable IdempotencyStore idempotencyStore) {
+            @Nullable IdempotencyStore idempotencyStore,
+            @Nullable Codec codec) {
         if (prefetch < 1) {
             throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
         }
@@ -39,6 +42,7 @@ public final class ConsumerOptions {
         this.requeueOnFailure = requeueOnFailure;
         this.retryPolicy = retryPolicy;
         this.idempotencyStore = idempotencyStore;
+        this.codec = codec;
     }
 
     /**
@@ -49,7 +53,7 @@ public final class ConsumerOptions {
      *     behaviour: the message goes to a dead-letter queue if one is configured.
      */
     public static ConsumerOptions defaults() {
-        return new ConsumerOptions(50, false, null, null);
+        return new ConsumerOptions(50, false, null, null, null);
     }
 
     /**
@@ -57,7 +61,7 @@ public final class ConsumerOptions {
      * @return options with that prefetch
      */
     public static ConsumerOptions prefetch(int prefetch) {
-        return new ConsumerOptions(prefetch, false, null, null);
+        return new ConsumerOptions(prefetch, false, null, null, null);
     }
 
     /**
@@ -69,7 +73,7 @@ public final class ConsumerOptions {
      * @return options that requeue on failure
      */
     public ConsumerOptions requeueOnFailure() {
-        return new ConsumerOptions(prefetch, true, retryPolicy, idempotencyStore);
+        return new ConsumerOptions(prefetch, true, retryPolicy, idempotencyStore, codec);
     }
 
     /**
@@ -86,11 +90,8 @@ public final class ConsumerOptions {
      * @return options with retries enabled
      */
     public ConsumerOptions withRetry(RetryPolicy retryPolicy) {
-        return new ConsumerOptions(
-                prefetch,
-                requeueOnFailure,
-                java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"),
-                idempotencyStore);
+        return new ConsumerOptions(prefetch, requeueOnFailure,
+                java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"), idempotencyStore, codec);
     }
 
     /**
@@ -111,7 +112,33 @@ public final class ConsumerOptions {
      */
     public ConsumerOptions idempotent(IdempotencyStore store) {
         return new ConsumerOptions(
-                prefetch, requeueOnFailure, retryPolicy, java.util.Objects.requireNonNull(store, "store"));
+                prefetch, requeueOnFailure, retryPolicy, java.util.Objects.requireNonNull(store, "store"), codec);
+    }
+
+    /**
+     * Reads this queue with one named format instead of whatever arrives.
+     *
+     * <p>Almost never needed. A consumer normally says nothing about format, because the content
+     * type on each message picks the codec, and that is what lets a producer change format
+     * without a consumer change.
+     *
+     * <p>It is needed for Avro and Protobuf, and the reason is the same one that stops them
+     * having an {@code asAvro()}: their bytes carry no description of themselves, so a reader
+     * that has not been told the schema cannot construct one on seeing the message. Self
+     * describing formats need nothing here; schema-bound formats must be named at both ends.
+     *
+     * @param codec the format to read with
+     * @return a copy of these options reading that format
+     */
+    public ConsumerOptions as(Codec codec) {
+        return new ConsumerOptions(
+                prefetch, requeueOnFailure, retryPolicy, idempotencyStore,
+                java.util.Objects.requireNonNull(codec, "codec"));
+    }
+
+    /** @return the format this consumer was told to read, if it was told one */
+    public java.util.Optional<Codec> codec() {
+        return java.util.Optional.ofNullable(codec);
     }
 
     /** @return the idempotency store, when one is configured */

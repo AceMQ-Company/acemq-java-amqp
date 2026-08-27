@@ -62,9 +62,20 @@ public final class Codecs {
                 return provider.create();
             }
         }
+        String asked = name.toLowerCase(java.util.Locale.ROOT);
+        if ("avro".equals(asked) || "protobuf".equals(asked)) {
+            // Not an oversight, and worth explaining where somebody will actually read it. Both
+            // formats need a schema before a codec exists at all, so there is nothing a method
+            // taking no arguments could build.
+            throw new AceMqException(asked + " is not chosen by name, because a " + asked + " codec cannot be"
+                    + " built without a schema: the bytes carry no description of themselves and a reader has"
+                    + " to be told what they are. Use publisher.as(AvroCodec.of(schema)) or"
+                    + " publisher.as(ProtobufCodec.of(YourMessage.parser())) instead, from"
+                    + " org.acemq:acemq-amqp-codec-" + asked + ".");
+        }
         throw new AceMqException("no codec named '" + name + "'. Formats available on the classpath: "
                 + available() + ". Add the module for the format you want, for example"
-                + " org.acemq:acemq-amqp-codec-" + name.toLowerCase(java.util.Locale.ROOT) + ".");
+                + " org.acemq:acemq-amqp-codec-" + asked + ".");
     }
 
     /**

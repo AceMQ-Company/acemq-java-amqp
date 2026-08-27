@@ -160,6 +160,13 @@ While the version is `0.x` the public API may change in any release.
   optional, and asking for a format that is not installed names the artifact to add.
 - `mq.publisher(exchange, routingKey, PayloadType.class)`, so the payload type is
   real rather than inferred from whatever the result is assigned to.
+- `acemq-amqp-codec-avro` and `acemq-amqp-codec-protobuf`. Neither is chosen by name:
+  `publisher.as(AvroCodec.registered(registry))`,
+  `publisher.as(ProtobufCodec.of(Order.parser()))`. Avro can fix one schema or write
+  a Confluent-compatible schema identifier into each message; `SchemaRegistry` is a
+  two-method interface so any registry fits behind it.
+- `ConsumerOptions.as(codec)`, for the one case where a consumer has to be told the
+  format: bytes that describe nothing cannot be recognised on arrival.
 
 ### Fixed
 

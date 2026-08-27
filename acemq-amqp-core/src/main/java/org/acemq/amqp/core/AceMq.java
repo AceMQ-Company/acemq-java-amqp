@@ -347,7 +347,11 @@ public final class AceMq implements AutoCloseable {
             Class<T> payloadType,
             ConsumerOptions options,
             org.acemq.amqp.api.MessageHandler<T> handler) {
-        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, consumeCodec, queue, payloadType, options,
+        // Options may name a format. They have to be able to: Avro and Protobuf cannot be
+        // recognised from the bytes, so a consumer of those has to be told, where a consumer of
+        // anything self-describing is better off not being told at all.
+        Codec reading = options.codec().orElse(consumeCodec);
+        DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, reading, queue, payloadType, options,
                 handler, telemetry);
         managed.add(consumer);
         consumer.start();

@@ -128,10 +128,10 @@ class CodecRegistryTest {
 
         @Test
         void names_the_artifact_to_add_for_a_format_that_is_not_there() {
-            assertThatThrownBy(() -> Codecs.byName("protobuf"))
+            assertThatThrownBy(() -> Codecs.byName("csv"))
                     .isInstanceOf(AceMqException.class)
-                    .hasMessageContaining("no codec named 'protobuf'")
-                    .hasMessageContaining("acemq-amqp-codec-protobuf")
+                    .hasMessageContaining("no codec named 'csv'")
+                    .hasMessageContaining("acemq-amqp-codec-csv")
                     .hasMessageContaining("json");
         }
 
@@ -334,10 +334,10 @@ class CodecRegistryTest {
         void a_format_that_is_not_installed_says_which_artifact_to_add() {
             connect("codec-missing");
 
-            assertThatThrownBy(() -> mq.publisher("orders", "order.placed", OrderPlaced.class).as("avro"))
+            assertThatThrownBy(() -> mq.publisher("orders", "order.placed", OrderPlaced.class).as("csv"))
                     .isInstanceOf(AceMqException.class)
-                    .hasMessageContaining("no codec named 'avro'")
-                    .hasMessageContaining("acemq-amqp-codec-avro");
+                    .hasMessageContaining("no codec named 'csv'")
+                    .hasMessageContaining("acemq-amqp-codec-csv");
         }
 
         @Test

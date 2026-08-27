@@ -105,6 +105,16 @@
       <artifactId>acemq-amqp-codec-yaml</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-avro</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-protobuf</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- Telemetry providers are optional for users of the library, so they are test
          scope here: their presence is exactly what these tests exercise. -->
     <dependency>
