@@ -50,12 +50,58 @@ AceMQ aims to be that layer:
 |---|---|
 | `acemq-amqp-api` | The public API. No third-party dependencies, by design — every language port is transliterated from it |
 | `acemq-transport-spi` | What a broker binding must implement |
-| `acemq-amqp-core` | The protocol-agnostic engine: publisher, consumer runtime, retry ladder, topology planner, codecs, interceptors, telemetry |
+| `acemq-amqp-core` | The protocol-agnostic engine: publisher, consumer runtime, retry ladder, topology planner, codec registry, interceptors, telemetry |
 | `acemq-amqp-patterns` | Outbox, idempotent consumer, saga, claim-check, request-reply, scheduling |
 | `acemq-transport-rabbitmq` | AMQP 0-9-1 binding over the RabbitMQ Java client |
 | `acemq-amqp-test` | In-memory transport (`memory://`), Testcontainers harness, fluent assertions |
+| `acemq-amqp-codec-json` | JSON, via Jackson. A **required** dependency of the core: the format an application writes should not depend on what happens to be on its classpath |
+| `acemq-amqp-codec-xml` | XML, for the parts of an estate that will not be rewritten. External entities disabled and not configurable |
+| `acemq-amqp-codec-yaml` | YAML, for messages a person reads as well as a program |
+| `acemq-amqp-codec-avro` | Avro, with a fixed schema or a Confluent-compatible schema identifier per message |
+| `acemq-amqp-codec-protobuf` | Protocol Buffers, one codec per message type |
 
 `acemq-transport-amqp10` (Qpid Proton-J) joins at milestone M3.
+
+## Serialisation
+
+Publishing an object needs nothing said about it:
+
+```java
+try (AceMq mq = AceMq.connect("amqp://localhost")) {
+    Publisher<OrderPlaced> orders = mq.publisher("orders", "order.placed", OrderPlaced.class);
+    orders.send(new OrderPlaced("o-1", 42.00));                    // JSON
+
+    mq.consume("orders.new", OrderPlaced.class,
+            message -> service.accept(message.payload()));         // reads whatever arrived
+}
+```
+
+A publisher writes one format, chosen once where the destination is named. A consumer
+says nothing about format at all — the content type on each message picks the codec,
+which is what lets a producer change format without a consumer change.
+
+```java
+mq.publisher("legacy", "order",  Order.class).asXml();
+mq.publisher("fleet",  "config", Config.class).asYaml();
+mq.publisher("files",  "upload", byte[].class).asBytes();
+mq.publisher("orders", "placed", Order.class).as(new JsonCodec(myObjectMapper));
+```
+
+Avro and Protobuf have no `asAvro()` and no `asProtobuf()`, because neither can be
+built without a schema — a method taking no arguments would have nothing to work with:
+
+```java
+publisher.as(AvroCodec.registered(registry));
+publisher.as(ProtobufCodec.of(OrderPlaced.parser()));
+
+// and, uniquely, the consumer has to be told as well: bytes that describe
+// nothing cannot be recognised on arrival
+mq.consume("orders.new", OrderPlaced.class,
+        ConsumerOptions.defaults().as(ProtobufCodec.of(OrderPlaced.parser())), handler);
+```
+
+Adding a format is a `Codec`, a `CodecProvider` and a service file. Asking for one
+that is not installed names the artifact to add.
 
 ## Requirements
 
