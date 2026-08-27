@@ -167,6 +167,14 @@ While the version is `0.x` the public API may change in any release.
   two-method interface so any registry fits behind it.
 - `ConsumerOptions.as(codec)`, for the one case where a consumer has to be told the
   format: bytes that describe nothing cannot be recognised on arrival.
+- Streams. `mq.declareStream(name, maxAge, maxLengthBytes)` and a reader that says
+  where to start: `mq.stream("orders.log", Order.class).fromFirst().consume(handler)`,
+  or `.fromOffset(n)`, `.from(instant)`, `.fromLast(Duration)`, `.fromNext()`.
+- `StreamConsumer` is a separate type from `MessageConsumer`, because a stream has no
+  dead-letter queue, no requeue and no destructive read. A failing handler stops the
+  reader, or skips and counts with `.skipFailures()`; there is no third answer.
+- `TransportConnection.subscribe(queue, prefetch, consumerArguments, listener)`, which
+  is where a stream's starting offset has to live.
 
 ### Fixed
 

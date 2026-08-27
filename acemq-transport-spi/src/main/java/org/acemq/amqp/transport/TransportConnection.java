@@ -85,6 +85,36 @@ public interface TransportConnection extends AutoCloseable {
     Subscription subscribe(String queue, int prefetch, DeliveryListener listener);
 
     /**
+     * Starts consuming a queue with broker-specific consumer arguments.
+     *
+     * <p>Exists for streams. A stream consumer says where in the log to start with an
+     * {@code x-stream-offset} argument, and there is nowhere else to put it: it belongs to the
+     * subscription rather than to the queue, because two consumers of one stream read from
+     * different positions.
+     *
+     * <p>The default refuses rather than ignores. Dropping the arguments would leave a consumer
+     * that asked to replay a stream from the beginning quietly reading only new messages —
+     * working, plausible, and missing everything it was written to process.
+     *
+     * @param queue queue to consume
+     * @param prefetch maximum unsettled deliveries allowed at once
+     * @param consumerArguments broker-specific arguments for this subscription
+     * @param listener receives each delivery
+     * @return a handle that stops delivery when closed
+     * @throws TransportException if the queue cannot be consumed, or if this transport cannot
+     *     honour the arguments given
+     */
+    default Subscription subscribe(
+            String queue, int prefetch, Map<String, Object> consumerArguments, DeliveryListener listener) {
+        if (consumerArguments == null || consumerArguments.isEmpty()) {
+            return subscribe(queue, prefetch, listener);
+        }
+        throw new TransportException("this transport does not support consumer arguments, and was asked for "
+                + consumerArguments.keySet() + " on queue '" + queue + "'. Consuming without them would read"
+                + " from the wrong place rather than fail, so it is refused.");
+    }
+
+    /**
      * Removes a queue and everything in it.
      *
      * @param name queue to delete

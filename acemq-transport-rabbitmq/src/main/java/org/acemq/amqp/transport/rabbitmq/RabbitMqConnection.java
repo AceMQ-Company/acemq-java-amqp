@@ -17,6 +17,7 @@ package org.acemq.amqp.transport.rabbitmq;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,17 +176,28 @@ final class RabbitMqConnection implements TransportConnection {
 
     @Override
     public Subscription subscribe(String queue, int prefetch, DeliveryListener listener) {
+        return subscribe(queue, prefetch, Collections.emptyMap(), listener);
+    }
+
+    @Override
+    public Subscription subscribe(
+            String queue, int prefetch, Map<String, Object> consumerArguments, DeliveryListener listener) {
         if (prefetch < 1) {
             throw new IllegalArgumentException(
                     "prefetch must be at least 1, was " + prefetch + ". Unbounded prefetch is the fastest way to run"
-                            + " a consumer out of memory, so it cannot be requested by accident.");
+                            + " a consumer out of memory, so it cannot be requested by accident."
+                            + " A stream additionally requires it: the broker refuses a stream consumer with no"
+                            + " prefetch, because a stream has no other way to stop.");
         }
+        Map<String, Object> arguments = consumerArguments == null
+                ? Collections.emptyMap()
+                : new HashMap<>(consumerArguments);
         try {
             Channel channel = connection.createChannel();
             channel.basicQos(prefetch);
             consumerChannels.add(channel);
 
-            String consumerTag = channel.basicConsume(queue, false, new DefaultConsumer(channel) {
+            String consumerTag = channel.basicConsume(queue, false, arguments, new DefaultConsumer(channel) {
                 @Override
                 public void handleDelivery(
                         String tag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {

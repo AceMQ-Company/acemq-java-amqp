@@ -15,7 +15,9 @@
  */
 package org.acemq.amqp.core;
 
+import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -316,6 +318,81 @@ public final class AceMq implements AutoCloseable {
     public <T> DefaultPublisher<T> publisher(String exchange, String routingKey, Class<T> payloadType) {
         Objects.requireNonNull(payloadType, "payloadType");
         return publisher(exchange, routingKey);
+    }
+
+    /**
+     * Declares a stream: an append-only log that keeps messages until retention removes them.
+     *
+     * <p>Not a queue with different settings. A stream is read without being emptied, every
+     * consumer holds its own position, and nothing is ever dead-lettered — see
+     * {@link StreamConsumer} for what that rules out.
+     *
+     * <p>Retention is not optional in practice. A stream with neither a size nor an age limit
+     * grows until the disk is full, and the broker will not stop it.
+     *
+     * @param name stream name
+     * @param maxAge how long a message is kept, or {@code null} for no age limit
+     * @param maxLengthBytes how large the stream may grow, or {@code null} for no size limit
+     * @return this instance, for chaining
+     * @throws org.acemq.amqp.api.AceMqException if the broker does not support streams
+     */
+    public AceMq declareStream(String name, @Nullable Duration maxAge, @Nullable Long maxLengthBytes) {
+        requireStreams(name);
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        if (maxAge != null) {
+            // The broker's own syntax. Seconds express every duration exactly, where rounding to
+            // days would quietly change how much history is kept.
+            arguments.put("x-max-age", maxAge.getSeconds() + "s");
+        }
+        if (maxLengthBytes != null) {
+            arguments.put("x-max-length-bytes", maxLengthBytes);
+        }
+        if (arguments.isEmpty()) {
+            log.warn("stream {} is declared with no retention. It will grow until the disk is full, and the broker"
+                    + " will not stop it.", name);
+        }
+        connection.declareQueue(name, QueueType.STREAM, true, arguments);
+        return this;
+    }
+
+    /**
+     * Reads a stream, starting where the returned reader is told to.
+     *
+     * <pre>{@code
+     * mq.stream("orders.log", OrderPlaced.class)
+     *         .fromFirst()
+     *         .consume(message -> projection.apply(message.payload()));
+     * }</pre>
+     *
+     * <p>Nothing is consumed until {@code consume} is called.
+     *
+     * @param queue stream to read
+     * @param payloadType type to decode payloads into
+     * @param <T> payload type
+     * @return a reader awaiting a starting position and a handler
+     * @throws org.acemq.amqp.api.AceMqException if the broker does not support streams
+     */
+    public <T> StreamReader<T> stream(String queue, Class<T> payloadType) {
+        requireStreams(queue);
+        Objects.requireNonNull(payloadType, "payloadType");
+        return new StreamReader<>(queue, payloadType, StreamOptions.defaults(), (reader, handler) -> {
+            Codec reading = reader.options().codec().orElse(consumeCodec);
+            DefaultStreamConsumer<T> consumer = new DefaultStreamConsumer<>(
+                    connection, reading, reader.queue(), payloadType, reader.options(), handler, telemetry);
+            managed.add(consumer);
+            consumer.start();
+            return consumer;
+        });
+    }
+
+    private void requireStreams(String name) {
+        if (!supports(Capability.STREAMS)) {
+            // Declared, not assumed. Falling back to a classic queue would look like it worked
+            // and would lose replay, retention and every consumer's independent position.
+            throw new org.acemq.amqp.api.AceMqException("the " + transport.name() + " transport does not support"
+                    + " streams, so '" + name + "' cannot be one. Streams need RabbitMQ 3.9 or later over the"
+                    + " amqp:// transport.");
+        }
     }
 
     /**
