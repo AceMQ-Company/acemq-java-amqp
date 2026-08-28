@@ -39,14 +39,14 @@ final class Transports {
     static Transport forScheme(String scheme) {
         List<Transport> available = new ArrayList<>();
         for (Transport transport : ServiceLoader.load(Transport.class)) {
-            if (transport.scheme().equalsIgnoreCase(scheme)) {
+            if (transport.schemes().stream().anyMatch(known -> known.equalsIgnoreCase(scheme))) {
                 return transport;
             }
             available.add(transport);
         }
         String found = available.isEmpty()
                 ? "none"
-                : available.stream().map(Transport::scheme).collect(Collectors.joining(", "));
+                : available.stream().flatMap(t -> t.schemes().stream()).collect(Collectors.joining(", "));
         throw new AceMqException("no transport handles the scheme '" + scheme + "'. Schemes available on the"
                 + " classpath: " + found + ". Add the module for the broker you are connecting to, for example"
                 + " org.acemq:acemq-transport-rabbitmq for amqp:// URLs.");

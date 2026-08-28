@@ -175,6 +175,16 @@ While the version is `0.x` the public API may change in any release.
   reader, or skips and counts with `.skipFailures()`; there is no third answer.
 - `TransportConnection.subscribe(queue, prefetch, consumerArguments, listener)`, which
   is where a stream's starting offset has to live.
+- `acemq-security-api`: `Security`, `Credentials` and `CredentialsProvider`, with no
+  third-party dependencies. `amqps://` now resolves and verifies the certificate chain
+  and the hostname with nothing configured; `amqp://` to anything but loopback logs a
+  warning naming the host.
+- Relaxations are named methods — `Security.insecure()`, `Security.disabled()` — never
+  a boolean in a properties file, so every use is one search.
+- `CredentialsProvider` is consulted on every connection rather than once at start-up,
+  because tokens expire and automatic recovery reconnects.
+- A certificate carrying the development marker is refused unless
+  `allowDevelopmentCertificates()` is called.
 
 ### Fixed
 

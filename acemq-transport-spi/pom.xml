@@ -19,5 +19,11 @@
       <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-api</artifactId>
     </dependency>
+    <!-- The transport is what applies a security policy, so it has to be able to name
+         one. security-api has no dependencies of its own. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-security-api</artifactId>
+    </dependency>
   </dependencies>
 </project>

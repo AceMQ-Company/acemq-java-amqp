@@ -51,6 +51,7 @@
 
   <modules>
     <module>acemq-amqp-api</module>
+    <module>acemq-security-api</module>
     <module>acemq-transport-spi</module>
     <module>acemq-amqp-codec-json</module>
     <module>acemq-amqp-codec-xml</module>
@@ -143,6 +144,11 @@
       <dependency>
         <groupId>org.acemq</groupId>
         <artifactId>acemq-amqp-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-security-api</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

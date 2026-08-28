@@ -18,6 +18,7 @@ package org.acemq.amqp.transport;
 import java.time.Duration;
 import java.util.Objects;
 
+import org.acemq.amqp.security.Security;
 import org.jspecify.annotations.Nullable;
 
 /** Everything a transport needs in order to open a connection. */
@@ -31,6 +32,7 @@ public final class ConnectionConfig {
     private final Duration connectionTimeout;
     private final Duration confirmTimeout;
     private final boolean publisherConfirms;
+    private final Security security;
 
     private ConnectionConfig(Builder builder) {
         this.url = Objects.requireNonNull(builder.url, "url must not be null");
@@ -41,6 +43,7 @@ public final class ConnectionConfig {
         this.connectionTimeout = builder.connectionTimeout;
         this.confirmTimeout = builder.confirmTimeout;
         this.publisherConfirms = builder.publisherConfirms;
+        this.security = builder.security;
     }
 
     /**
@@ -82,6 +85,14 @@ public final class ConnectionConfig {
     }
 
     /** @return whether publishes wait for broker confirmation; on by default */
+    /**
+     * @return how this connection is protected. Never null: a connection always has a policy,
+     *     and the default is the safe one
+     */
+    public Security security() {
+        return security;
+    }
+
     public boolean publisherConfirms() {
         return publisherConfirms;
     }
@@ -110,6 +121,9 @@ public final class ConnectionConfig {
         private Duration connectionTimeout = Duration.ofSeconds(10);
         private Duration confirmTimeout = Duration.ofSeconds(10);
         private boolean publisherConfirms = true;
+        // Secure by default. An amqps:// URL then needs nothing said about it, and a plaintext
+        // one to anywhere but this machine is warned about rather than silently accepted.
+        private Security security = Security.required();
 
         public Builder url(String url) {
             this.url = url;
@@ -149,6 +163,15 @@ public final class ConnectionConfig {
          * <p>Named rather than boolean-flagged, because losing messages silently should
          * require saying so out loud.
          */
+        /**
+         * @param security how the connection is protected
+         * @return this builder
+         */
+        public Builder security(Security security) {
+            this.security = java.util.Objects.requireNonNull(security, "security");
+            return this;
+        }
+
         public Builder withoutPublisherConfirms() {
             this.publisherConfirms = false;
             return this;

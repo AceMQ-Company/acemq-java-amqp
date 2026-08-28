@@ -39,6 +39,19 @@ public interface Transport {
      */
     String scheme();
 
+    /**
+     * Every scheme this transport answers to.
+     *
+     * <p>Exists because {@code amqps://} is the same transport as {@code amqp://} with the
+     * connection encrypted, not a different one, and a library where the secure URL fails to
+     * resolve is a library that teaches people to use the insecure one.
+     *
+     * @return the schemes, which must include {@link #scheme()}
+     */
+    default java.util.Set<String> schemes() {
+        return java.util.Collections.singleton(scheme());
+    }
+
     /** @return a short name for logs and diagnostics, such as {@code rabbitmq} */
     String name();
 
