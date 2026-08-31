@@ -16,6 +16,7 @@ on:
       - 'docs/**'
       - '**/src/main/java/**'
       - '.github/workflows/docs.yml'
+      - '.github/scripts/build-docs-site.sh'
       - 'pom.xml'
   workflow_dispatch:
 
