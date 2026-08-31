@@ -25,6 +25,25 @@ public interface Subscription extends AutoCloseable {
     boolean isActive();
 
     /**
+     * Changes how many unsettled deliveries this subscription may hold.
+     *
+     * <p>Takes effect for deliveries after the call; messages already in flight are unaffected,
+     * because they have been sent. That is the protocol's behaviour, not a shortcut — there is
+     * no way to un-send them.
+     *
+     * <p>The default refuses. A transport that silently ignored a prefetch change would leave an
+     * operator watching a number that says one thing while the consumer does another, which is
+     * worse than an error.
+     *
+     * @param prefetch the new limit, at least 1
+     * @throws TransportException if this transport cannot change prefetch on a live subscription
+     */
+    default void setPrefetch(int prefetch) {
+        throw new TransportException("the transport behind queue '" + queue() + "' cannot change prefetch on a"
+                + " live subscription. Recreate the consumer instead.");
+    }
+
+    /**
      * Stops delivery and releases broker resources.
      *
      * <p>Implementations should let in-flight deliveries finish settling rather than

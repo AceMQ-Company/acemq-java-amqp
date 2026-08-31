@@ -133,10 +133,25 @@ final class InMemoryConnection implements TransportConnection {
      * deliveries may be unsettled at once. That is prefetch, modelled the same way a broker
      * models it, so a test can observe backpressure rather than only assuming it.
      */
+    /** A semaphore whose permit count can be lowered; {@code reducePermits} is protected. */
+    private static final class ResizableSemaphore extends Semaphore {
+
+        private static final long serialVersionUID = 1L;
+
+        ResizableSemaphore(int permits) {
+            super(permits);
+        }
+
+        void reduce(int permits) {
+            reducePermits(permits);
+        }
+    }
+
     private static final class InMemorySubscription implements Subscription {
 
         private final InMemoryBroker.Queue queue;
-        private final Semaphore unsettled;
+        private final ResizableSemaphore unsettled;
+        private final java.util.concurrent.atomic.AtomicInteger prefetch;
         private final DeliveryListener listener;
         private final java.util.List<InMemorySubscription> registry;
         private final ExecutorService dispatcher;
@@ -148,7 +163,8 @@ final class InMemoryConnection implements TransportConnection {
                 DeliveryListener listener,
                 java.util.List<InMemorySubscription> registry) {
             this.queue = queue;
-            this.unsettled = new Semaphore(prefetch);
+            this.unsettled = new ResizableSemaphore(prefetch);
+            this.prefetch = new java.util.concurrent.atomic.AtomicInteger(prefetch);
             this.listener = listener;
             this.registry = registry;
             ThreadFactory factory = runnable -> {
@@ -157,6 +173,23 @@ final class InMemoryConnection implements TransportConnection {
                 return thread;
             };
             this.dispatcher = Executors.newSingleThreadExecutor(factory);
+        }
+
+        @Override
+        public void setPrefetch(int updated) {
+            if (updated < 1) {
+                throw new IllegalArgumentException("prefetch must be at least 1, was " + updated);
+            }
+            // The semaphore is the prefetch here, so raising it releases permits and lowering it
+            // takes them back. Taking them back cannot reclaim what is already in flight, which
+            // matches a real broker: those deliveries have been sent.
+            int previous = prefetch.getAndSet(updated);
+            int difference = updated - previous;
+            if (difference > 0) {
+                unsettled.release(difference);
+            } else if (difference < 0) {
+                unsettled.reduce(-difference);
+            }
         }
 
         void start() {
@@ -249,9 +282,16 @@ final class InMemoryConnection implements TransportConnection {
             if (!active.compareAndSet(true, false)) {
                 return;
             }
-            dispatcher.shutdownNow();
+            // shutdown, not shutdownNow. The subscription contract says in-flight deliveries
+            // are let alone to finish settling, and shutdownNow interrupts them — which turns a
+            // clean stop into a redelivery and makes draining impossible to implement on top.
+            // The pump loop already stops on the inactive flag, so nothing new is taken.
+            dispatcher.shutdown();
             try {
-                dispatcher.awaitTermination(2, TimeUnit.SECONDS);
+                if (!dispatcher.awaitTermination(30, TimeUnit.SECONDS)) {
+                    // Only now, and only because something is genuinely stuck.
+                    dispatcher.shutdownNow();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }

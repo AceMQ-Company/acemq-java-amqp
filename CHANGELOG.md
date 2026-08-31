@@ -185,6 +185,20 @@ While the version is `0.x` the public API may change in any release.
   because tokens expire and automatic recovery reconnects.
 - A certificate carrying the development marker is refused unless
   `allowDevelopmentCertificates()` is called.
+- Consumer groups, resized while the application runs:
+  `mq.consumeGroup(queue, Type.class, handler).concurrency(4).prefetch(50).start()`,
+  then `group.scaleTo(8)` and `group.prefetch(100)`. Neither number needs a redeploy.
+- `MessageConsumer.drain(timeout)` stops taking new work and waits for what is in
+  hand, and `inFlight()` says how much that is. Scaling down drains rather than
+  cancelling, so a handler mid-message is not abandoned to a redelivery.
+- `Subscription.setPrefetch(int)` on the transport SPI, implemented for RabbitMQ with
+  `basic.qos` on the live channel.
+
+### Fixed
+
+- The in-memory transport's `close()` used `shutdownNow()`, interrupting handlers that
+  were still running. That contradicted the subscription contract, turned a clean stop
+  into a redelivery, and made draining impossible to build on.
 
 ### Fixed
 

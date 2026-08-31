@@ -396,6 +396,20 @@ final class RabbitMqConnection implements TransportConnection {
         }
 
         @Override
+        public void setPrefetch(int prefetch) {
+            if (prefetch < 1) {
+                throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
+            }
+            try {
+                // AMQP allows basic.qos on a channel that is already consuming; it applies to
+                // deliveries after this point. Nothing needs recreating.
+                channel.basicQos(prefetch);
+            } catch (IOException e) {
+                throw new TransportException("could not change the prefetch on queue " + queue + " to " + prefetch, e);
+            }
+        }
+
+        @Override
         public boolean isActive() {
             return active.get() && channel.isOpen();
         }

@@ -410,6 +410,43 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Consumes a queue with several consumers, resizable while the application runs.
+     *
+     * <pre>{@code
+     * ConsumerGroup orders = mq.consumeGroup("orders.new", Order.class, handler)
+     *         .concurrency(4)
+     *         .prefetch(50)
+     *         .start();
+     *
+     * orders.scaleTo(8);
+     * }</pre>
+     *
+     * <p>Prefetch and concurrency are the two numbers that decide how fast a queue drains, and
+     * both are usually guessed once and frozen in a properties file because changing either has
+     * meant a redeploy. Neither has to be.
+     *
+     * @param queue queue to consume
+     * @param payloadType type to decode payloads into
+     * @param handler called for each message
+     * @param <T> payload type
+     * @return a builder; nothing consumes until start() is called
+     */
+    public <T> ConsumerGroupBuilder<T> consumeGroup(
+            String queue, Class<T> payloadType, org.acemq.amqp.api.MessageHandler<T> handler) {
+        Objects.requireNonNull(payloadType, "payloadType");
+        Objects.requireNonNull(handler, "handler");
+        return new ConsumerGroupBuilder<>(queue, payloadType, ConsumerOptions.defaults(), 1, (builder, howMany) -> {
+            ConsumerGroup group = new ConsumerGroup(
+                    builder.queue(),
+                    builder.options().prefetch(),
+                    () -> consume(builder.queue(), builder.payloadType(), builder.options(), handler));
+            group.scaleTo(howMany);
+            managed.add(group);
+            return group;
+        });
+    }
+
+    /**
      * Starts consuming a queue with explicit options.
      *
      * @param queue queue to consume

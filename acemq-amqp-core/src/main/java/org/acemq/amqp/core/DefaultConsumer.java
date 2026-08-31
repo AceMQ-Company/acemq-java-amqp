@@ -64,6 +64,8 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong duplicates = new AtomicLong();
     private final @Nullable IdempotencyStore idempotency;
     private final @Nullable RetryDispatcher retries;
+    private final AtomicLong inFlight = new AtomicLong();
+    private final java.util.concurrent.atomic.AtomicInteger prefetch;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile @Nullable Subscription subscription;
 
@@ -82,6 +84,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
         this.options = options;
         this.handler = handler;
         this.telemetry = telemetry;
+        this.prefetch = new java.util.concurrent.atomic.AtomicInteger(options.prefetch());
         this.idempotency = options.idempotencyStore().orElse(null);
         this.retries = options.retryPolicy()
                 .map(policy -> {
@@ -100,7 +103,64 @@ final class DefaultConsumer<T> implements MessageConsumer {
         log.info("consuming {} with prefetch {}", queue, options.prefetch());
     }
 
+    @Override
+    public long inFlight() {
+        return inFlight.get();
+    }
+
+    @Override
+    public int prefetch() {
+        return prefetch.get();
+    }
+
+    @Override
+    public void prefetch(int updated) {
+        Subscription current = this.subscription;
+        if (current == null) {
+            throw new org.acemq.amqp.api.AceMqException("this consumer is not running, so its prefetch cannot"
+                    + " be changed");
+        }
+        current.setPrefetch(updated);
+        prefetch.set(updated);
+        log.info("prefetch on {} changed to {}", queue, updated);
+    }
+
+    @Override
+    public boolean drain(java.time.Duration timeout) {
+        // Cancel first, so nothing new arrives while waiting. Waiting with the subscription
+        // still open would be waiting on a queue that keeps refilling.
+        Subscription current = this.subscription;
+        if (current != null && current.isActive()) {
+            current.close();
+        }
+        running.set(false);
+
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (inFlight.get() > 0 && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return inFlight.get() == 0;
+            }
+        }
+        boolean quiet = inFlight.get() == 0;
+        if (!quiet) {
+            log.warn("drained {} but {} message(s) are still being handled after {}", queue, inFlight.get(), timeout);
+        }
+        return quiet;
+    }
+
     private void dispatch(InboundDelivery delivery, Acknowledger acknowledger) {
+        inFlight.incrementAndGet();
+        try {
+            dispatchCounted(delivery, acknowledger);
+        } finally {
+            inFlight.decrementAndGet();
+        }
+    }
+
+    private void dispatchCounted(InboundDelivery delivery, Acknowledger acknowledger) {
         Message<T> message;
         try {
             message = decode(delivery);
@@ -265,12 +325,16 @@ final class DefaultConsumer<T> implements MessageConsumer {
 
     @Override
     public void close() {
-        if (!running.compareAndSet(true, false)) {
-            return;
-        }
+        // Not guarded on the running flag any more: drain() clears it first, and a drained
+        // consumer must still release its subscription when it is closed.
+        boolean wasRunning = running.getAndSet(false);
         Subscription current = subscription;
         if (current != null) {
             current.close();
+            subscription = null;
+        }
+        if (!wasRunning) {
+            return;
         }
         log.info("stopped consuming {} after {} acknowledged and {} rejected", queue, acknowledged(), rejected());
     }
