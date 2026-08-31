@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Render docs/*.md into site/, and fold in the aggregated Javadoc.
+#
+#   bash .github/scripts/build-docs-site.sh
+#
+# Lives here rather than in the shared scripts folder because the docs workflow
+# runs from a checkout of this repository alone and cannot reach anything
+# outside it. Runs locally too, for previewing before pushing.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
+OUT="site"
+
+command -v pandoc >/dev/null || { echo "pandoc is required" >&2; exit 1; }
+
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+cat > "$OUT/style.css" <<'CSS'
+:root {
+  color-scheme: light dark;
+  --fg:#1a1a1a; --bg:#fff; --muted:#5f5f5f; --line:#e4e4e4;
+  --accent:#b4451f; --code-bg:#f7f7f5; --nav-bg:#fbfbfa;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fg:#e8e8e8; --bg:#161616; --muted:#9c9c9c; --line:#2d2d2d;
+          --accent:#ff8a5c; --code-bg:#1e1e1e; --nav-bg:#1b1b1b; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+nav.top { background:var(--nav-bg); border-bottom:1px solid var(--line);
+          padding:.85rem 1.25rem; display:flex; gap:1.15rem; flex-wrap:wrap; align-items:baseline;
+          position:sticky; top:0; z-index:10; }
+nav.top .brand { font-weight:700; letter-spacing:-.01em; margin-right:.5rem; }
+nav.top a { color:var(--fg); text-decoration:none; font-size:.9rem; opacity:.78; }
+nav.top a:hover { opacity:1; color:var(--accent); }
+nav.top a.api { margin-left:auto; color:var(--accent); opacity:1; font-weight:600; }
+main { max-width:47rem; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
+h1 { font-size:2rem; letter-spacing:-.025em; margin:0 0 1.5rem; }
+h2 { font-size:1.3rem; letter-spacing:-.015em; margin:2.75rem 0 .85rem;
+     padding-top:.4rem; border-top:1px solid var(--line); }
+h3 { font-size:1.05rem; margin:1.75rem 0 .6rem; }
+p, li { color:var(--fg); }
+a { color:var(--accent); }
+pre { background:var(--code-bg); border:1px solid var(--line); border-radius:8px;
+      padding:1rem 1.15rem; overflow-x:auto; font-size:.855rem; line-height:1.55; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9em; }
+p code, li code, td code { background:var(--code-bg); border:1px solid var(--line);
+      border-radius:4px; padding:.08em .35em; color:var(--accent); }
+pre code { background:none; border:none; padding:0; color:inherit; }
+table { border-collapse:collapse; width:100%; font-size:.92rem; display:block; overflow-x:auto; }
+th,td { text-align:left; padding:.55rem .8rem; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:600; }
+blockquote { border-left:3px solid var(--line); margin:1.25rem 0; padding:.2rem 0 .2rem 1.15rem; color:var(--muted); }
+footer { max-width:47rem; margin:0 auto; padding:1.5rem 1.25rem 4rem;
+         border-top:1px solid var(--line); color:var(--muted); font-size:.85rem; }
+CSS
+
+NAV='<nav class="top">
+  <span class="brand">AceMQ for Java</span>
+  <a href="index.html">Overview</a>
+  <a href="getting-started.html">Getting started</a>
+  <a href="publishing.html">Publishing</a>
+  <a href="consuming.html">Consuming</a>
+  <a href="reliability.html">Reliability</a>
+  <a href="serialization.html">Serialization</a>
+  <a href="streams.html">Streams</a>
+  <a href="testing.html">Testing</a>
+  <a class="api" href="apidocs/index.html">API reference</a>
+</nav>
+<main>'
+
+FOOT='</main>
+<footer>
+  <a href="https://github.com/AceMQ-Company/acemq-java-amqp">AceMQ for Java</a> &mdash;
+  Apache-2.0. Artifacts at
+  <a href="https://acemq-company.github.io/maven/">acemq-company.github.io/maven</a>.
+  Pre-1.0: the API may still change.
+</footer>'
+
+printf '%s' "$NAV" > "$OUT/.nav.html"
+printf '%s' "$FOOT" > "$OUT/.foot.html"
+
+for f in docs/*.md; do
+  base="$(basename "${f%.md}")"
+  # The first heading is the page title. pagetitle rather than title, because
+  # pandoc's template renders a title block from "title" and would print the
+  # H1 that the markdown already contains.
+  title="$(head -n1 "$f" | sed 's/^#\{1,6\} *//')"
+  pandoc "$f" \
+    --from=gfm --to=html5 --standalone \
+    --metadata pagetitle="$title — AceMQ for Java" \
+    --syntax-highlighting=tango \
+    --css=style.css \
+    --include-before-body="$OUT/.nav.html" \
+    --include-after-body="$OUT/.foot.html" \
+    --output "$OUT/$base.html"
+  # Links between pages are written as .md so they work when the same files are
+  # read on GitHub; only the rendered copy is rewritten.
+  perl -pi -e 's/href="([^":]*)\.md"/href="$1.html"/g' "$OUT/$base.html"
+  echo "  rendered $base.html"
+done
+
+rm -f "$OUT/.nav.html" "$OUT/.foot.html"
+
+# Javadoc. The aggregate goal has written to target/site/apidocs historically and
+# to target/reports/apidocs in recent plugin versions, so both are accepted --
+# and a missing one is fatal rather than silently shipping a site whose API
+# reference 404s.
+APIDOCS=""
+for candidate in target/reports/apidocs target/site/apidocs; do
+  [ -d "$candidate" ] && APIDOCS="$candidate" && break
+done
+if [ -z "$APIDOCS" ]; then
+  echo "no aggregated javadoc found; run: mvn -DskipTests javadoc:aggregate" >&2
+  exit 1
+fi
+mkdir -p "$OUT/apidocs"
+cp -R "$APIDOCS/." "$OUT/apidocs/"
+echo "  copied javadoc from $APIDOCS"
+
+# Jekyll would otherwise skip javadoc's underscore-prefixed resources.
+touch "$OUT/.nojekyll"
+
+echo "Site written to $REPO_ROOT/$OUT/index.html"

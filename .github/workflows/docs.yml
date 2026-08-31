@@ -1,0 +1,67 @@
+# Build the documentation site and publish it to GitHub Pages.
+#
+# The site is the markdown under docs/ rendered to HTML, plus aggregated Javadoc
+# for every module under /apidocs/.
+#
+# Javadoc is part of the site rather than an afterthought because these
+# artifacts are not on Maven Central, and javadoc.io only serves what Central
+# has. Self-hosting is the only way anyone reads the API documentation, so it is
+# generated from the same commit as the prose and can never drift from it.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '**/src/main/java/**'
+      - '.github/workflows/docs.yml'
+      - 'pom.xml'
+  workflow_dispatch:
+
+# One deployment at a time; a queued run supersedes a waiting one rather than
+# racing it. In-progress runs are allowed to finish so a half-published site is
+# never left behind.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+
+      - name: Aggregate the Javadoc
+        # -DskipTests: this job documents the code, it does not verify it. CI
+        # already ran the full suite on this commit.
+        run: mvn -B --no-transfer-progress -DskipTests -Djacoco.skip=true javadoc:aggregate
+
+      - name: Render the pages
+        run: bash .github/scripts/build-docs-site.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
