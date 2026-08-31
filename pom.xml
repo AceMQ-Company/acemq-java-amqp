@@ -389,6 +389,27 @@
           <configuration>
             <doclint>all,-missing</doclint>
             <quiet>true</quiet>
+            <!-- @apiNote, @implSpec and @implNote are standard tags, but javadoc only
+                 recognises them for the JDK's own build unless a project declares them.
+                 Undeclared, they are "unknown tag" errors that fail the javadoc jar and
+                 so fail the release, while every ordinary build passes. -->
+            <tags>
+              <tag>
+                <name>apiNote</name>
+                <placement>a</placement>
+                <head>API Note:</head>
+              </tag>
+              <tag>
+                <name>implSpec</name>
+                <placement>a</placement>
+                <head>Implementation Requirements:</head>
+              </tag>
+              <tag>
+                <name>implNote</name>
+                <placement>a</placement>
+                <head>Implementation Note:</head>
+              </tag>
+            </tags>
           </configuration>
         </plugin>
         <plugin>

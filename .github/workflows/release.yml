@@ -1,0 +1,118 @@
+# Publish a release into the Git-hosted Maven repository at AceMQ-Company/maven,
+# which is served over GitHub Pages at https://acemq-company.github.io/maven/.
+#
+# Triggered by a tag:  git tag v0.1.0 && git push origin v0.1.0
+#
+# Needs a secret named MAVEN_REPO_TOKEN: a token with write access to
+# AceMQ-Company/maven. The built-in GITHUB_TOKEN is scoped to this repository
+# only, so it cannot push to another one.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (e.g. 0.1.0)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 21 rather than the newest available: the NullAway and ErrorProne
+          # profile is bound to [21,24), so building the release on anything
+          # newer would publish artifacts that never met the static analysis
+          # gate the pull requests are held to.
+          java-version: '21'
+          cache: maven
+
+      - name: Work out the version
+        id: version
+        env:
+          # Through the environment rather than interpolated into the script.
+          # A tag name and a dispatch input are both caller-controlled text, and
+          # inlining either one lets whoever writes it run shell here.
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${TAG_NAME#v}"
+          fi
+          # An allow-list, not a deny-list. The version is concatenated into a
+          # Maven argument and a commit message, so anything that is not plainly
+          # a version number is refused rather than escaped.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'; then
+            echo "not a release version: '$VERSION'" >&2
+            exit 1
+          fi
+          case "$VERSION" in
+            *SNAPSHOT*)
+              echo "refusing to publish a SNAPSHOT to the release repository: $VERSION" >&2
+              exit 1
+              ;;
+          esac
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "publishing $VERSION"
+
+      - name: Build and test
+        # The full build, including integration tests against real brokers. A
+        # release is the one moment where waiting for the slow suite is worth
+        # it: this is the artifact people will actually depend on.
+        run: mvn -B --no-transfer-progress verify
+
+      - name: Check out the Maven repository
+        uses: actions/checkout@v4
+        with:
+          repository: AceMQ-Company/maven
+          token: ${{ secrets.MAVEN_REPO_TOKEN }}
+          path: maven-repo
+
+      - name: Deploy into it
+        # Cloned first, then deployed into, so maven-metadata.xml merges with
+        # what is already published. Deploying into an empty directory would
+        # rewrite the metadata with only this version, leaving earlier releases
+        # on disk but invisible to anything that reads it.
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          mvn -B --no-transfer-progress versions:set \
+            -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+          mvn -B --no-transfer-progress -Prelease -DskipTests -DskipITs \
+            -Djacoco.skip=true -Dgpg.skip=true \
+            deploy -DaltDeploymentRepository="acemq::default::file://$GITHUB_WORKSPACE/maven-repo"
+
+      - name: Commit and push
+        working-directory: maven-repo
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          git config user.name "acemq-release"
+          git config user.email "noreply@acemq.org"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "nothing to publish; $VERSION may already exist"
+            exit 0
+          fi
+          git add -A
+          git commit -m "Publish $VERSION"
+          git push origin HEAD
+
+      - name: Where it landed
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          echo "Published $VERSION to" \
+               "https://acemq-company.github.io/maven/org/acemq/"
+          echo "Pages takes a minute or two to serve the new files."
