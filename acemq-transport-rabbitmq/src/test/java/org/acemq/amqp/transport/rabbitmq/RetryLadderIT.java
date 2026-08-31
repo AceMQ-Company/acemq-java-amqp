@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Timeout;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * The retry ladder against a real broker.
@@ -53,7 +52,7 @@ class RetryLadderIT {
 
     @Container
     private static final RabbitMQContainer BROKER = new RabbitMQContainer(
-            DockerImageName.parse("rabbitmq:4-management"));
+            BrokerImage.current());
 
     private AceMq mq;
 

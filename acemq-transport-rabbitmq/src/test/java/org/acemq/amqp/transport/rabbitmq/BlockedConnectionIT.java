@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Timeout;
 import org.testcontainers.containers.Container;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * A real broker under a real resource alarm.
@@ -57,7 +56,7 @@ class BlockedConnectionIT {
 
     @org.testcontainers.junit.jupiter.Container
     private static final RabbitMQContainer BROKER = new RabbitMQContainer(
-            DockerImageName.parse("rabbitmq:4-management"));
+            BrokerImage.current());
 
     private AceMq mq;
 

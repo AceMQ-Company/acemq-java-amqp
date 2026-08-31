@@ -38,7 +38,6 @@ import org.junit.jupiter.api.Timeout;
 import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * Replaying real dead-lettered messages on a real broker.
@@ -59,7 +58,7 @@ class ReplayIT {
 
     @Container
     private static final RabbitMQContainer BROKER = new RabbitMQContainer(
-            DockerImageName.parse("rabbitmq:4-management"));
+            BrokerImage.current());
 
     private AceMq mq;
 

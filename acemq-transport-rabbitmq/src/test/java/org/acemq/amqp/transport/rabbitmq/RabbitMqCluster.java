@@ -47,7 +47,7 @@ import org.testcontainers.utility.DockerImageName;
 final class RabbitMqCluster implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitMqCluster.class);
-    private static final DockerImageName IMAGE = DockerImageName.parse("rabbitmq:4-management");
+    private static final DockerImageName IMAGE = BrokerImage.current();
     private static final String COOKIE = "acemq-test-cookie";
 
     private final Network network;

@@ -80,7 +80,7 @@ class SharedIdempotencyIT {
     @BeforeAll
     static void startInfrastructure() {
         postgres = new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"));
-        rabbit = new RabbitMQContainer(DockerImageName.parse("rabbitmq:4-management"));
+        rabbit = new RabbitMQContainer(BrokerImage.current());
         postgres.start();
         rabbit.start();
 

@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.testcontainers.containers.RabbitMQContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * Streams against a real broker, because there is nowhere else to test them.
@@ -56,7 +55,7 @@ class StreamIT {
 
     @BeforeAll
     static void startBroker() {
-        broker = new RabbitMQContainer(DockerImageName.parse("rabbitmq:4-management"));
+        broker = new RabbitMQContainer(BrokerImage.current());
         // Streams are a plugin, and off unless asked for.
         broker.withPluginsEnabled("rabbitmq_stream");
         broker.start();
