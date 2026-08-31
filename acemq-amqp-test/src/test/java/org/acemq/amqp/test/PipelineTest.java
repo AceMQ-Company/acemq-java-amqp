@@ -353,6 +353,44 @@ class PipelineTest {
         }
 
         @Test
+        @Timeout(60)
+        void encode_one_step_s_output_in_another_format() {
+            connect("pipeline-encoding");
+            List<String> reached = new CopyOnWriteArrayList<>();
+
+            try (Pipeline<String> pipeline = mq.pipeline("encoded", String.class)
+                    .step("first", String.class, message -> {
+                        reached.add("first");
+                        return message.payload();
+                    })
+                    .step("middle", String.class, message -> {
+                        reached.add("middle");
+                        return message.payload();
+                    })
+                    .encodedAs(org.acemq.amqp.core.Codecs.byName("bytes"))
+                    .step("last", Void.class, message -> {
+                        reached.add("last");
+                        return null;
+                    })
+                    .build()) {
+
+                pipeline.send("x");
+
+                // The bytes codec refuses a String, so configuring it on 'middle' must break
+                // the publish from middle to last and nothing earlier. That is what makes this
+                // decisive: were the codec applied to the destination instead of the sender,
+                // the failure would land one hop earlier and 'middle' would never run.
+                await().atMost(Duration.ofSeconds(30)).until(() -> reached.contains("middle"));
+                Thread.sleep(800);
+
+                assertThat(reached).containsExactly("first", "middle");
+                assertThat(pipeline.completed()).isZero();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Test
         @Timeout(30)
         void say_which_step_is_meant_when_the_name_is_wrong() {
             connect("pipeline-unknown-step");

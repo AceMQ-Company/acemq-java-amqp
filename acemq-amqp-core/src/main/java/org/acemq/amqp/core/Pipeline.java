@@ -200,15 +200,29 @@ public final class Pipeline<T> implements AutoCloseable {
     }
 
     @SuppressWarnings("unchecked")
-    private Publisher<Object> publisherFor(String step) {
+    private Publisher<Object> publisherFor(String destination) {
         // Publishers are meant to be long lived, and a pipeline publishes to the same handful
         // of routing keys forever.
-        return publishers.computeIfAbsent(step, key -> {
-            Publisher<Object> publisher = mq.publisher(name, key, (Class<Object>) (Class<?>) Object.class);
-            return stepNamed(key).codec().map(codec -> ((DefaultPublisher<Object>) publisher).as(codec))
-                    .map(p -> (Publisher<Object>) p)
-                    .orElse(publisher);
+        return publishers.computeIfAbsent(destination, key -> {
+            DefaultPublisher<Object> publisher = mq.publisher(name, key, (Class<Object>) (Class<?>) Object.class);
+
+            // encodedAs configures how a step publishes its own output, so the format for a
+            // message arriving at D is the one configured on the step before D — not on D
+            // itself. Reading it off the destination was a real bug: it applied enrich's
+            // encoding to the messages enrich received rather than to the ones it sent.
+            return encodingBefore(key).<Publisher<Object>>map(publisher::as).orElse(publisher);
         });
+    }
+
+    private java.util.Optional<org.acemq.amqp.api.Codec> encodingBefore(String destination) {
+        for (int index = 1; index < steps.size(); index++) {
+            if (steps.get(index).name().equals(destination)) {
+                return steps.get(index - 1).codec();
+            }
+        }
+        // The first step has no predecessor, so a message entering the pipeline is encoded
+        // with whatever the connection publishes in.
+        return java.util.Optional.empty();
     }
 
     private PipelineStep<?, ?> stepNamed(String step) {
