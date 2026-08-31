@@ -210,6 +210,15 @@ While the version is `0.x` the public API may change in any release.
   broker rejection.
 - `Subscription.cancel()` on the transport SPI — stop delivery without waiting, which
   is what makes a bounded drain possible.
+- Pipelines: `mq.pipeline("fulfilment", Order.class).step(...).step(...).build()`. Each
+  step is its own queue with its own retry, concurrency and idempotency, so a slow step
+  scales without touching its neighbours.
+- `Step<I, O>` returns the next payload, which lets the builder thread types along the
+  chain; returning null from a non-final step ends the route.
+- `RoutingSlip` — where a message is going, carried by the message. No coordinator, and
+  a dead-lettered message keeps its slip so a replay resumes rather than restarts.
+- `Envelope.route()`, because the AceMQ header prefix is closed to application headers
+  and a slip put there by hand was silently dropped.
 
 ### Fixed
 

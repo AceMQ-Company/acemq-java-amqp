@@ -518,6 +518,40 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * A chain of steps, each with its own queue.
+     *
+     * <pre>{@code
+     * try (Pipeline<Order> fulfilment = mq.pipeline("fulfilment", Order.class)
+     *         .step("validate", Order.class, new ValidateOrder())
+     *         .step("enrich", Enriched.class, new EnrichOrder())
+     *             .withRetry(RetryPolicy.exponential(5, Duration.ofSeconds(2)))
+     *             .concurrency(10)
+     *         .step("dispatch", Void.class, new DispatchOrder())
+     *         .build()) {
+     *
+     *     fulfilment.send(order);
+     * }
+     * }</pre>
+     *
+     * <p>Every hop goes through the broker, so a crash leaves the message where it was, a slow
+     * step grows its own queue rather than blocking the chain, and the step needing ten
+     * consumers gets ten while its neighbour keeps one. The cost is a round trip and a durable
+     * write per hop.
+     *
+     * <p>Where a message is going travels with it, so nothing here coordinates.
+     *
+     * @param name pipeline name; also the exchange, with one queue per step beneath it
+     * @param entryType type the pipeline is entered with
+     * @param <T> entry type
+     * @return a builder; nothing is declared until build() is called
+     */
+    public <T> PipelineBuilder<T, T> pipeline(String name, Class<T> entryType) {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(entryType, "entryType");
+        return new PipelineBuilder<>(this, name, entryType, new java.util.ArrayList<>());
+    }
+
+    /**
      * A queue where messages sharing a key are handled in the order they were sent.
      *
      * <pre>{@code

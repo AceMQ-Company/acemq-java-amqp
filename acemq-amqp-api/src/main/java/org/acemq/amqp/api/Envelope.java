@@ -48,6 +48,7 @@ public final class Envelope {
     private final Instant firstSeen;
     private final @Nullable String origin;
     private final @Nullable String error;
+    private final @Nullable RoutingSlip route;
     private final Map<String, Object> headers;
 
     private Envelope(Builder builder) {
@@ -60,6 +61,7 @@ public final class Envelope {
         this.firstSeen = builder.firstSeen != null ? builder.firstSeen : Instant.now();
         this.origin = builder.origin;
         this.error = builder.error;
+        this.route = builder.route;
         this.headers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers));
         if (this.version < 1) {
             throw new IllegalArgumentException("version must be at least 1, was " + this.version);
@@ -133,6 +135,19 @@ public final class Envelope {
         return Optional.ofNullable(error);
     }
 
+    /**
+     * Where this message is going, when it is travelling a pipeline.
+     *
+     * <p>A field rather than a header, for the same reason the error is one: the AceMQ prefix is
+     * closed to application headers, so a slip put there by hand would be silently dropped on
+     * the way in. A step reads its route from here.
+     *
+     * @return the routing slip, or empty when the message is not part of a pipeline
+     */
+    public Optional<RoutingSlip> route() {
+        return Optional.ofNullable(route);
+    }
+
     /** @return application headers, excluding the AceMQ-owned ones; never {@code null} */
     public Map<String, Object> headers() {
         return headers;
@@ -188,6 +203,7 @@ public final class Envelope {
                 .firstSeen(firstSeen)
                 .origin(origin)
                 .error(error)
+                .route(route)
                 .headers(headers);
     }
 
@@ -299,6 +315,17 @@ public final class Envelope {
          * @param value header value
          * @throws IllegalArgumentException if the name is AceMQ-owned
          */
+        private @Nullable RoutingSlip route;
+
+        /**
+         * @param route where the message is going, when it is travelling a pipeline
+         * @return this builder
+         */
+        public Builder route(@Nullable RoutingSlip route) {
+            this.route = route;
+            return this;
+        }
+
         public Builder header(String name, Object value) {
             if (AceHeaders.isAceHeader(name)) {
                 throw new IllegalArgumentException("header '" + name

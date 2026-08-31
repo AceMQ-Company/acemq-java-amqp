@@ -59,6 +59,7 @@ final class EnvelopeHeaders {
         headers.put(AceHeaders.CORRELATION, envelope.correlationId());
         headers.put(AceHeaders.ATTEMPT, envelope.attempt());
         headers.put(AceHeaders.FIRST_SEEN, envelope.firstSeen().toEpochMilli());
+        envelope.route().ifPresent(slip -> headers.putAll(slip.toHeaders()));
         envelope.causationId().ifPresent(value -> headers.put(AceHeaders.CAUSATION, value));
         envelope.origin().ifPresent(value -> headers.put(AceHeaders.ORIGIN, value));
         envelope.error().ifPresent(value -> headers.put(AceHeaders.ERROR, value));
@@ -126,10 +127,16 @@ final class EnvelopeHeaders {
         // Application headers only: the AceMQ ones are already represented as fields, and
         // copying them twice would let the two representations drift apart.
         source.forEach((name, value) -> {
+            // Engine-owned headers become fields on the envelope, so copying them here as well
+            // would let the two representations drift apart. The routing slip is the exception:
+            // it shares the prefix but belongs to the application's message rather than to the
+            // engine, and a step that could not read where it was going would be no step at all.
             if (!AceHeaders.isAceHeader(name)) {
                 builder.header(name, value);
             }
         });
+
+        org.acemq.amqp.api.RoutingSlip.from(source).ifPresent(builder::route);
 
         return builder.build();
     }
