@@ -14,6 +14,16 @@ OUT="site"
 
 command -v pandoc >/dev/null || { echo "pandoc is required" >&2; exit 1; }
 
+# The option was renamed: --highlight-style in older pandoc, --syntax-highlighting
+# in newer, and each rejects or deprecates the other. Ubuntu's package and a
+# current Homebrew install sit on opposite sides of that change, so the flag is
+# chosen rather than assumed -- hardcoding either one breaks the build somewhere.
+if pandoc --help 2>&1 | grep -q -- '--syntax-highlighting'; then
+  HIGHLIGHT=(--syntax-highlighting=tango)
+else
+  HIGHLIGHT=(--highlight-style=tango)
+fi
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
@@ -92,7 +102,7 @@ for f in docs/*.md; do
   pandoc "$f" \
     --from=gfm --to=html5 --standalone \
     --metadata pagetitle="$title — AceMQ for Java" \
-    --syntax-highlighting=tango \
+    "${HIGHLIGHT[@]}" \
     --css=style.css \
     --include-before-body="$OUT/.nav.html" \
     --include-after-body="$OUT/.foot.html" \
