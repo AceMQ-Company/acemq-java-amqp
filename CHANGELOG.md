@@ -193,6 +193,14 @@ While the version is `0.x` the public API may change in any release.
   cancelling, so a handler mid-message is not abandoned to a redelivery.
 - `Subscription.setPrefetch(int)` on the transport SPI, implemented for RabbitMQ with
   `basic.qos` on the live channel.
+- Ordered-per-key delivery. `mq.ordered("orders", Order.class).partitions(8)
+  .keyedBy(Order::customerId).declare()` gives ordering within a key and parallelism
+  across keys: one queue per partition, exactly one consumer each.
+- `Partitioning` — FNV-1a over UTF-8, specified rather than borrowed, because a port in
+  another language has to compute the same partition or it reorders messages silently.
+- `OrderedQueue.OnFailure` — `STOP`, `RETRY_IN_PLACE` or `SKIP`. The retry ladder is
+  not offered here, because republishing a failed message to come back later is what
+  breaks a sequence.
 
 ### Fixed
 

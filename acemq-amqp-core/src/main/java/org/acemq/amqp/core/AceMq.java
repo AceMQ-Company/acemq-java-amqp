@@ -410,6 +410,40 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * A queue where messages sharing a key are handled in the order they were sent.
+     *
+     * <pre>{@code
+     * try (OrderedQueue<Order> orders = mq.ordered("orders", Order.class)
+     *         .partitions(8)
+     *         .keyedBy(Order::customerId)
+     *         .declare()) {
+     *
+     *     orders.send(order);
+     *     orders.consume(message -> ledger.post(message.payload()));
+     * }
+     * }</pre>
+     *
+     * <p>The key decides a partition, each partition is a queue, and each queue has exactly one
+     * consumer. That gives ordering within a key and parallelism across keys, which is almost
+     * always the ordering anyone actually wanted: two orders for one customer are sequenced, two
+     * orders for different customers never needed to be.
+     *
+     * <p>The retry ladder is not available here, because republishing a failed message to come
+     * back later is what breaks a sequence. See {@link OrderedQueue.OnFailure} for the three
+     * things that can happen instead, all of which preserve order and none of which are free.
+     *
+     * @param name logical name; also the exchange, with one queue per partition beneath it
+     * @param payloadType type to publish and decode
+     * @param <T> payload type
+     * @return a builder; nothing is declared until declare() is called
+     */
+    public <T> OrderedQueueBuilder<T> ordered(String name, Class<T> payloadType) {
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(payloadType, "payloadType");
+        return new OrderedQueueBuilder<>(this, name, payloadType);
+    }
+
+    /**
      * Consumes a queue with several consumers, resizable while the application runs.
      *
      * <pre>{@code
