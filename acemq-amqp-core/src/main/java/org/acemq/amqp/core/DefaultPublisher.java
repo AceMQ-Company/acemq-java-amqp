@@ -75,6 +75,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
 
     private final Consumer<AutoCloseable> registrar;
     private final java.util.function.BooleanSupplier publishingPaused;
+    private final PublishOptions options;
 
     DefaultPublisher(
             TransportConnection connection,
@@ -85,6 +86,20 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             Telemetry telemetry,
             Consumer<AutoCloseable> registrar,
             java.util.function.BooleanSupplier publishingPaused) {
+        this(connection, codec, exchange, routingKey, origin, telemetry, registrar, publishingPaused,
+                PublishOptions.defaults());
+    }
+
+    DefaultPublisher(
+            TransportConnection connection,
+            Codec codec,
+            String exchange,
+            String routingKey,
+            String origin,
+            Telemetry telemetry,
+            Consumer<AutoCloseable> registrar,
+            java.util.function.BooleanSupplier publishingPaused,
+            PublishOptions options) {
         this.connection = connection;
         this.codec = codec;
         this.exchange = exchange == null ? "" : exchange;
@@ -93,6 +108,29 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         this.telemetry = telemetry;
         this.registrar = registrar;
         this.publishingPaused = publishingPaused;
+        this.options = options;
+    }
+
+    /**
+     * The same destination, published differently.
+     *
+     * <p>A new publisher rather than a mutated one, for the same reason {@link #as(Codec)} is:
+     * two threads sharing a publisher must not have its behaviour changed underneath them.
+     *
+     * @param options how these messages should be published
+     * @return a publisher using those options; this one is left alone
+     */
+    public DefaultPublisher<T> with(PublishOptions options) {
+        java.util.Objects.requireNonNull(options, "options");
+        DefaultPublisher<T> derived = new DefaultPublisher<>(connection, codec, exchange, routingKey, origin,
+                telemetry, registrar, publishingPaused, options);
+        registrar.accept(derived);
+        return derived;
+    }
+
+    /** @return how this publisher publishes */
+    public PublishOptions options() {
+        return options;
     }
 
     /**
@@ -120,9 +158,11 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         // A new publisher rather than a mutated one. Two threads sharing a publisher while a
         // third changes its format is a race with no useful outcome, and a long-lived object
         // that quietly changes what it writes is worse than one that does not.
+        // Options come along. Changing the format is not a request to start writing messages
+        // transiently again, and losing them here would do exactly that, quietly.
         DefaultPublisher<T> switched = new DefaultPublisher<>(
                 connection, Objects.requireNonNull(format, "format"), exchange, routingKey, origin, telemetry,
-                registrar, publishingPaused);
+                registrar, publishingPaused, options);
         registrar.accept(switched);
         return switched;
     }
@@ -212,13 +252,20 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(stamped));
             headers.putAll(telemetry.propagationHeaders());
 
-            OutboundMessage message = OutboundMessage.body(body)
+            OutboundMessage.Builder outbound = OutboundMessage.body(body)
                     .exchange(exchange)
                     .routingKey(routingKey)
                     .headers(headers)
                     .messageId(stamped.id())
                     .contentType(codec.contentType())
-                    .build();
+                    .expiration(options.expiration().orElse(null));
+            if (!options.persistent()) {
+                outbound.transientDelivery();
+            }
+            if (!options.mandatory()) {
+                outbound.allowUnroutable();
+            }
+            OutboundMessage message = outbound.build();
 
             ConfirmResult result;
             try {

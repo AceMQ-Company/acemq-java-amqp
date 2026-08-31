@@ -15,6 +15,7 @@
  */
 package org.acemq.amqp.transport;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,6 +39,7 @@ public final class OutboundMessage {
     private final @Nullable String contentType;
     private final boolean persistent;
     private final boolean mandatory;
+    private final @Nullable Duration expiration;
 
     private OutboundMessage(Builder builder) {
         this.exchange = builder.exchange == null ? "" : builder.exchange;
@@ -48,6 +50,7 @@ public final class OutboundMessage {
         this.contentType = builder.contentType;
         this.persistent = builder.persistent;
         this.mandatory = builder.mandatory;
+        this.expiration = builder.expiration;
     }
 
     /**
@@ -97,6 +100,20 @@ public final class OutboundMessage {
         return mandatory;
     }
 
+    /**
+     * How long the message stays worth delivering.
+     *
+     * <p>Per-message, and enforced by the broker rather than by anything here. A transport that
+     * cannot express it must say so rather than dropping it: a message expected to expire in five
+     * minutes and instead kept forever is a slow leak, and one delivered long after it stopped
+     * meaning anything is worse than one never delivered.
+     *
+     * @return the time-to-live, when one was set
+     */
+    public java.util.Optional<Duration> expiration() {
+        return java.util.Optional.ofNullable(expiration);
+    }
+
     @Override
     public String toString() {
         return "OutboundMessage{exchange=" + exchange + ", routingKey=" + routingKey + ", bytes="
@@ -114,6 +131,7 @@ public final class OutboundMessage {
         private @Nullable String contentType;
         private boolean persistent = true;
         private boolean mandatory = true;
+        private @Nullable Duration expiration;
 
         public Builder exchange(String exchange) {
             this.exchange = exchange;
@@ -161,6 +179,19 @@ public final class OutboundMessage {
         /** Allows the broker to drop the message when nothing is bound to receive it. */
         public Builder allowUnroutable() {
             this.mandatory = false;
+            return this;
+        }
+
+        /**
+         * Asks the broker to discard the message if it is still undelivered after this long.
+         *
+         * @param expiration positive time-to-live, or null for none
+         */
+        public Builder expiration(@Nullable Duration expiration) {
+            if (expiration != null && (expiration.isNegative() || expiration.isZero())) {
+                throw new IllegalArgumentException("expiration must be positive, was " + expiration);
+            }
+            this.expiration = expiration;
             return this;
         }
 

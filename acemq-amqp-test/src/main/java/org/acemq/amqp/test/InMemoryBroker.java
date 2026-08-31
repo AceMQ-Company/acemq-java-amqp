@@ -360,7 +360,7 @@ final class InMemoryBroker {
         @SuppressWarnings("FutureReturnValueIgnored") // The task below catches and reports its own failures.
         void offer(OutboundMessage message) {
             messages.addLast(message);
-            long ttl = timeToLiveMillis;
+            long ttl = effectiveTimeToLive(message);
             if (ttl >= 0) {
                 // The message is still visible in the queue while it waits, so depth() reports
                 // what an operator would see, and it is only routed onward if it is still here
@@ -383,6 +383,23 @@ final class InMemoryBroker {
                         ttl,
                         java.util.concurrent.TimeUnit.MILLISECONDS);
             }
+        }
+
+        /**
+         * @return how long this message may sit here, in milliseconds, or -1 for no limit
+         * @implNote a message carrying its own time-to-live and a queue carrying one are both
+         *     honoured, and the shorter wins — which is what RabbitMQ does. Ignoring the
+         *     per-message value would leave a test asserting that a message expired watching one
+         *     sit in the queue forever, and passing here while failing against a real broker is
+         *     the one thing a fake must not do.
+         */
+        private long effectiveTimeToLive(OutboundMessage message) {
+            long queueTtl = timeToLiveMillis;
+            long messageTtl = message.expiration().map(java.time.Duration::toMillis).orElse(-1L);
+            if (queueTtl < 0) {
+                return messageTtl;
+            }
+            return messageTtl < 0 ? queueTtl : Math.min(queueTtl, messageTtl);
         }
 
         /** Returns the message to the front of the queue, as a requeue does. */

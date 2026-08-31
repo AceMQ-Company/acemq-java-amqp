@@ -94,8 +94,10 @@ final class InMemoryConnection implements TransportConnection {
         Duration latency = Duration.ofNanos(System.nanoTime() - startedAt);
 
         // An in-memory broker always accepts the message. Whether anything was bound to
-        // receive it is a separate question, and the one that catches real mistakes.
-        return delivered.isEmpty()
+        // receive it is a separate question, and the one that catches real mistakes — unless
+        // the publisher said it did not want to be told, in which case reporting it anyway
+        // would make the fake stricter than the broker it stands in for.
+        return delivered.isEmpty() && message.mandatory()
                 ? ConfirmResult.unroutable(latency, "no queue is bound for routing key '" + message.routingKey() + "'")
                 : ConfirmResult.confirmed(latency);
     }

@@ -455,6 +455,30 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Creates a publisher that publishes on the caller's terms rather than the safe defaults.
+     *
+     * <p>The defaults — written to disk, unroutable treated as a failure — are what most messages
+     * want. This is for the ones that do not: telemetry that may be dropped, events with a
+     * shelf life, fan-outs nobody is required to be listening to.
+     *
+     * @param exchange target exchange, or the empty string to publish straight to a queue
+     * @param routingKey routing key, or the queue name when publishing without an exchange
+     * @param payloadType type this publisher sends
+     * @param options how these messages should be published
+     * @param <T> payload type
+     * @return a publisher, closed automatically when this instance closes
+     */
+    public <T> DefaultPublisher<T> publisher(
+            String exchange, String routingKey, Class<T> payloadType, PublishOptions options) {
+        Objects.requireNonNull(payloadType, "payloadType");
+        Objects.requireNonNull(options, "options");
+        DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, publishCodec, exchange, routingKey, origin,
+                telemetry, managed::add, publishingPaused::get, options);
+        managed.add(publisher);
+        return publisher;
+    }
+
+    /**
      * Declares a stream: an append-only log that keeps messages until retention removes them.
      *
      * <p>Not a queue with different settings. A stream is read without being emptied, every

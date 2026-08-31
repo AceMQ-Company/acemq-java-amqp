@@ -380,6 +380,9 @@ final class RabbitMqConnection implements TransportConnection {
                 .headers(message.headers())
                 .messageId(message.messageId())
                 .contentType(message.contentType())
+                // AMQP carries the time-to-live as a string of milliseconds, oddly enough, and
+                // RabbitMQ rejects anything else on the channel rather than ignoring it.
+                .expiration(message.expiration().map(ttl -> String.valueOf(ttl.toMillis())).orElse(null))
                 .build();
     }
 
