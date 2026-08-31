@@ -44,6 +44,25 @@ public interface Subscription extends AutoCloseable {
     }
 
     /**
+     * Stops delivery without waiting for anything in flight.
+     *
+     * <p>Separate from {@link #close()} because the two answer different questions. Closing
+     * releases resources and lets in-flight deliveries settle, which means it may block for as
+     * long as a handler runs. Cancelling only tells the broker to stop sending — it returns at
+     * once, and whatever is already in a handler carries on.
+     *
+     * <p>That distinction is what makes a bounded drain possible: stop delivery immediately,
+     * wait for in-flight work on the caller's own timeout, and close afterwards. Without it a
+     * drain given three hundred milliseconds would block for as long as the close did, and the
+     * timeout would be a decoration.
+     *
+     * <p>The default closes, which is correct but not bounded.
+     */
+    default void cancel() {
+        close();
+    }
+
+    /**
      * Stops delivery and releases broker resources.
      *
      * <p>Implementations should let in-flight deliveries finish settling rather than

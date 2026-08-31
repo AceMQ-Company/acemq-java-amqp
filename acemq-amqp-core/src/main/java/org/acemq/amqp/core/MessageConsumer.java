@@ -78,6 +78,24 @@ public interface MessageConsumer extends AutoCloseable {
     /** @return the prefetch currently in force */
     int prefetch();
 
+    /**
+     * Stops taking new messages, keeping the consumer able to start again.
+     *
+     * <p>Different from {@link #drain(java.time.Duration)} in intent rather than mechanism:
+     * pausing is reversible and does not wait. Messages already being handled finish; nothing
+     * new is delivered until {@link #resume()}.
+     *
+     * <p>What a maintenance window wants, and what the consuming half of a blue-green cutover
+     * wants before it commits to stopping.
+     */
+    void pause();
+
+    /** Starts taking messages again after {@link #pause()}. Does nothing if not paused. */
+    void resume();
+
+    /** @return whether this consumer is paused rather than stopped */
+    boolean isPaused();
+
     /** Stops consuming, letting in-flight deliveries settle. */
     @Override
     void close();

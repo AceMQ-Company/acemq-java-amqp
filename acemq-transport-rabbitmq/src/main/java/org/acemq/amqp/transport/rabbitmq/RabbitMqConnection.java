@@ -396,6 +396,22 @@ final class RabbitMqConnection implements TransportConnection {
         }
 
         @Override
+        public void cancel() {
+            if (!active.compareAndSet(true, false)) {
+                return;
+            }
+            try {
+                // basic.cancel stops delivery and leaves the channel open, so anything already
+                // dispatched can still be acknowledged on it.
+                if (channel.isOpen()) {
+                    channel.basicCancel(consumerTag);
+                }
+            } catch (IOException e) {
+                log.debug("could not cancel the consumer on {}", queue, e);
+            }
+        }
+
+        @Override
         public void setPrefetch(int prefetch) {
             if (prefetch < 1) {
                 throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);

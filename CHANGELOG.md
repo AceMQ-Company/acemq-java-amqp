@@ -201,6 +201,21 @@ While the version is `0.x` the public API may change in any release.
 - `OrderedQueue.OnFailure` — `STOP`, `RETRY_IN_PLACE` or `SKIP`. The retry ladder is
   not offered here, because republishing a failed message to come back later is what
   breaks a sequence.
+- Taking a connection out of rotation: `mq.drainConsumers(timeout)`,
+  `mq.pauseConsuming()` / `resumeConsuming()`, `mq.pausePublishing()` /
+  `resumePublishing()`, `mq.inFlight()`. The two directions are controlled
+  separately, because a service being drained still has requests to finish and those
+  requests still publish.
+- `PublishingPausedException`, its own type so a caller can tell "not now" from a
+  broker rejection.
+- `Subscription.cancel()` on the transport SPI — stop delivery without waiting, which
+  is what makes a bounded drain possible.
+
+### Fixed
+
+- The in-memory transport delivered exactly one more message after a subscription was
+  cancelled, because a blocked poll returned a message it had already taken. It is put
+  back now.
 
 ### Fixed
 

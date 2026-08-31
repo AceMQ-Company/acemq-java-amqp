@@ -74,6 +74,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private final Consumer<AutoCloseable> registrar;
+    private final java.util.function.BooleanSupplier publishingPaused;
 
     DefaultPublisher(
             TransportConnection connection,
@@ -82,7 +83,8 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             String routingKey,
             String origin,
             Telemetry telemetry,
-            Consumer<AutoCloseable> registrar) {
+            Consumer<AutoCloseable> registrar,
+            java.util.function.BooleanSupplier publishingPaused) {
         this.connection = connection;
         this.codec = codec;
         this.exchange = exchange == null ? "" : exchange;
@@ -90,6 +92,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         this.origin = origin;
         this.telemetry = telemetry;
         this.registrar = registrar;
+        this.publishingPaused = publishingPaused;
     }
 
     /**
@@ -119,7 +122,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         // that quietly changes what it writes is worse than one that does not.
         DefaultPublisher<T> switched = new DefaultPublisher<>(
                 connection, Objects.requireNonNull(format, "format"), exchange, routingKey, origin, telemetry,
-                registrar);
+                registrar, publishingPaused);
         registrar.accept(switched);
         return switched;
     }
@@ -182,6 +185,13 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     public PublishResult send(T payload, Envelope envelope) {
         if (closed.get()) {
             throw new AceMqException("this publisher is closed");
+        }
+        if (publishingPaused.getAsBoolean()) {
+            // Checked before anything is encoded or sent, so a paused connection costs nothing
+            // and leaves no half-finished work to reason about.
+            throw new org.acemq.amqp.api.PublishingPausedException("publishing is paused on this connection, so"
+                    + " nothing was sent to " + exchange + "/" + routingKey + ". Resume it, or retry once the"
+                    + " cutover is finished.");
         }
         if (payload == null) {
             throw new IllegalArgumentException("payload must not be null");

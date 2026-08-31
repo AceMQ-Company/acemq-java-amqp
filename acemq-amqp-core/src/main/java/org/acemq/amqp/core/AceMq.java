@@ -82,6 +82,7 @@ public final class AceMq implements AutoCloseable {
     private final Telemetry telemetry;
     private final CopyOnWriteArrayList<AutoCloseable> managed = new CopyOnWriteArrayList<>();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final AtomicBoolean publishingPaused = new AtomicBoolean();
 
     private AceMq(
             Transport transport,
@@ -223,6 +224,113 @@ public final class AceMq implements AutoCloseable {
         return telemetry;
     }
 
+    /**
+     * Stops every consumer taking new work and waits for what is in hand.
+     *
+     * <p>The consuming half of a cutover. Publishers are untouched, deliberately: a service
+     * being taken out of rotation still has requests to finish, and those requests still need to
+     * publish. Stop consuming first, stop publishing second, and the order is what makes the
+     * cutover clean.
+     *
+     * <p>Stream readers are closed rather than drained, because a stream is resumable by
+     * construction: the next reader starts from the offset this one recorded.
+     *
+     * @param timeout how long to wait for handlers still running
+     * @return whether everything finished in time. False means something is still running, and
+     *     the caller has a decision to make rather than a guarantee
+     */
+    public boolean drainConsumers(Duration timeout) {
+        boolean quiet = true;
+        for (AutoCloseable managedItem : managed) {
+            if (managedItem instanceof MessageConsumer) {
+                quiet &= ((MessageConsumer) managedItem).drain(timeout);
+            } else if (managedItem instanceof StreamConsumer) {
+                ((StreamConsumer) managedItem).close();
+            }
+        }
+        log.info("drained the consumers on {}; everything finished: {}", transport.name(), quiet);
+        return quiet;
+    }
+
+    /**
+     * Stops every consumer taking new work, reversibly.
+     *
+     * <p>Unlike {@link #drainConsumers(Duration)} this does not wait and can be undone. For a
+     * maintenance window, or for holding a service still while something downstream catches up.
+     */
+    public void pauseConsuming() {
+        for (AutoCloseable managedItem : managed) {
+            if (managedItem instanceof MessageConsumer) {
+                ((MessageConsumer) managedItem).pause();
+            }
+        }
+        log.info("paused consuming on {}", transport.name());
+    }
+
+    /** Starts every paused consumer again. */
+    public void resumeConsuming() {
+        for (AutoCloseable managedItem : managed) {
+            if (managedItem instanceof MessageConsumer) {
+                ((MessageConsumer) managedItem).resume();
+            }
+        }
+        log.info("resumed consuming on {}", transport.name());
+    }
+
+    /**
+     * Refuses further publishes on this connection.
+     *
+     * <p>The publishing half of a cutover, and the last thing to do before shutting a service
+     * down. A publish attempted while paused throws
+     * {@link org.acemq.amqp.api.PublishingPausedException} without sending anything, so there is
+     * never a half-published message to reason about.
+     *
+     * <p>Publishes already in flight are not interrupted. They have been sent, and the broker
+     * will confirm them or not on its own schedule.
+     */
+    public void pausePublishing() {
+        if (publishingPaused.compareAndSet(false, true)) {
+            log.info("paused publishing on {}", transport.name());
+        }
+    }
+
+    /** Allows publishing again. */
+    public void resumePublishing() {
+        if (publishingPaused.compareAndSet(true, false)) {
+            log.info("resumed publishing on {}", transport.name());
+        }
+    }
+
+    /** @return whether publishing is currently refused */
+    public boolean isPublishingPaused() {
+        return publishingPaused.get();
+    }
+
+    /** @return whether every consumer on this connection is paused; false when there are none */
+    public boolean isConsumingPaused() {
+        boolean any = false;
+        for (AutoCloseable managedItem : managed) {
+            if (managedItem instanceof MessageConsumer) {
+                any = true;
+                if (!((MessageConsumer) managedItem).isPaused()) {
+                    return false;
+                }
+            }
+        }
+        return any;
+    }
+
+    /** @return how many messages every consumer on this connection is handling right now */
+    public long inFlight() {
+        long total = 0;
+        for (AutoCloseable managedItem : managed) {
+            if (managedItem instanceof MessageConsumer) {
+                total += ((MessageConsumer) managedItem).inFlight();
+            }
+        }
+        return total;
+    }
+
     /** @return the transport's short name, such as {@code rabbitmq} */
     public String transportName() {
         return transport.name();
@@ -294,7 +402,7 @@ public final class AceMq implements AutoCloseable {
      */
     public <T> DefaultPublisher<T> publisher(String exchange, String routingKey) {
         DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, publishCodec, exchange, routingKey, origin,
-                telemetry, managed::add);
+                telemetry, managed::add, publishingPaused::get);
         managed.add(publisher);
         return publisher;
     }

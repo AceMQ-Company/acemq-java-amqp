@@ -212,6 +212,15 @@ final class InMemoryConnection implements TransportConnection {
                         unsettled.release();
                         continue;
                     }
+                    if (!active.get()) {
+                        // Cancelled while this poll was blocked. The message was taken but
+                        // never delivered, so it goes back — without this, cancelling races
+                        // with a waiting poll and lets exactly one more message through,
+                        // which is precisely the message a drain was trying not to take.
+                        queue.requeue(message);
+                        unsettled.release();
+                        return;
+                    }
                     deliver(message);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -278,14 +287,37 @@ final class InMemoryConnection implements TransportConnection {
         }
 
         @Override
+        public void cancel() {
+            if (!active.compareAndSet(true, false)) {
+                return;
+            }
+            // The pump loop checks this flag, so nothing new is taken. The dispatcher is asked
+            // to stop but not waited for: a handler still running finishes on its own.
+            dispatcher.shutdown();
+            registry.remove(this);
+        }
+
+        @Override
         public void close() {
             if (!active.compareAndSet(true, false)) {
+                // Already cancelled. Still wait for the dispatcher, because closing promises
+                // that in-flight deliveries have settled.
+                awaitDispatcher();
+                registry.remove(this);
                 return;
             }
             // shutdown, not shutdownNow. The subscription contract says in-flight deliveries
             // are let alone to finish settling, and shutdownNow interrupts them — which turns a
             // clean stop into a redelivery and makes draining impossible to implement on top.
             // The pump loop already stops on the inactive flag, so nothing new is taken.
+            awaitDispatcher();
+            registry.remove(this);
+        }
+
+        private void awaitDispatcher() {
+            // shutdown, not shutdownNow. The subscription contract says in-flight deliveries
+            // are let alone to finish settling, and shutdownNow interrupts them — which turns a
+            // clean stop into a redelivery.
             dispatcher.shutdown();
             try {
                 if (!dispatcher.awaitTermination(30, TimeUnit.SECONDS)) {
@@ -295,7 +327,6 @@ final class InMemoryConnection implements TransportConnection {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            registry.remove(this);
         }
     }
 }

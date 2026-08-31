@@ -67,6 +67,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong inFlight = new AtomicLong();
     private final java.util.concurrent.atomic.AtomicInteger prefetch;
     private final AtomicBoolean running = new AtomicBoolean();
+    private final AtomicBoolean paused = new AtomicBoolean();
     private volatile @Nullable Subscription subscription;
 
     DefaultConsumer(
@@ -126,12 +127,44 @@ final class DefaultConsumer<T> implements MessageConsumer {
     }
 
     @Override
+    public void pause() {
+        if (!paused.compareAndSet(false, true)) {
+            return;
+        }
+        Subscription current = this.subscription;
+        if (current != null && current.isActive()) {
+            // Cancelled rather than closed: the broker stops sending, and whatever is already
+            // in a handler runs to completion. Closing here would block for as long as that
+            // handler takes, which is not what pausing means.
+            current.cancel();
+        }
+        this.subscription = null;
+        log.info("paused consuming {}", queue);
+    }
+
+    @Override
+    public void resume() {
+        if (!paused.compareAndSet(true, false)) {
+            return;
+        }
+        this.subscription = connection.subscribe(queue, prefetch.get(), this::dispatch);
+        log.info("resumed consuming {} with prefetch {}", queue, prefetch.get());
+    }
+
+    @Override
+    public boolean isPaused() {
+        return paused.get();
+    }
+
+    @Override
     public boolean drain(java.time.Duration timeout) {
         // Cancel first, so nothing new arrives while waiting. Waiting with the subscription
         // still open would be waiting on a queue that keeps refilling.
         Subscription current = this.subscription;
         if (current != null && current.isActive()) {
-            current.close();
+            // Cancel, then wait on the caller's timeout. Closing first would wait on the
+            // transport's own terms and make the timeout meaningless.
+            current.cancel();
         }
         running.set(false);
 
