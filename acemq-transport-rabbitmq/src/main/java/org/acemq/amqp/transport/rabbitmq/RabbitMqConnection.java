@@ -434,6 +434,102 @@ final class RabbitMqConnection implements TransportConnection {
      * that failure away from the publishing channel, which would otherwise take every
      * in-flight publish down with it.
      */
+    @Override
+    public java.util.Optional<org.acemq.amqp.transport.PulledMessage> receive(String queue, Duration timeout) {
+        // Its own channel, kept open past the return. basicGet leaves the message unsettled and
+        // an acknowledgement is only valid on the channel that delivered it, so the usual
+        // open-use-close helper cannot be used here: closing would requeue the message the
+        // caller is holding.
+        Channel channel;
+        try {
+            channel = connection.createChannel();
+        } catch (IOException e) {
+            throw new TransportException("could not open a channel to read from '" + queue + "'", e);
+        }
+
+        long deadline = System.nanoTime() + timeout.toNanos();
+        try {
+            while (true) {
+                com.rabbitmq.client.GetResponse response = channel.basicGet(queue, false);
+                if (response != null) {
+                    return java.util.Optional.of(pulled(queue, channel, response));
+                }
+                if (System.nanoTime() - deadline >= 0) {
+                    closeQuietly(channel);
+                    return java.util.Optional.empty();
+                }
+                // basicGet answers immediately, so an empty queue has to be re-asked rather than
+                // waited on. Polling is acceptable here only because this is a drain, not a
+                // consumer: nothing on the message path is built out of it.
+                Thread.sleep(Math.min(50L, Math.max(1L, (deadline - System.nanoTime()) / 1_000_000L)));
+            }
+        } catch (InterruptedException e) {
+            closeQuietly(channel);
+            Thread.currentThread().interrupt();
+            throw new TransportException("interrupted while reading from '" + queue + "'", e);
+        } catch (IOException | ShutdownSignalException e) {
+            closeQuietly(channel);
+            throw new TransportException("could not read from '" + queue + "'", e);
+        }
+    }
+
+    private org.acemq.amqp.transport.PulledMessage pulled(
+            String queue, Channel channel, com.rabbitmq.client.GetResponse response) {
+        AMQP.BasicProperties properties = response.getProps();
+        InboundDelivery delivery = new InboundDelivery(
+                queue,
+                response.getEnvelope().getExchange(),
+                response.getEnvelope().getRoutingKey(),
+                response.getBody(),
+                portableHeaders(properties.getHeaders()),
+                properties.getMessageId(),
+                properties.getContentType(),
+                response.getEnvelope().isRedeliver());
+
+        long deliveryTag = response.getEnvelope().getDeliveryTag();
+        AtomicBoolean settled = new AtomicBoolean();
+        Acknowledger acknowledger = new Acknowledger() {
+
+            @Override
+            public void accept() {
+                settle(() -> channel.basicAck(deliveryTag, false));
+            }
+
+            @Override
+            public void reject(boolean requeue) {
+                settle(() -> channel.basicNack(deliveryTag, false, requeue));
+            }
+
+            private void settle(SettleOperation operation) {
+                // The channel closes with the settlement, because it exists only to carry it.
+                // Leaking one channel per pulled message would exhaust the connection during
+                // exactly the operation this was written for: draining a large queue.
+                if (!settled.compareAndSet(false, true)) {
+                    throw new IllegalStateException("this message has already been settled");
+                }
+                try {
+                    operation.run();
+                } catch (IOException e) {
+                    throw new TransportException("could not settle a message pulled from '" + queue + "'", e);
+                } finally {
+                    closeQuietly(channel);
+                }
+            }
+        };
+        return new org.acemq.amqp.transport.PulledMessage(delivery, acknowledger);
+    }
+
+    @FunctionalInterface
+    private interface SettleOperation {
+        void run() throws IOException;
+    }
+
+    @Override
+    public long messageCount(String queue) {
+        Long count = withChannel("count the messages in '" + queue + "'", channel -> channel.messageCount(queue));
+        return count == null ? 0L : count;
+    }
+
     private <T> @Nullable T withChannel(String description, ChannelOperation<T> operation) {
         try (Channel channel = connection.createChannel()) {
             return operation.run(channel);

@@ -63,6 +63,13 @@ final class EnvelopeHeaders {
         envelope.causationId().ifPresent(value -> headers.put(AceHeaders.CAUSATION, value));
         envelope.origin().ifPresent(value -> headers.put(AceHeaders.ORIGIN, value));
         envelope.error().ifPresent(value -> headers.put(AceHeaders.ERROR, value));
+        envelope.replayedFrom().ifPresent(value -> headers.put(AceHeaders.REPLAYED_FROM, value));
+        envelope.replayedAt().ifPresent(value -> headers.put(AceHeaders.REPLAYED_AT, value.toEpochMilli()));
+        if (envelope.replayCount() > 0) {
+            // Omitted when zero, so an ordinary message carries no evidence of a loop it was
+            // never in and the header only appears where it means something.
+            headers.put(AceHeaders.REPLAY_COUNT, envelope.replayCount());
+        }
         return headers;
     }
 
@@ -112,6 +119,21 @@ final class EnvelopeHeaders {
         String origin = string(source.get(AceHeaders.ORIGIN));
         if (origin != null) {
             builder.origin(origin);
+        }
+
+        String replayedFrom = string(source.get(AceHeaders.REPLAYED_FROM));
+        if (replayedFrom != null) {
+            builder.replayedFrom(replayedFrom);
+        }
+
+        Long replayedAt = epochMillis(source.get(AceHeaders.REPLAYED_AT));
+        if (replayedAt != null) {
+            builder.replayedAt(Instant.ofEpochMilli(replayedAt));
+        }
+
+        Integer replayCount = integer(source.get(AceHeaders.REPLAY_COUNT));
+        if (replayCount != null && replayCount > 0) {
+            builder.replayCount(replayCount);
         }
 
         String error = string(source.get(AceHeaders.ERROR));

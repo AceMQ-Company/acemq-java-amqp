@@ -103,6 +103,66 @@ final class InMemoryConnection implements TransportConnection {
     }
 
     @Override
+    public java.util.Optional<org.acemq.amqp.transport.PulledMessage> receive(String queueName, Duration timeout) {
+        requireOpen();
+        InMemoryBroker.Queue queue = broker.queue(queueName);
+        OutboundMessage message;
+        try {
+            message = queue.poll(Math.max(0L, timeout.toMillis()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new TransportException("interrupted while reading from '" + queueName + "'", e);
+        }
+        if (message == null) {
+            return java.util.Optional.empty();
+        }
+
+        InboundDelivery delivery = new InboundDelivery(
+                queueName,
+                message.exchange(),
+                message.routingKey(),
+                message.body(),
+                message.headers(),
+                message.messageId(),
+                message.contentType(),
+                false);
+
+        AtomicBoolean settled = new AtomicBoolean();
+        Acknowledger acknowledger = new Acknowledger() {
+
+            @Override
+            public void accept() {
+                // Accepting is what removes it: the poll already took it off the queue, so
+                // there is nothing left to do but refuse a second settlement.
+                settleOnce();
+            }
+
+            @Override
+            public void reject(boolean requeue) {
+                settleOnce();
+                if (requeue) {
+                    // Front of the queue, so a drain that rejects a message and stops leaves
+                    // the queue in the order it found it rather than rotating it.
+                    queue.requeue(message);
+                }
+            }
+
+            private void settleOnce() {
+                if (!settled.compareAndSet(false, true)) {
+                    throw new IllegalStateException("this message has already been settled");
+                }
+            }
+        };
+        return java.util.Optional.of(new org.acemq.amqp.transport.PulledMessage(delivery, acknowledger));
+    }
+
+    @Override
+    public long messageCount(String queueName) {
+        requireOpen();
+        return broker.queue(queueName).depth();
+    }
+
+    @Override
     public Subscription subscribe(String queue, int prefetch, DeliveryListener listener) {
         requireOpen();
         if (prefetch < 1) {

@@ -115,6 +115,49 @@ public interface TransportConnection extends AutoCloseable {
     }
 
     /**
+     * Takes one message off a queue, or reports that there is none.
+     *
+     * <p>A pull, where {@link #subscribe} is a push. It exists for the jobs that have to stop
+     * when a queue runs out — draining a dead-letter queue is the one this was written for. A
+     * subscription cannot do that: it is told when a message arrives and never told that no more
+     * are coming, so a tool built on one has to guess with an idle timeout and either stops early
+     * or hangs on an empty queue.
+     *
+     * <p>Not for ordinary consuming. Pulling one message per round trip is far slower than a
+     * subscription with prefetch, and a loop calling this is a consumer that has thrown away its
+     * own backpressure.
+     *
+     * <p>The delivery is unsettled: the caller must accept or reject it through the
+     * {@link Acknowledger}, exactly as a subscription must.
+     *
+     * @param queue queue to take from
+     * @param timeout how long to wait for a message to appear
+     * @return the message and its acknowledger, or empty when the queue had nothing within the
+     *     timeout
+     * @throws TransportException if the queue cannot be read
+     */
+    default java.util.Optional<PulledMessage> receive(String queue, java.time.Duration timeout) {
+        throw new TransportException("this transport cannot pull single messages, which is what draining queue '"
+                + queue + "' needs. Consuming it with a subscription instead would have no way to tell when the"
+                + " queue was empty, so it is refused rather than approximated.");
+    }
+
+    /**
+     * Counts the messages waiting in a queue.
+     *
+     * <p>For reporting what a drain would move before it moves anything. It is a snapshot and
+     * nothing more: a live queue has a different depth by the time the number is read, so it
+     * belongs in a report to a person, never in a loop condition.
+     *
+     * @param queue queue to measure
+     * @return how many messages are waiting
+     * @throws TransportException if the queue cannot be measured or does not exist
+     */
+    default long messageCount(String queue) {
+        throw new TransportException("this transport cannot report the depth of queue '" + queue + "'");
+    }
+
+    /**
      * Whether the broker is currently refusing publishes.
      *
      * <p>Worth exposing rather than only throwing, because this is the state a health check

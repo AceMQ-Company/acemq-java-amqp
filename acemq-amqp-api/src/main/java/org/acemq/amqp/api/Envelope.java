@@ -49,6 +49,9 @@ public final class Envelope {
     private final @Nullable String origin;
     private final @Nullable String error;
     private final @Nullable RoutingSlip route;
+    private final @Nullable String replayedFrom;
+    private final @Nullable Instant replayedAt;
+    private final int replayCount;
     private final Map<String, Object> headers;
 
     private Envelope(Builder builder) {
@@ -62,12 +65,18 @@ public final class Envelope {
         this.origin = builder.origin;
         this.error = builder.error;
         this.route = builder.route;
+        this.replayedFrom = builder.replayedFrom;
+        this.replayedAt = builder.replayedAt;
+        this.replayCount = builder.replayCount;
         this.headers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers));
         if (this.version < 1) {
             throw new IllegalArgumentException("version must be at least 1, was " + this.version);
         }
         if (this.attempt < 1) {
             throw new IllegalArgumentException("attempt must be at least 1, was " + this.attempt);
+        }
+        if (this.replayCount < 0) {
+            throw new IllegalArgumentException("replayCount must not be negative, was " + this.replayCount);
         }
     }
 
@@ -133,6 +142,34 @@ public final class Envelope {
      */
     public Optional<String> error() {
         return Optional.ofNullable(error);
+    }
+
+    /**
+     * Where this message was replayed from, when it was.
+     *
+     * <p>Set by {@code mq.replay(...)} when a message is moved back out of a dead-letter queue or
+     * parking lot. A first-class field rather than a header because engine-owned headers are
+     * stripped before an application sees them: left as a header, the one piece of evidence that
+     * this message has been round the loop before would be invisible to the code handling it.
+     *
+     * @return the queue it came back from, when it is a replay
+     */
+    public Optional<String> replayedFrom() {
+        return Optional.ofNullable(replayedFrom);
+    }
+
+    /** @return when it was last replayed, when it is a replay */
+    public Optional<Instant> replayedAt() {
+        return Optional.ofNullable(replayedAt);
+    }
+
+    /**
+     * @return how many times this message has been replayed; zero for one that never has.
+     *     Distinct from {@link #attempt()}, which a replay resets — a message on its fifth trip
+     *     through a dead-letter queue would otherwise look brand new
+     */
+    public int replayCount() {
+        return replayCount;
     }
 
     /**
@@ -204,6 +241,9 @@ public final class Envelope {
                 .origin(origin)
                 .error(error)
                 .route(route)
+                .replayedFrom(replayedFrom)
+                .replayedAt(replayedAt)
+                .replayCount(replayCount)
                 .headers(headers);
     }
 
@@ -225,13 +265,17 @@ public final class Envelope {
                 && firstSeen.equals(that.firstSeen)
                 && Objects.equals(origin, that.origin)
                 && Objects.equals(error, that.error)
+                && Objects.equals(replayedFrom, that.replayedFrom)
+                && Objects.equals(replayedAt, that.replayedAt)
+                && replayCount == that.replayCount
                 && headers.equals(that.headers);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                id, type, version, correlationId, causationId, attempt, firstSeen, origin, error, headers);
+                id, type, version, correlationId, causationId, attempt, firstSeen, origin, error,
+                replayedFrom, replayedAt, replayCount, headers);
     }
 
     @Override
@@ -252,6 +296,9 @@ public final class Envelope {
         private @Nullable Instant firstSeen;
         private @Nullable String origin;
         private @Nullable String error;
+        private @Nullable String replayedFrom;
+        private @Nullable Instant replayedAt;
+        private int replayCount;
         private final Map<String, Object> headers = new LinkedHashMap<>();
 
         /** @param id message identifier; a random UUID is generated when left unset */
@@ -305,6 +352,24 @@ public final class Envelope {
         /** @param error why the message was dead-lettered or parked */
         public Builder error(@Nullable String error) {
             this.error = error;
+            return this;
+        }
+
+        /** @param replayedFrom queue this message was replayed out of */
+        public Builder replayedFrom(@Nullable String replayedFrom) {
+            this.replayedFrom = replayedFrom;
+            return this;
+        }
+
+        /** @param replayedAt when it was replayed */
+        public Builder replayedAt(@Nullable Instant replayedAt) {
+            this.replayedAt = replayedAt;
+            return this;
+        }
+
+        /** @param replayCount how many times it has been replayed; must not be negative */
+        public Builder replayCount(int replayCount) {
+            this.replayCount = replayCount;
             return this;
         }
 

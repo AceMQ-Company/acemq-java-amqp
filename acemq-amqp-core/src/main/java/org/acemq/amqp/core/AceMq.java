@@ -479,6 +479,44 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Counts the messages waiting in a queue.
+     *
+     * <p>A snapshot, and useful as one: queue depth is the number an operator wants before
+     * deciding whether to replay, scale up, or leave well alone. It is not a control value — a
+     * live queue is a different depth by the time this returns, so a loop written around it is a
+     * loop written around a number that has already changed.
+     *
+     * @param queue queue to measure
+     * @return how many messages are waiting
+     */
+    public long messageCount(String queue) {
+        Objects.requireNonNull(queue, "queue");
+        return connection.messageCount(queue);
+    }
+
+    /**
+     * Moves failed messages back to the queue they failed in.
+     *
+     * <p>The other half of dead-lettering. Messages that exhausted their retries are in
+     * {@code <queue>.dlq} and messages that could not be decoded are in {@code <queue>.parked};
+     * both are safe there and neither comes back on its own. This is how they do, once the bug is
+     * fixed or the downstream service is up.
+     *
+     * <pre>{@code
+     * Replay replay = mq.replay("orders.new");
+     * long waiting = replay.pending();     // look first
+     * replay.replay(50);                   // then move a bounded batch
+     * }</pre>
+     *
+     * @param queue the queue that was being consumed, not the dead-letter queue itself
+     * @return a replay reading {@code <queue>.dlq}; call {@link Replay#parked()} for the other one
+     */
+    public Replay replay(String queue) {
+        Objects.requireNonNull(queue, "queue");
+        return new Replay(connection, queue, queue + ".dlq");
+    }
+
+    /**
      * Declares a stream: an append-only log that keeps messages until retention removes them.
      *
      * <p>Not a queue with different settings. A stream is read without being emptied, every

@@ -65,6 +65,18 @@ public final class AceHeaders {
     /** Queue a message was replayed from, set by the replay API for auditing. */
     public static final String REPLAYED_FROM = PREFIX + "replayed-from";
 
+    /** When the message was last replayed, as an ISO-8601 instant. */
+    public static final String REPLAYED_AT = PREFIX + "replayed-at";
+
+    /**
+     * How many times the message has been replayed.
+     *
+     * <p>Worth carrying separately from the attempt count, which a replay resets. A message on
+     * its fifth trip through a dead-letter queue is saying something that a fresh-looking
+     * attempt counter would hide.
+     */
+    public static final String REPLAY_COUNT = PREFIX + "replay-count";
+
     /** W3C trace context. Not prefixed, so non-AceMQ tooling recognises it. */
     public static final String TRACEPARENT = "traceparent";
 
