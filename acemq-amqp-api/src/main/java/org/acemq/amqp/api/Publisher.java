@@ -48,6 +48,67 @@ public interface Publisher<T> extends AutoCloseable {
      */
     PublishResult send(T payload, Envelope envelope);
 
+    /**
+     * Publishes without waiting for the broker to confirm.
+     *
+     * <p>A synchronous publish costs a round trip per message, so a loop over ten thousand of them
+     * spends nearly all its time waiting. This lets the next message go out while the last is
+     * still in flight, and is typically an order of magnitude faster for bulk work.
+     *
+     * <p>Nothing about the guarantees changes: the future carries the same result
+     * {@link #send(Object)} returns, and fails the same way — including when nothing was bound to
+     * receive the message. What changes is <em>when</em> you find out.
+     *
+     * <p><strong>A future nobody waits on is a message nobody knows the fate of.</strong> That is
+     * the failure this library exists to prevent, so somebody has to check, eventually. If you do
+     * not intend to look at the result, use {@link #send(Object)} and take the round trip.
+     *
+     * <pre>{@code
+     * List<CompletableFuture<PublishResult>> inFlight = new ArrayList<>();
+     * for (Order order : thousands) {
+     *     inFlight.add(publisher.sendAsync(order));
+     * }
+     * CompletableFuture.allOf(inFlight.toArray(new CompletableFuture[0])).join();
+     * }</pre>
+     *
+     * <p>Publishing blocks once too many messages are awaiting confirmation, which is deliberate:
+     * an asynchronous publisher with no ceiling is a memory leak that looks like throughput.
+     *
+     * @param payload the payload to send
+     * @return a future completed with the broker's answer, or failed as {@link #send(Object)}
+     *     would have thrown
+     */
+    java.util.concurrent.CompletableFuture<PublishResult> sendAsync(T payload);
+
+    /**
+     * Publishes without waiting, with an envelope of your own.
+     *
+     * @param payload the payload to send
+     * @param envelope identity, correlation and headers to travel with it
+     * @return a future completed with the broker's answer
+     */
+    java.util.concurrent.CompletableFuture<PublishResult> sendAsync(T payload, Envelope envelope);
+
+    /**
+     * Publishes a batch and waits for every confirm.
+     *
+     * <p>What most bulk publishing actually wants: the throughput of pipelining with the safety of
+     * having waited. Every message goes out before any confirm is awaited, then all of them are
+     * checked together.
+     *
+     * <p>Fails if <em>any</em> message failed, and the exception names how many succeeded — a
+     * partial batch is the normal outcome of a broker problem halfway through, and pretending
+     * otherwise would leave the caller resending messages that already arrived.
+     *
+     * <p>This is not atomic. AMQP has no such thing: there is no way to publish a hundred messages
+     * such that all or none arrive, and a library that offered one would be lying.
+     *
+     * @param payloads the payloads to send, in order
+     * @return the results, in the same order
+     * @throws PublishFailedException if any message was not confirmed
+     */
+    java.util.List<PublishResult> sendAll(java.util.Collection<? extends T> payloads);
+
     @Override
     void close();
 }

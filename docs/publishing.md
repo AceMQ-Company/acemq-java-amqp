@@ -70,6 +70,54 @@ inside its window.
 Options travel with the publisher, including through `asXml()` and friends:
 asking for a different format is not a request to start writing to disk again.
 
+## Publishing in bulk
+
+A synchronous publish costs a round trip per message, so a loop over ten thousand
+of them spends nearly all its time waiting. For bulk work, publish everything
+first and check the confirms afterwards:
+
+```java
+List<PublishResult> results = publisher.sendAll(orders);   // throughput, then safety
+```
+
+Every message goes out before any confirm is awaited, and all of them are checked
+together. Measured against a real broker this is materially faster than the same
+messages sent one at a time — the integration suite asserts it rather than
+claiming it.
+
+`sendAll` is **not atomic**, and no AMQP library can make it so: there is no way
+to publish a hundred messages such that all or none arrive. If any message fails,
+the exception says how many succeeded, because a caller told only "the batch
+failed" will resend messages that already arrived.
+
+For finer control, hold the futures yourself:
+
+```java
+List<CompletableFuture<PublishResult>> inFlight = new ArrayList<>();
+for (Order order : orders) {
+    inFlight.add(publisher.sendAsync(order));
+}
+CompletableFuture.allOf(inFlight.toArray(new CompletableFuture[0])).join();
+```
+
+Nothing about the guarantees changes. The future carries the same result `send`
+returns and fails the same way, including when nothing was bound to receive the
+message. What changes is *when* you find out — and **a future nobody waits on is
+a message nobody knows the fate of**, which is the failure this library exists to
+prevent. If you are not going to check the result, use `send` and take the round
+trip.
+
+Publishing blocks once too many messages are awaiting confirmation:
+
+```java
+AceMq.connect(ConnectionConfig.url("amqp://broker")
+        .maxOutstandingPublishes(1000)   // the default
+        .build());
+```
+
+That ceiling is the difference between backpressure and a memory leak that looks
+like throughput.
+
 ## When the broker stops accepting messages
 
 RabbitMQ blocks publishing connections when it runs low on memory or disk. It

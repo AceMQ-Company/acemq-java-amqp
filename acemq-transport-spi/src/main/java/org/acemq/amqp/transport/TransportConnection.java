@@ -115,6 +115,36 @@ public interface TransportConnection extends AutoCloseable {
     }
 
     /**
+     * Publishes one message without waiting for the broker to confirm it.
+     *
+     * <p>The throughput answer to {@link #send}. A synchronous publish costs a full round trip per
+     * message, so a loop over ten thousand messages spends nearly all of its time waiting; this
+     * lets the next message go out while the last one is still being confirmed. Confirms come back
+     * out of order and in ranges, which is why the correlation is the transport's job rather than
+     * the caller's.
+     *
+     * <p>The safety properties are unchanged, and that is the point: the returned future carries
+     * the same {@link ConfirmResult} the synchronous call returns, including whether anything was
+     * bound to receive the message. What changes is when the caller learns it. <strong>A future
+     * nobody waits on is a message nobody knows the fate of</strong> — which is the failure mode
+     * this whole library exists to avoid, so the result must be checked, eventually, by somebody.
+     *
+     * <p>Implementations must bound the number of unconfirmed publishes and block once that limit
+     * is reached. An unbounded async publisher is a memory leak that looks like throughput.
+     *
+     * <p>The default implementation publishes synchronously and hands back a completed future. It
+     * is correct and offers no speed-up whatsoever, which is the honest behaviour for a transport
+     * that cannot pipeline.
+     *
+     * @param message the message to publish
+     * @return a future completed with the broker's answer
+     * @throws TransportException if the message could not be written at all
+     */
+    default java.util.concurrent.CompletableFuture<ConfirmResult> sendAsync(OutboundMessage message) {
+        return java.util.concurrent.CompletableFuture.completedFuture(send(message));
+    }
+
+    /**
      * Takes one message off a queue, or reports that there is none.
      *
      * <p>A pull, where {@link #subscribe} is a push. It exists for the jobs that have to stop

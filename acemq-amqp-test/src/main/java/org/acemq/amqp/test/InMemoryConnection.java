@@ -103,6 +103,22 @@ final class InMemoryConnection implements TransportConnection {
     }
 
     @Override
+    public java.util.concurrent.CompletableFuture<org.acemq.amqp.transport.ConfirmResult> sendAsync(
+            OutboundMessage message) {
+        // Routing here is a map lookup, so there is no round trip to overlap and nothing to gain
+        // from deferring it. Completing immediately keeps the semantics identical to the real
+        // transport -- the future carries the same answer -- without pretending to a speed-up the
+        // fake cannot deliver.
+        try {
+            return java.util.concurrent.CompletableFuture.completedFuture(send(message));
+        } catch (RuntimeException e) {
+            java.util.concurrent.CompletableFuture<org.acemq.amqp.transport.ConfirmResult> failed = new java.util.concurrent.CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
+    @Override
     public java.util.Optional<org.acemq.amqp.transport.PulledMessage> receive(String queueName, Duration timeout) {
         requireOpen();
         InMemoryBroker.Queue queue = broker.queue(queueName);

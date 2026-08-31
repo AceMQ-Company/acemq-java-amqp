@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.acemq.amqp.transport.Acknowledger;
@@ -78,9 +79,25 @@ final class RabbitMqConnection implements TransportConnection {
 
     private final Object blockedLock = new Object();
 
+    /** Opened on first asynchronous publish; most connections never publish that way. */
+    private volatile @Nullable Channel asyncPublishChannel;
+
+    private final Object asyncLock = new Object();
+
+    /**
+     * Publishes waiting for a confirm, keyed by delivery sequence number.
+     *
+     * <p>Sorted, because a confirm can acknowledge every sequence number up to a given one and
+     * answering that question on a hash map would mean scanning all of it per confirm.
+     */
+    private final java.util.concurrent.ConcurrentSkipListMap<Long, PendingPublish> pending = new java.util.concurrent.ConcurrentSkipListMap<>();
+
+    private final java.util.concurrent.Semaphore outstanding;
+
     RabbitMqConnection(Connection connection, ConnectionConfig config) {
         this.connection = connection;
         this.config = config;
+        this.outstanding = new java.util.concurrent.Semaphore(config.maxOutstandingPublishes());
         try {
             this.publishChannel = connection.createChannel();
             if (config.publisherConfirms()) {
@@ -434,6 +451,162 @@ final class RabbitMqConnection implements TransportConnection {
      * that failure away from the publishing channel, which would otherwise take every
      * in-flight publish down with it.
      */
+    @Override
+    public java.util.concurrent.CompletableFuture<ConfirmResult> sendAsync(OutboundMessage message) {
+        if (!config.publisherConfirms()) {
+            // Nothing to correlate: without confirms there is no answer to wait for, so the
+            // synchronous path is already as asynchronous as this can honestly be.
+            return java.util.concurrent.CompletableFuture.completedFuture(send(message));
+        }
+
+        awaitUnblocked();
+
+        Channel channel = asyncChannel();
+        AMQP.BasicProperties properties = properties(message);
+        long startedAt = System.nanoTime();
+
+        // Bounded before the message is written, not after. This is the only backpressure an
+        // asynchronous publisher has: without it a caller that publishes faster than the broker
+        // confirms accumulates unconfirmed messages until the process dies, which looks like
+        // throughput right up to the moment it does not.
+        try {
+            if (!outstanding.tryAcquire(config.confirmTimeout().toMillis(), TimeUnit.MILLISECONDS)) {
+                throw new TransportException(config.maxOutstandingPublishes() + " publishes are already waiting for"
+                        + " a confirm and none completed within " + config.confirmTimeout() + ". The broker is not"
+                        + " keeping up; publish more slowly rather than buffering more.");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new TransportException("interrupted while waiting for room to publish", e);
+        }
+
+        java.util.concurrent.CompletableFuture<ConfirmResult> future = new java.util.concurrent.CompletableFuture<>();
+        try {
+            // The sequence number and the publish have to be taken together under one lock.
+            // getNextPublishSeqNo only predicts the number the *next* publish will use, so two
+            // threads interleaving here would file their futures under each other's numbers and
+            // every confirm after that would be attributed to the wrong message.
+            synchronized (asyncLock) {
+                long sequence = channel.getNextPublishSeqNo();
+                pending.put(sequence, new PendingPublish(message.messageId(), startedAt, future));
+                try {
+                    channel.basicPublish(message.exchange(), message.routingKey(), message.mandatory(),
+                            properties, message.body());
+                } catch (IOException | ShutdownSignalException e) {
+                    pending.remove(sequence);
+                    throw e;
+                }
+            }
+        } catch (Exception e) {
+            outstanding.release();
+            throw new TransportException("could not publish " + message, e);
+        }
+        return future;
+    }
+
+    /** Opens the asynchronous publishing channel on first use, and wires its confirm listener. */
+    private Channel asyncChannel() {
+        Channel existing = asyncPublishChannel;
+        if (existing != null && existing.isOpen()) {
+            return existing;
+        }
+        synchronized (asyncLock) {
+            if (asyncPublishChannel != null && asyncPublishChannel.isOpen()) {
+                return asyncPublishChannel;
+            }
+            try {
+                Channel channel = connection.createChannel();
+                channel.confirmSelect();
+                channel.addReturnListener((replyCode, replyText, exchange, routingKey, props, body) -> {
+                    // A return always precedes the confirm for the same message, so recording it
+                    // here and reading it when the confirm lands is enough to tell "the broker
+                    // took it" apart from "the broker took it and nothing wanted it".
+                    String id = props == null ? null : props.getMessageId();
+                    if (id != null) {
+                        returnedMessages.put(id, replyCode + " " + replyText);
+                    }
+                    log.warn("message returned as unroutable: exchange={} routingKey={} reason={} {}",
+                            exchange, routingKey, replyCode, replyText);
+                });
+                channel.addConfirmListener(
+                        (sequence, multiple) -> settle(sequence, multiple, true, null),
+                        (sequence, multiple) -> settle(sequence, multiple, false, null));
+                channel.addShutdownListener(cause -> {
+                    // Every outstanding future would otherwise wait forever for a confirm that
+                    // can no longer arrive. Failing them is the only honest answer: those
+                    // messages may or may not have reached the broker.
+                    failAllPending(new TransportException(
+                            "the publishing channel closed with " + pending.size() + " publish(es) unconfirmed;"
+                                    + " those messages may or may not have arrived",
+                            cause));
+                });
+                asyncPublishChannel = channel;
+                return channel;
+            } catch (IOException e) {
+                throw new TransportException("could not open the asynchronous publishing channel", e);
+            }
+        }
+    }
+
+    /**
+     * Completes the futures a confirm covers.
+     *
+     * <p>Confirms arrive out of order and in ranges: {@code multiple} means "every sequence number
+     * up to and including this one". Completing only the exact number would leave the rest of a
+     * range pending forever, and leak a permit each time.
+     */
+    private void settle(long sequence, boolean multiple, boolean acknowledged, @Nullable String reason) {
+        Map<Long, PendingPublish> settled = new java.util.HashMap<>();
+        if (multiple) {
+            java.util.NavigableMap<Long, PendingPublish> upTo = pending.headMap(sequence, true);
+            settled.putAll(upTo);
+            upTo.clear();
+        } else {
+            PendingPublish one = pending.remove(sequence);
+            if (one != null) {
+                settled.put(sequence, one);
+            }
+        }
+
+        settled.forEach((number, publish) -> {
+            outstanding.release();
+            Duration latency = elapsedSince(publish.startedAt);
+            if (!acknowledged) {
+                publish.future.complete(ConfirmResult.failed(latency,
+                        reason == null ? "the broker rejected the message" : reason));
+                return;
+            }
+            String returned = publish.messageId == null ? null : returnedMessages.remove(publish.messageId);
+            publish.future.complete(returned == null
+                    ? ConfirmResult.confirmed(latency)
+                    : ConfirmResult.unroutable(latency, returned));
+        });
+    }
+
+    private void failAllPending(TransportException failure) {
+        java.util.List<PendingPublish> abandoned = new java.util.ArrayList<>(pending.values());
+        pending.clear();
+        for (PendingPublish publish : abandoned) {
+            outstanding.release();
+            publish.future.completeExceptionally(failure);
+        }
+    }
+
+    /** One publish waiting for its confirm. */
+    private static final class PendingPublish {
+
+        private final @Nullable String messageId;
+        private final long startedAt;
+        private final java.util.concurrent.CompletableFuture<ConfirmResult> future;
+
+        PendingPublish(@Nullable String messageId, long startedAt,
+                java.util.concurrent.CompletableFuture<ConfirmResult> future) {
+            this.messageId = messageId;
+            this.startedAt = startedAt;
+            this.future = future;
+        }
+    }
+
     @Override
     public java.util.Optional<org.acemq.amqp.transport.PulledMessage> receive(String queue, Duration timeout) {
         // Its own channel, kept open past the return. basicGet leaves the message unsettled and

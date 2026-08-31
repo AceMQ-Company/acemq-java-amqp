@@ -33,6 +33,7 @@ public final class ConnectionConfig {
     private final Duration confirmTimeout;
     private final Duration blockedTimeout;
     private final boolean publisherConfirms;
+    private final int maxOutstandingPublishes;
     private final Security security;
 
     private ConnectionConfig(Builder builder) {
@@ -45,6 +46,7 @@ public final class ConnectionConfig {
         this.confirmTimeout = builder.confirmTimeout;
         this.blockedTimeout = builder.blockedTimeout;
         this.publisherConfirms = builder.publisherConfirms;
+        this.maxOutstandingPublishes = builder.maxOutstandingPublishes;
         this.security = builder.security;
     }
 
@@ -106,6 +108,21 @@ public final class ConnectionConfig {
         return security;
     }
 
+    /**
+     * How many publishes may be waiting for a confirm at once.
+     *
+     * <p>Only asynchronous publishing uses this, and it is the setting that keeps it honest: a
+     * publisher that hands out futures faster than the broker confirms them accumulates
+     * unconfirmed messages in memory until the process dies. Once the limit is reached, publishing
+     * blocks — turning a memory leak into backpressure, which is the trade a queueing library
+     * should make.
+     *
+     * @return the ceiling on unconfirmed publishes
+     */
+    public int maxOutstandingPublishes() {
+        return maxOutstandingPublishes;
+    }
+
     public boolean publisherConfirms() {
         return publisherConfirms;
     }
@@ -135,6 +152,12 @@ public final class ConnectionConfig {
         private Duration confirmTimeout = Duration.ofSeconds(10);
         private Duration blockedTimeout = Duration.ofSeconds(30);
         private boolean publisherConfirms = true;
+
+        /**
+         * Enough to keep the broker busy, small enough that the memory cost is bounded and
+         * obvious. A publisher that wants more should say so rather than inherit it.
+         */
+        private int maxOutstandingPublishes = 1_000;
         // Secure by default. An amqps:// URL then needs nothing said about it, and a plaintext
         // one to anywhere but this machine is warned about rather than silently accepted.
         private Security security = Security.required();
@@ -197,6 +220,19 @@ public final class ConnectionConfig {
 
         public Builder withoutPublisherConfirms() {
             this.publisherConfirms = false;
+            return this;
+        }
+
+        /**
+         * @param maxOutstandingPublishes how many asynchronous publishes may await a confirm
+         *     before publishing blocks; must be at least 1
+         */
+        public Builder maxOutstandingPublishes(int maxOutstandingPublishes) {
+            if (maxOutstandingPublishes < 1) {
+                throw new IllegalArgumentException(
+                        "maxOutstandingPublishes must be at least 1, was " + maxOutstandingPublishes);
+            }
+            this.maxOutstandingPublishes = maxOutstandingPublishes;
             return this;
         }
 

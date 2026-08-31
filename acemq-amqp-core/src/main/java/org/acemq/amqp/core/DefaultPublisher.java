@@ -231,6 +231,81 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     }
 
     @Override
+    public java.util.concurrent.CompletableFuture<PublishResult> sendAsync(T payload) {
+        return sendAsync(payload, Envelope.of(routingKey.isEmpty() ? "message" : routingKey)
+                .origin(origin)
+                .build());
+    }
+
+    @Override
+    public java.util.concurrent.CompletableFuture<PublishResult> sendAsync(T payload, Envelope envelope) {
+        Prepared prepared = prepare(payload, envelope);
+        // The scope closes when the confirm lands rather than when this method returns, so the
+        // recorded latency is the message's, not the caller's. Closing it here would report every
+        // asynchronous publish as taking microseconds.
+        Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, prepared.envelope);
+        java.util.concurrent.CompletableFuture<ConfirmResult> confirm;
+        try {
+            confirm = connection.sendAsync(toMessage(prepared));
+        } catch (RuntimeException e) {
+            scope.failed(e);
+            scope.close();
+            interceptors.onPublishError(prepared.context, e);
+            throw e;
+        }
+        return confirm.handle((result, failure) -> {
+            try {
+                if (failure != null) {
+                    scope.failed(failure);
+                    interceptors.onPublishError(prepared.context, failure);
+                    throw failure instanceof RuntimeException
+                            ? (RuntimeException) failure
+                            : new AceMqException("publishing " + prepared.envelope.id() + " failed", failure);
+                }
+                return complete(prepared, result, scope);
+            } finally {
+                scope.close();
+            }
+        });
+    }
+
+    @Override
+    public java.util.List<PublishResult> sendAll(java.util.Collection<? extends T> payloads) {
+        java.util.Objects.requireNonNull(payloads, "payloads");
+        // Everything goes out first, and only then is anything awaited. Awaiting each in turn
+        // would be the synchronous path with extra objects.
+        java.util.List<java.util.concurrent.CompletableFuture<PublishResult>> inFlight = new java.util.ArrayList<>(
+                payloads.size());
+        for (T payload : payloads) {
+            inFlight.add(sendAsync(payload));
+        }
+
+        java.util.List<PublishResult> results = new java.util.ArrayList<>(inFlight.size());
+        Throwable firstFailure = null;
+        int failed = 0;
+        for (java.util.concurrent.CompletableFuture<PublishResult> future : inFlight) {
+            try {
+                results.add(future.join());
+            } catch (java.util.concurrent.CompletionException e) {
+                failed++;
+                if (firstFailure == null) {
+                    firstFailure = e.getCause() == null ? e : e.getCause();
+                }
+            }
+        }
+
+        if (firstFailure != null) {
+            // The count matters. A batch that half succeeded is the ordinary outcome of a broker
+            // problem partway through, and a caller told only "it failed" will resend messages
+            // that already arrived.
+            throw new PublishFailedException(failed + " of " + inFlight.size() + " messages were not confirmed;"
+                    + " " + results.size() + " were. The first failure was: " + firstFailure.getMessage(),
+                    firstFailure);
+        }
+        return results;
+    }
+
+    @Override
     public PublishResult send(T payload) {
         // The routing key doubles as the message type when none is stated. It is the most
         // useful default available: it is what an operator sees in the broker anyway.
@@ -241,6 +316,29 @@ public final class DefaultPublisher<T> implements Publisher<T> {
 
     @Override
     public PublishResult send(T payload, Envelope envelope) {
+        Prepared prepared = prepare(payload, envelope);
+
+        try (Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, prepared.envelope)) {
+            ConfirmResult result;
+            try {
+                result = connection.send(toMessage(prepared));
+            } catch (RuntimeException e) {
+                scope.failed(e);
+                interceptors.onPublishError(prepared.context, e);
+                throw e;
+            }
+            return complete(prepared, result, scope);
+        }
+    }
+
+    /**
+     * Everything that happens before a message reaches the transport, shared by both paths.
+     *
+     * <p>Extracted so the asynchronous publish cannot drift from the synchronous one. Pause
+     * checks, interceptors, provenance stamping and trace propagation are exactly the things
+     * that get quietly forgotten in a second copy.
+     */
+    private Prepared prepare(T payload, Envelope envelope) {
         if (closed.get()) {
             throw new AceMqException("this publisher is closed");
         }
@@ -274,66 +372,76 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             }
             stamped = context.envelope();
         }
-        final PublishContext published = context;
 
-        byte[] body = codec.encode(payload);
+        return new Prepared(stamped, context, codec.encode(payload));
+    }
 
-        try (Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, stamped)) {
-            // Trace context is gathered inside the scope, so the headers carry the span that is
-            // being created here. That is what lets a consumer, in another process and possibly
-            // much later, attach its work to this publish.
-            Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(stamped));
-            headers.putAll(telemetry.propagationHeaders());
+    /**
+     * Builds the message to hand the transport.
+     *
+     * <p>Called inside the telemetry scope, and that is not incidental: trace context is read
+     * from whatever span is current, so gathering these headers before the publish span exists
+     * propagates the caller's span instead of this publish. A consumer would then attach its
+     * work to the wrong parent -- a broken trace, and one that still looks like a trace.
+     */
+    private OutboundMessage toMessage(Prepared prepared) {
+        Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(prepared.envelope));
+        headers.putAll(telemetry.propagationHeaders());
 
-            OutboundMessage.Builder outbound = OutboundMessage.body(body)
-                    .exchange(exchange)
-                    .routingKey(routingKey)
-                    .headers(headers)
-                    .messageId(stamped.id())
-                    .contentType(codec.contentType())
-                    .expiration(options.expiration().orElse(null));
-            if (!options.persistent()) {
-                outbound.transientDelivery();
-            }
-            if (!options.mandatory()) {
-                outbound.allowUnroutable();
-            }
-            OutboundMessage message = outbound.build();
+        OutboundMessage.Builder outbound = OutboundMessage.body(prepared.body)
+                .exchange(exchange)
+                .routingKey(routingKey)
+                .headers(headers)
+                .messageId(prepared.envelope.id())
+                .contentType(codec.contentType())
+                .expiration(options.expiration().orElse(null));
+        if (!options.persistent()) {
+            outbound.transientDelivery();
+        }
+        if (!options.mandatory()) {
+            outbound.allowUnroutable();
+        }
+        return outbound.build();
+    }
 
-            ConfirmResult result;
-            try {
-                result = connection.send(message);
-            } catch (RuntimeException e) {
-                scope.failed(e);
-                interceptors.onPublishError(published, e);
-                throw e;
-            }
+    /** Turns the broker's answer into a result or the right failure, for both paths. */
+    private PublishResult complete(Prepared prepared, ConfirmResult result, Telemetry.Scope scope) {
+        String id = prepared.envelope.id();
+        if (!result.isConfirmed()) {
+            scope.outcome(MetricNames.OUTCOME_FAILED);
+            PublishFailedException failure = new PublishFailedException("the broker did not confirm message " + id
+                    + " to exchange '" + exchange + "' with routing key '" + routingKey + "': " + result.detail());
+            interceptors.onPublishError(prepared.context, failure);
+            throw failure;
+        }
+        if (!result.isRouted()) {
+            scope.outcome(MetricNames.OUTCOME_UNROUTABLE);
+            PublishFailedException failure = new PublishFailedException("message " + id + " was accepted by the"
+                    + " broker but could not be routed: nothing is bound to exchange '" + exchange + "' for"
+                    + " routing key '" + routingKey + "'. The message has been discarded. Declare the binding, or"
+                    + " publish with an explicit allowance for unroutable messages if that is intended.");
+            interceptors.onPublishError(prepared.context, failure);
+            throw failure;
+        }
 
-            if (!result.isConfirmed()) {
-                scope.outcome(MetricNames.OUTCOME_FAILED);
-                PublishFailedException failure = new PublishFailedException("the broker did not confirm message "
-                        + published.envelope().id()
-                        + " to exchange '" + exchange + "' with routing key '" + routingKey + "': "
-                        + result.detail());
-                interceptors.onPublishError(published, failure);
-                throw failure;
-            }
-            if (!result.isRouted()) {
-                scope.outcome(MetricNames.OUTCOME_UNROUTABLE);
-                PublishFailedException failure = new PublishFailedException("message " + published.envelope().id()
-                        + " was accepted by the broker but could"
-                        + " not be routed: nothing is bound to exchange '" + exchange + "' for routing key '"
-                        + routingKey + "'. The message has been discarded. Declare the binding, or publish with an"
-                        + " explicit allowance for unroutable messages if that is intended.");
-                interceptors.onPublishError(published, failure);
-                throw failure;
-            }
+        scope.outcome(MetricNames.OUTCOME_CONFIRMED);
+        log.debug("published {} to {}/{} in {}", id, exchange, routingKey, result.latency());
+        PublishResult outcome = new PublishResult(id, result.isRouted(), result.latency());
+        interceptors.afterConfirm(prepared.context, outcome);
+        return outcome;
+    }
 
-            scope.outcome(MetricNames.OUTCOME_CONFIRMED);
-            log.debug("published {} to {}/{} in {}", stamped.id(), exchange, routingKey, result.latency());
-            PublishResult outcome = new PublishResult(stamped.id(), result.isRouted(), result.latency());
-            interceptors.afterConfirm(published, outcome);
-            return outcome;
+    /** A message ready for the transport, with what interceptors and telemetry still need. */
+    private static final class Prepared {
+
+        private final Envelope envelope;
+        private final PublishContext context;
+        private final byte[] body;
+
+        Prepared(Envelope envelope, PublishContext context, byte[] body) {
+            this.envelope = envelope;
+            this.context = context;
+            this.body = body;
         }
     }
 
