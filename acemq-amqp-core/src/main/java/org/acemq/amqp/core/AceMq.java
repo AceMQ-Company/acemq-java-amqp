@@ -64,6 +64,7 @@ public final class AceMq implements AutoCloseable {
 
     private final Transport transport;
     private final TransportConnection connection;
+    private final Interceptors interceptors = new Interceptors();
 
     /**
      * What publishers write, and what consumers read, and deliberately not the same thing.
@@ -428,7 +429,7 @@ public final class AceMq implements AutoCloseable {
      */
     public <T> DefaultPublisher<T> publisher(String exchange, String routingKey) {
         DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, publishCodec, exchange, routingKey, origin,
-                telemetry, managed::add, publishingPaused::get);
+                telemetry, managed::add, publishingPaused::get, PublishOptions.defaults(), interceptors);
         managed.add(publisher);
         return publisher;
     }
@@ -473,9 +474,53 @@ public final class AceMq implements AutoCloseable {
         Objects.requireNonNull(payloadType, "payloadType");
         Objects.requireNonNull(options, "options");
         DefaultPublisher<T> publisher = new DefaultPublisher<>(connection, publishCodec, exchange, routingKey, origin,
-                telemetry, managed::add, publishingPaused::get, options);
+                telemetry, managed::add, publishingPaused::get, options, interceptors);
         managed.add(publisher);
         return publisher;
+    }
+
+    /**
+     * Runs something around every publish on this connection.
+     *
+     * <p>For what every message in an organisation needs and no library can guess: a tenant
+     * identifier, an authorisation token, a schema version, a size limit. Without this they get
+     * copied into every call site, where one of them is always missing.
+     *
+     * <pre>{@code
+     * mq.intercept((PublishInterceptor) context ->
+     *         context.withEnvelope(context.envelope().toBuilder()
+     *                 .header("tenant", TenantContext.current())
+     *                 .build()));
+     * }</pre>
+     *
+     * <p>Applies to publishers already created as well as later ones, so ordering against
+     * start-up code is not a trap. Register during start-up all the same: a message already on
+     * its way will not see an interceptor added mid-flight.
+     *
+     * @param interceptor what to run; throwing from it refuses the publish
+     * @return this instance, for chaining
+     */
+    public AceMq intercept(org.acemq.amqp.api.PublishInterceptor interceptor) {
+        interceptors.add(Objects.requireNonNull(interceptor, "interceptor"));
+        return this;
+    }
+
+    /**
+     * Runs something around every handler on this connection.
+     *
+     * <p>For the work that surrounds handling rather than being part of it: log context, tenant
+     * adoption, opening and closing a unit of work.
+     *
+     * <p>Throwing from {@code beforeHandle} fails the delivery, which means it is retried and
+     * eventually dead-lettered. That is the honest outcome for a refused message; acknowledging
+     * one nothing processed is not.
+     *
+     * @param interceptor what to run around each handler
+     * @return this instance, for chaining
+     */
+    public AceMq intercept(org.acemq.amqp.api.ConsumeInterceptor interceptor) {
+        interceptors.add(Objects.requireNonNull(interceptor, "interceptor"));
+        return this;
     }
 
     /**
@@ -730,7 +775,7 @@ public final class AceMq implements AutoCloseable {
         // anything self-describing is better off not being told at all.
         Codec reading = options.codec().orElse(consumeCodec);
         DefaultConsumer<T> consumer = new DefaultConsumer<>(connection, reading, queue, payloadType, options,
-                handler, telemetry);
+                handler, telemetry, interceptors);
         managed.add(consumer);
         consumer.start();
         return consumer;

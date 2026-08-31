@@ -25,6 +25,7 @@ import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.MetricNames;
+import org.acemq.amqp.api.PublishContext;
 import org.acemq.amqp.api.PublishFailedException;
 import org.acemq.amqp.api.PublishResult;
 import org.acemq.amqp.api.Publisher;
@@ -76,6 +77,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     private final Consumer<AutoCloseable> registrar;
     private final java.util.function.BooleanSupplier publishingPaused;
     private final PublishOptions options;
+    private final Interceptors interceptors;
 
     DefaultPublisher(
             TransportConnection connection,
@@ -87,7 +89,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             Consumer<AutoCloseable> registrar,
             java.util.function.BooleanSupplier publishingPaused) {
         this(connection, codec, exchange, routingKey, origin, telemetry, registrar, publishingPaused,
-                PublishOptions.defaults());
+                PublishOptions.defaults(), new Interceptors());
     }
 
     DefaultPublisher(
@@ -100,6 +102,21 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             Consumer<AutoCloseable> registrar,
             java.util.function.BooleanSupplier publishingPaused,
             PublishOptions options) {
+        this(connection, codec, exchange, routingKey, origin, telemetry, registrar, publishingPaused, options,
+                new Interceptors());
+    }
+
+    DefaultPublisher(
+            TransportConnection connection,
+            Codec codec,
+            String exchange,
+            String routingKey,
+            String origin,
+            Telemetry telemetry,
+            Consumer<AutoCloseable> registrar,
+            java.util.function.BooleanSupplier publishingPaused,
+            PublishOptions options,
+            Interceptors interceptors) {
         this.connection = connection;
         this.codec = codec;
         this.exchange = exchange == null ? "" : exchange;
@@ -109,6 +126,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         this.registrar = registrar;
         this.publishingPaused = publishingPaused;
         this.options = options;
+        this.interceptors = interceptors;
     }
 
     /**
@@ -123,7 +141,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     public DefaultPublisher<T> with(PublishOptions options) {
         java.util.Objects.requireNonNull(options, "options");
         DefaultPublisher<T> derived = new DefaultPublisher<>(connection, codec, exchange, routingKey, origin,
-                telemetry, registrar, publishingPaused, options);
+                telemetry, registrar, publishingPaused, options, interceptors);
         registrar.accept(derived);
         return derived;
     }
@@ -162,7 +180,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         // transiently again, and losing them here would do exactly that, quietly.
         DefaultPublisher<T> switched = new DefaultPublisher<>(
                 connection, Objects.requireNonNull(format, "format"), exchange, routingKey, origin, telemetry,
-                registrar, publishingPaused, options);
+                registrar, publishingPaused, options, interceptors);
         registrar.accept(switched);
         return switched;
     }
@@ -243,6 +261,21 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         // queue. An origin the caller did set is left alone.
         Envelope stamped = envelope.origin().isPresent() ? envelope : envelope.toBuilder().origin(origin).build();
 
+        // Interceptors run before encoding, so one that adds a header changes what is actually
+        // written rather than something already serialised. An exception here is deliberately
+        // not caught: refusing a publish is what a policy interceptor is for.
+        PublishContext context = new PublishContext(exchange, routingKey, stamped, payload);
+        if (!interceptors.isEmptyForPublishing()) {
+            try {
+                context = interceptors.beforePublish(context);
+            } catch (RuntimeException e) {
+                interceptors.onPublishError(context, e);
+                throw e;
+            }
+            stamped = context.envelope();
+        }
+        final PublishContext published = context;
+
         byte[] body = codec.encode(payload);
 
         try (Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, stamped)) {
@@ -272,26 +305,35 @@ public final class DefaultPublisher<T> implements Publisher<T> {
                 result = connection.send(message);
             } catch (RuntimeException e) {
                 scope.failed(e);
+                interceptors.onPublishError(published, e);
                 throw e;
             }
 
             if (!result.isConfirmed()) {
                 scope.outcome(MetricNames.OUTCOME_FAILED);
-                throw new PublishFailedException("the broker did not confirm message " + stamped.id()
+                PublishFailedException failure = new PublishFailedException("the broker did not confirm message "
+                        + published.envelope().id()
                         + " to exchange '" + exchange + "' with routing key '" + routingKey + "': "
                         + result.detail());
+                interceptors.onPublishError(published, failure);
+                throw failure;
             }
             if (!result.isRouted()) {
                 scope.outcome(MetricNames.OUTCOME_UNROUTABLE);
-                throw new PublishFailedException("message " + stamped.id() + " was accepted by the broker but could"
+                PublishFailedException failure = new PublishFailedException("message " + published.envelope().id()
+                        + " was accepted by the broker but could"
                         + " not be routed: nothing is bound to exchange '" + exchange + "' for routing key '"
                         + routingKey + "'. The message has been discarded. Declare the binding, or publish with an"
                         + " explicit allowance for unroutable messages if that is intended.");
+                interceptors.onPublishError(published, failure);
+                throw failure;
             }
 
             scope.outcome(MetricNames.OUTCOME_CONFIRMED);
             log.debug("published {} to {}/{} in {}", stamped.id(), exchange, routingKey, result.latency());
-            return new PublishResult(stamped.id(), result.isRouted(), result.latency());
+            PublishResult outcome = new PublishResult(stamped.id(), result.isRouted(), result.latency());
+            interceptors.afterConfirm(published, outcome);
+            return outcome;
         }
     }
 

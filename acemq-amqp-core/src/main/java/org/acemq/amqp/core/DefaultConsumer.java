@@ -20,7 +20,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.acemq.amqp.api.AceFatalException;
+import org.acemq.amqp.api.Ack;
 import org.acemq.amqp.api.Codec;
+import org.acemq.amqp.api.ConsumeContext;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.IdempotencyStore;
 import org.acemq.amqp.api.Message;
@@ -57,6 +59,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final ConsumerOptions options;
     private final MessageHandler<T> handler;
     private final Telemetry telemetry;
+    private final Interceptors interceptors;
     private final AtomicLong acknowledged = new AtomicLong();
     private final AtomicLong rejected = new AtomicLong();
     private final AtomicLong retried = new AtomicLong();
@@ -78,6 +81,19 @@ final class DefaultConsumer<T> implements MessageConsumer {
             ConsumerOptions options,
             MessageHandler<T> handler,
             Telemetry telemetry) {
+        this(connection, codec, queue, payloadType, options, handler, telemetry, new Interceptors());
+    }
+
+    DefaultConsumer(
+            TransportConnection connection,
+            Codec codec,
+            String queue,
+            Class<T> payloadType,
+            ConsumerOptions options,
+            MessageHandler<T> handler,
+            Telemetry telemetry,
+            Interceptors interceptors) {
+        this.interceptors = interceptors;
         this.connection = connection;
         this.codec = codec;
         this.queue = queue;
@@ -218,6 +234,22 @@ final class DefaultConsumer<T> implements MessageConsumer {
         }
     }
 
+    /**
+     * Tells the interceptors a delivery failed, on the way to whatever the retry policy decides.
+     *
+     * <p>{@code afterHandle} runs here as well as on success, because an interceptor that set
+     * something up on the way in has to be able to tear it down whatever happened. It is told the
+     * delivery was released rather than accepted, which is the truthful answer: nothing processed
+     * this message.
+     */
+    private void notifyFailure(@Nullable ConsumeContext context, Throwable failure) {
+        if (context == null) {
+            return;
+        }
+        interceptors.onConsumeError(context, failure);
+        interceptors.afterHandle(context, Ack.release());
+    }
+
     /** Runs the handler and settles the delivery, recording how it went. */
     private void dispatchWithin(
             Telemetry.Scope scope, Message<T> message, InboundDelivery delivery, Acknowledger acknowledger) {
@@ -234,8 +266,18 @@ final class DefaultConsumer<T> implements MessageConsumer {
             return;
         }
 
+        ConsumeContext context = interceptors.isEmptyForConsuming() ? null : new ConsumeContext(queue, message);
         try {
+            if (context != null) {
+                // Before the handler, and allowed to throw: an interceptor that refuses a
+                // message has to send it down the same path a failed handler takes, or the
+                // message would be acknowledged with nothing having processed it.
+                interceptors.beforeHandle(context);
+            }
             handler.handle(message);
+            if (context != null) {
+                interceptors.afterHandle(context, Ack.accept());
+            }
             acknowledged.incrementAndGet();
             if (idempotency != null) {
                 // Confirmed only after the handler returned. Recording it earlier would mean a
@@ -248,6 +290,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
         } catch (AceFatalException e) {
             // Fatal means retrying cannot help, so the retry ladder is skipped entirely and
             // the message goes straight to the dead-letter queue.
+            notifyFailure(context, e);
             rejected.incrementAndGet();
             releaseClaim(messageId);
             scope.failed(e);
@@ -261,6 +304,7 @@ final class DefaultConsumer<T> implements MessageConsumer {
                 acknowledger.reject(false);
             }
         } catch (Exception e) {
+            notifyFailure(context, e);
             rejected.incrementAndGet();
             // Released before anything else: a failed attempt must leave the identifier
             // looking untouched, or the retry that follows is discarded as a duplicate and the
