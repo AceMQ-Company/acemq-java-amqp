@@ -31,6 +31,7 @@ public final class ConnectionConfig {
     private final String clientName;
     private final Duration connectionTimeout;
     private final Duration confirmTimeout;
+    private final Duration blockedTimeout;
     private final boolean publisherConfirms;
     private final Security security;
 
@@ -42,6 +43,7 @@ public final class ConnectionConfig {
         this.clientName = builder.clientName;
         this.connectionTimeout = builder.connectionTimeout;
         this.confirmTimeout = builder.confirmTimeout;
+        this.blockedTimeout = builder.blockedTimeout;
         this.publisherConfirms = builder.publisherConfirms;
         this.security = builder.security;
     }
@@ -84,6 +86,17 @@ public final class ConnectionConfig {
         return confirmTimeout;
     }
 
+    /**
+     * @return how long a publish waits for a blocked broker to resume before giving up.
+     *     Waiting rather than failing at once is deliberate: a memory alarm is usually brief,
+     *     and turning every one of them into an immediate application error would replace a
+     *     pause with an outage. Waiting forever, which is what happens without this, is worse
+     *     than both
+     */
+    public Duration blockedTimeout() {
+        return blockedTimeout;
+    }
+
     /** @return whether publishes wait for broker confirmation; on by default */
     /**
      * @return how this connection is protected. Never null: a connection always has a policy,
@@ -120,6 +133,7 @@ public final class ConnectionConfig {
         private String clientName = "acemq";
         private Duration connectionTimeout = Duration.ofSeconds(10);
         private Duration confirmTimeout = Duration.ofSeconds(10);
+        private Duration blockedTimeout = Duration.ofSeconds(30);
         private boolean publisherConfirms = true;
         // Secure by default. An amqps:// URL then needs nothing said about it, and a plaintext
         // one to anywhere but this machine is warned about rather than silently accepted.
@@ -154,6 +168,15 @@ public final class ConnectionConfig {
 
         public Builder confirmTimeout(Duration confirmTimeout) {
             this.confirmTimeout = confirmTimeout;
+            return this;
+        }
+
+        /**
+         * @param blockedTimeout how long a publish waits for a blocked broker to resume
+         * @return this builder
+         */
+        public Builder blockedTimeout(Duration blockedTimeout) {
+            this.blockedTimeout = java.util.Objects.requireNonNull(blockedTimeout, "blockedTimeout");
             return this;
         }
 

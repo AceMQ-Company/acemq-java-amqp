@@ -115,6 +115,25 @@ public interface TransportConnection extends AutoCloseable {
     }
 
     /**
+     * Whether the broker is currently refusing publishes.
+     *
+     * <p>Worth exposing rather than only throwing, because this is the state a health check
+     * should report and an autoscaler should read. A blocked broker is not a broken one, and a
+     * service that reports itself unhealthy the moment a memory alarm fires will be restarted
+     * by its orchestrator, which helps nobody.
+     *
+     * @return whether publishing is currently blocked at the broker
+     */
+    default boolean isBlocked() {
+        return false;
+    }
+
+    /** @return the broker's stated reason for blocking, when it is blocked */
+    default java.util.Optional<String> blockedReason() {
+        return java.util.Optional.empty();
+    }
+
+    /**
      * Removes a queue and everything in it.
      *
      * @param name queue to delete

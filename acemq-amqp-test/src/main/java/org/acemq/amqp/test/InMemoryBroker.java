@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingDeque;
 
+import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.TransportException;
@@ -58,6 +59,17 @@ final class InMemoryBroker {
 
     private final String name;
     private final Map<String, Exchange> exchanges = new ConcurrentHashMap<>();
+
+    /**
+     * The reason this broker is refusing publishes, or null when it is accepting them.
+     *
+     * <p>Broker-wide rather than per-connection because that is how the real thing behaves: a
+     * memory alarm blocks every publishing connection at once, not the one that happened to
+     * trigger it.
+     */
+    private volatile @org.jspecify.annotations.Nullable String blockedReason;
+
+    private final Object blockedLock = new Object();
     private final Map<String, Queue> queues = new ConcurrentHashMap<>();
 
     private InMemoryBroker(String name) {
@@ -71,10 +83,60 @@ final class InMemoryBroker {
     /** Discards every broker. Useful between test classes that share a name. */
     static void reset() {
         BROKERS.values().forEach(broker -> {
+            broker.unblock();
             broker.exchanges.clear();
             broker.queues.clear();
         });
         BROKERS.clear();
+    }
+
+    /** Starts refusing publishes, as a broker under a resource alarm does. */
+    void block(String reason) {
+        synchronized (blockedLock) {
+            blockedReason = reason;
+            blockedLock.notifyAll();
+        }
+    }
+
+    /** Starts accepting publishes again, releasing anyone waiting. */
+    void unblock() {
+        synchronized (blockedLock) {
+            blockedReason = null;
+            blockedLock.notifyAll();
+        }
+    }
+
+    @org.jspecify.annotations.Nullable
+    String blockedReason() {
+        return blockedReason;
+    }
+
+    /**
+     * Blocks the caller until this broker accepts publishes again, or the timeout expires.
+     *
+     * @throws ConnectionBlockedException if it is still blocked when the timeout expires
+     */
+    void awaitUnblocked(java.time.Duration timeout) {
+        if (blockedReason == null) {
+            return;
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        synchronized (blockedLock) {
+            while (blockedReason != null) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    throw new ConnectionBlockedException("the in-memory broker '" + name + "' has been refusing"
+                            + " publishes for " + timeout + " (" + blockedReason + "), so nothing was sent",
+                            blockedReason);
+                }
+                try {
+                    blockedLock.wait(Math.max(1L, remaining / 1_000_000L));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new TransportException("interrupted while waiting for the broker to unblock", e);
+                }
+            }
+        }
     }
 
     String name() {

@@ -337,6 +337,32 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Whether the broker is currently refusing publishes.
+     *
+     * <p>RabbitMQ blocks publishing connections when it runs low on memory or disk. Publishing
+     * while blocked does not fail — it waits, up to {@code blockedTimeout}, and then throws
+     * {@link org.acemq.amqp.transport.ConnectionBlockedException}.
+     *
+     * <p>Useful in a readiness probe, and deliberately not in a liveness one. A blocked broker is
+     * under pressure, not broken, and a service that reports itself dead every time an alarm
+     * fires will be restarted by its orchestrator while the broker recovers on its own.
+     *
+     * @return whether the broker is refusing publishes right now
+     */
+    public boolean isBlocked() {
+        return connection.isBlocked();
+    }
+
+    /**
+     * @return the broker's own explanation for blocking, when it is blocked. RabbitMQ says
+     *     {@code low on memory} or {@code low on disk}, which is the difference between an
+     *     operator adding consumers and one adding disk
+     */
+    public java.util.Optional<String> blockedReason() {
+        return connection.blockedReason();
+    }
+
+    /**
      * Declares a durable exchange.
      *
      * @param name exchange name

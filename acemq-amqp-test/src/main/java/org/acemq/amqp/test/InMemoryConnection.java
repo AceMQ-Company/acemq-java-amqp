@@ -42,11 +42,23 @@ final class InMemoryConnection implements TransportConnection {
     private static final AtomicInteger DISPATCHER_COUNT = new AtomicInteger();
 
     private final InMemoryBroker broker;
+    private final Duration blockedTimeout;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final java.util.List<InMemorySubscription> subscriptions = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    InMemoryConnection(InMemoryBroker broker) {
+    InMemoryConnection(InMemoryBroker broker, Duration blockedTimeout) {
         this.broker = broker;
+        this.blockedTimeout = blockedTimeout;
+    }
+
+    @Override
+    public boolean isBlocked() {
+        return broker.blockedReason() != null;
+    }
+
+    @Override
+    public java.util.Optional<String> blockedReason() {
+        return java.util.Optional.ofNullable(broker.blockedReason());
     }
 
     @Override
@@ -76,6 +88,7 @@ final class InMemoryConnection implements TransportConnection {
     @Override
     public ConfirmResult send(OutboundMessage message) {
         requireOpen();
+        broker.awaitUnblocked(blockedTimeout);
         long startedAt = System.nanoTime();
         Set<String> delivered = broker.route(message);
         Duration latency = Duration.ofNanos(System.nanoTime() - startedAt);

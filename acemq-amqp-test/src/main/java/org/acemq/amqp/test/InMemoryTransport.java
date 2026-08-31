@@ -62,6 +62,46 @@ public final class InMemoryTransport implements Transport {
         InMemoryBroker.reset();
     }
 
+    /**
+     * Makes a named broker refuse publishes, the way a real one does under a memory or disk alarm.
+     *
+     * <p>Exists because this failure is worth testing and is otherwise almost impossible to
+     * reproduce: publishing to a blocked broker does not fail, it simply never returns, and a
+     * service that has not been tested against it will hang in production instead of here.
+     *
+     * <pre>{@code
+     * InMemoryTransport.block("orders", "low on memory");
+     * assertThrows(ConnectionBlockedException.class, () -> publisher.send(order));
+     * InMemoryTransport.unblock("orders");
+     * }</pre>
+     *
+     * <p>Publishers wait up to {@code ConnectionConfig.blockedTimeout()} before throwing, so a
+     * test that expects the exception should either shorten that timeout or not unblock.
+     *
+     * <p>One deliberate difference from RabbitMQ, worth knowing before writing a test around it:
+     * here {@code isBlocked()} becomes true as soon as this is called, whereas RabbitMQ tells a
+     * connection it is blocked only when that connection next publishes. Against a real broker the
+     * first message into an alarm is already on the wire before anything is known, so it may or
+     * may not arrive; here nothing is ever written, and
+     * {@code ConnectionBlockedException.mayHaveBeenPublished()} is always {@code false}. A test
+     * that needs the uncertain case needs a real broker.
+     *
+     * @param brokerName the host part of the {@code memory://} URL
+     * @param reason what to report as the broker's own explanation, such as {@code low on memory}
+     */
+    public static void block(String brokerName, String reason) {
+        InMemoryBroker.named(brokerName).block(reason);
+    }
+
+    /**
+     * Makes a named broker accept publishes again, releasing every publisher waiting on it.
+     *
+     * @param brokerName the host part of the {@code memory://} URL
+     */
+    public static void unblock(String brokerName) {
+        InMemoryBroker.named(brokerName).unblock();
+    }
+
     @Override
     public String scheme() {
         return "memory";
@@ -79,7 +119,7 @@ public final class InMemoryTransport implements Transport {
 
     @Override
     public TransportConnection connect(ConnectionConfig config) {
-        return new InMemoryConnection(InMemoryBroker.named(brokerName(config.url())));
+        return new InMemoryConnection(InMemoryBroker.named(brokerName(config.url())), config.blockedTimeout());
     }
 
     /** Extracts the broker name from {@code memory://name}, defaulting to {@code default}. */
