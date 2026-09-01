@@ -77,6 +77,7 @@ NAV='<nav class="top">
   <a href="reliability.html">Reliability</a>
   <a href="serialization.html">Serialization</a>
   <a href="streams.html">Streams</a>
+  <a href="security.html">Security</a>
   <a href="testing.html">Testing</a>
   <a class="api" href="apidocs/index.html">API reference</a>
 </nav>

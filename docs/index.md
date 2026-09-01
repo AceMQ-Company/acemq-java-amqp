@@ -36,6 +36,7 @@ recovery are already on.
 | [Reliability](reliability.html) | Retries, dead letters, replay, idempotency |
 | [Serialization](serialization.html) | JSON, XML, YAML, Avro, Protobuf |
 | [Streams](streams.html) | Append-only logs, offsets, replay |
+| [Security](security.html) | TLS, credentials, and what is not built yet |
 | [Testing](testing.html) | An in-memory broker, no Docker needed |
 | [API reference](apidocs/index.html) | Javadoc for every module |
 

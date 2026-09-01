@@ -98,6 +98,20 @@ More than the code suggests, and all of it on purpose:
   delivered. If the handler throws, the message is not lost.
 - **`close()` stopped the consumer** and let in-flight handlers finish.
 
+## About that URL
+
+`amqp://localhost` is plaintext, which is right for a broker running on your own
+machine and wrong for anything else. In production the URL is `amqps://`, and the
+certificate is verified by default:
+
+```java
+AceMq.connect("amqps://broker.internal:5671");
+```
+
+Credentials belong in a `CredentialsProvider` rather than in the URL — see
+[Security](security.html), which also states plainly which parts of the security
+story are not built yet.
+
 ## Where to go next
 
 Publishing options and what a confirm really promises: [Publishing](publishing.html).
