@@ -10,6 +10,21 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.0] - 2026-09-01
+
+### Added
+- `acemq-security-dev`, a Maven plugin that writes throwaway TLS certificates for
+  local development in one command:
+  `mvn org.acemq:acemq-security-dev:certs -Dbroker=localhost -Dout=./certs`.
+  It produces a certificate authority, a broker certificate carrying subject
+  alternative names, a client key pair, the two keystores
+  `Security.fromKeystore(...)` reads, and the matching `rabbitmq.conf`. The
+  library's error messages already pointed at this artifact; now it exists.
+  Everything it writes is marked, expires in thirty days, and the goal refuses to
+  run when `ACEMQ_ENV` names production.
+- A security page in the documentation site, which had none at all despite
+  security being a stated principle of the project.
+
 ## [0.1.0] - 2026-09-01
 
 The first published release. Everything below has been proven against a real
