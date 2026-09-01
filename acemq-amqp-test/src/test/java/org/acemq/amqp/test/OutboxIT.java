@@ -36,6 +36,7 @@ import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.OutboxRecord;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
+import org.acemq.amqp.core.Codecs;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
@@ -136,7 +137,11 @@ class OutboxIT {
             try (MessageConsumer consumer = mq.consume(
                     "orders.new",
                     String.class,
-                    ConsumerOptions.prefetch(10).idempotent(InMemoryIdempotencyStore.forOneDay()),
+                    // As text: the relay publishes the payload the transaction committed,
+                    // unchanged, and these are plain strings rather than JSON documents.
+                    ConsumerOptions.prefetch(10)
+                            .as(Codecs.byName("text"))
+                            .idempotent(InMemoryIdempotencyStore.forOneDay()),
                     message -> received.add(message.envelope().id()));
                     OutboxRelay relay = new OutboxRelay(mq, store, 50, Duration.ofMillis(100), Duration.ofMinutes(1))) {
 
