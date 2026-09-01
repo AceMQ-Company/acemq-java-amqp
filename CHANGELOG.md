@@ -10,6 +10,15 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.2] - 2026-09-01
+
+### Fixed
+- Re-releases the keystore password change. `0.2.1` was published from a build
+  that did not contain it: the artifacts went out without
+  `Security.DEFAULT_KEYSTORE_PASSWORD`, so `fromKeystore` still defaulted to the
+  five-character value while the documentation described the new one. Use
+  `0.2.2`; `0.2.1` is best avoided.
+
 ## [0.2.1] - 2026-09-01
 
 ### Fixed
