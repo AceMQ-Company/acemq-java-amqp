@@ -94,6 +94,30 @@ jobs:
             -Djacoco.skip=true -Dgpg.skip=true \
             deploy -DaltDeploymentRepository="acemq::default::file://$GITHUB_WORKSPACE/maven-repo"
 
+      # The landing page tells people which version to depend on. Updating it by
+      # hand meant it sat two releases behind, telling every visitor to use a
+      # version that was no longer current. The release owns it now.
+      - name: Point the landing page at this version
+        working-directory: maven-repo
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          python3 - "$VERSION" <<'PYTHON'
+          import pathlib, re, sys
+          version = sys.argv[1]
+          # These two files quote the current release and nothing else, so every
+          # version-shaped string in them is the one being replaced.
+          for name in ("index.html", "README.md"):
+              path = pathlib.Path(name)
+              if not path.exists():
+                  continue
+              text = path.read_text()
+              updated = re.sub(r"\b0\.\d+\.\d+\b", version, text)
+              if updated != text:
+                  path.write_text(updated)
+                  print(f"  {name} now advertises {version}")
+          PYTHON
+
       - name: Commit and push
         working-directory: maven-repo
         env:
@@ -146,7 +170,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           echo "Published $VERSION to" \
-               "https://acemq-company.github.io/maven/org/acemq/"
+               "https://acemq-company.github.io/maven/"
           echo "Pages takes a minute or two to serve the new files."
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -167,5 +191,5 @@ jobs:
         ${{ needs.publish.result == 'success'
             && 'Artifacts are on the Maven repository. Consumers need no credentials.'
             || 'The tag is pushed but the artifacts are not published. Nothing is half-released; the repository is untouched.' }}
-      url: https://acemq-company.github.io/maven/org/acemq/
+      url: https://acemq-company.github.io/maven/
     secrets: inherit
