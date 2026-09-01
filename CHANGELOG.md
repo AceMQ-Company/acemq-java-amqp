@@ -10,6 +10,22 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.3] - 2026-09-01
+
+### Changed
+- Releases are cut from the tag by the release workflow rather than published by
+  hand, and the workflow now verifies the published version resolves from an
+  empty local repository before reporting success. `0.2.1` went out without the
+  fix it was named for because it was built from a working tree; this is the
+  check that would have caught it.
+- Releases, failed releases and broken example builds announce themselves in
+  Slack.
+
+### Removed
+- `0.2.1` is deleted from the Maven repository, metadata included. It was
+  published without the keystore password change it was named for. Use `0.2.2`
+  or later.
+
 ## [0.2.2] - 2026-09-01
 
 ### Fixed

@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.acemq</groupId>
     <artifactId>acemq-amqp-parent</artifactId>
-    <version>0.2.2-SNAPSHOT</version>
+    <version>0.2.3-SNAPSHOT</version>
   </parent>
 
   <artifactId>acemq-amqp-api</artifactId>
