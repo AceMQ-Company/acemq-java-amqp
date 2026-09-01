@@ -162,7 +162,12 @@ jobs:
           echo "Waiting for GitHub Pages to serve $VERSION"
           POM="https://acemq-company.github.io/maven/org/acemq/acemq-amqp-core/$VERSION/acemq-amqp-core-$VERSION.pom"
           for attempt in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "$POM")
+            # -L because the repository has a custom domain: every github.io URL
+            # answers 301 to https://acemq.org/maven/... . Without it this step
+            # reported a perfectly good 0.2.4 as unpublished, having seen the
+            # redirect and compared it against 200. Maven itself follows the
+            # redirect, which is why the resolve below passed while this failed.
+            code=$(curl -sL -o /dev/null -w '%{http_code}' "$POM")
             [ "$code" = "200" ] && break
             echo "  attempt $attempt: HTTP $code"
             sleep 15
