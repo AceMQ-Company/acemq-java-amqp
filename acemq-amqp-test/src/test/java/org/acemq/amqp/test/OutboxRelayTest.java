@@ -28,6 +28,7 @@ import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.OutboxRecord;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
+import org.acemq.amqp.core.Codecs;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
@@ -41,6 +42,16 @@ import org.junit.jupiter.api.Timeout;
 
 @DisplayName("the outbox relay")
 class OutboxRelayTest {
+
+    /**
+     * Reads the body exactly as the relay wrote it.
+     *
+     * <p>The relay publishes the stored payload unchanged, which is the whole contract: the
+     * bytes committed inside the caller's transaction are the bytes that reach the queue. These
+     * tests store plain strings rather than JSON documents, so they have to ask for the body as
+     * text -- decoding {@code one} as JSON is not a round trip, it is a parse error.
+     */
+    private static final ConsumerOptions RAW = ConsumerOptions.defaults().as(Codecs.byName("text"));
 
     private AceMq mq;
 
@@ -76,7 +87,7 @@ class OutboxRelayTest {
             RecordingOutboxStore store = new RecordingOutboxStore();
             List<String> received = new CopyOnWriteArrayList<>();
 
-            try (MessageConsumer consumer = mq.consume("orders.new", String.class,
+            try (MessageConsumer consumer = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store)) {
 
@@ -100,7 +111,7 @@ class OutboxRelayTest {
             RecordingOutboxStore store = new RecordingOutboxStore();
             List<String> received = new CopyOnWriteArrayList<>();
 
-            try (MessageConsumer ignored = mq.consume("orders.new", String.class,
+            try (MessageConsumer ignored = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store)) {
 
@@ -134,7 +145,7 @@ class OutboxRelayTest {
             RecordingOutboxStore store = new RecordingOutboxStore();
             List<String> received = new CopyOnWriteArrayList<>();
 
-            try (MessageConsumer ignored = mq.consume("orders.new", String.class,
+            try (MessageConsumer ignored = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store, 10, Duration.ofMillis(50), Duration.ofSeconds(30))) {
 
@@ -166,7 +177,9 @@ class OutboxRelayTest {
             try (MessageConsumer consumer = mq.consume(
                     "orders.new",
                     String.class,
-                    ConsumerOptions.prefetch(1).idempotent(InMemoryIdempotencyStore.forOneDay()),
+                    ConsumerOptions.prefetch(1)
+                            .as(Codecs.byName("text"))
+                            .idempotent(InMemoryIdempotencyStore.forOneDay()),
                     message -> handled.add(message.envelope().id()));
                     OutboxRelay relay = new OutboxRelay(mq, store)) {
 
@@ -214,7 +227,7 @@ class OutboxRelayTest {
             RecordingOutboxStore store = new RecordingOutboxStore();
             List<String> received = new CopyOnWriteArrayList<>();
 
-            try (MessageConsumer ignored = mq.consume("orders.new", String.class,
+            try (MessageConsumer ignored = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store)) {
 
@@ -266,7 +279,7 @@ class OutboxRelayTest {
                 }
             };
 
-            try (MessageConsumer ignored = mq.consume("orders.new", String.class,
+            try (MessageConsumer ignored = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store)) {
 
@@ -298,7 +311,7 @@ class OutboxRelayTest {
                 }
             };
 
-            try (MessageConsumer ignored = mq.consume("orders.new", String.class,
+            try (MessageConsumer ignored = mq.consume("orders.new", String.class, RAW,
                     message -> received.add(message.payload()));
                     OutboxRelay relay = new OutboxRelay(mq, store, 10, Duration.ofMillis(50), Duration.ofSeconds(30))) {
 
