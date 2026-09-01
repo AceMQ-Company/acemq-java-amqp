@@ -27,6 +27,13 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
+# Images as well as stylesheets. Copying only *.css is how a logo ends up
+# referenced by every page and served by none.
+if compgen -G "docs/assets/*" > /dev/null; then
+  mkdir -p "$OUT/assets"
+  cp docs/assets/* "$OUT/assets/"
+fi
+
 cat > "$OUT/style.css" <<'CSS'
 :root {
   color-scheme: light dark;
@@ -43,7 +50,14 @@ body { margin:0; background:var(--bg); color:var(--fg);
 nav.top { background:var(--nav-bg); border-bottom:1px solid var(--line);
           padding:.85rem 1.25rem; display:flex; gap:1.15rem; flex-wrap:wrap; align-items:baseline;
           position:sticky; top:0; z-index:10; }
-nav.top .brand { font-weight:700; letter-spacing:-.01em; margin-right:.5rem; }
+nav.top .brand { display:inline-flex; align-items:center; gap:.5rem; font-weight:700;
+                 letter-spacing:-.01em; margin-right:.5rem; }
+nav.top .brand img { height:22px; width:auto; display:block; }
+/* The mark is black on transparent, so it disappears against a dark page.
+   Inverting is enough for a two-tone logo and avoids shipping a second file. */
+@media (prefers-color-scheme: dark) { nav.top .brand img { filter: invert(1) brightness(1.15); } }
+nav.top a.enterprise { color:var(--fg); opacity:.78; }
+nav.top a.enterprise:hover { opacity:1; color:var(--accent); }
 nav.top a { color:var(--fg); text-decoration:none; font-size:.9rem; opacity:.78; }
 nav.top a:hover { opacity:1; color:var(--accent); }
 nav.top a.api { margin-left:auto; color:var(--accent); opacity:1; font-weight:600; }
@@ -69,7 +83,7 @@ footer { max-width:47rem; margin:0 auto; padding:1.5rem 1.25rem 4rem;
 CSS
 
 NAV='<nav class="top">
-  <span class="brand">AceMQ for Java</span>
+  <span class="brand"><img src="assets/acemq.png" alt="AceMQ"> for Java</span>
   <a href="index.html">Overview</a>
   <a href="getting-started.html">Getting started</a>
   <a href="publishing.html">Publishing</a>
@@ -80,13 +94,16 @@ NAV='<nav class="top">
   <a href="security.html">Security</a>
   <a href="testing.html">Testing</a>
   <a class="api" href="apidocs/index.html">API reference</a>
+  <a class="enterprise" href="https://acemq.com">Enterprise support</a>
 </nav>
 <main>'
 
 FOOT='</main>
 <footer>
   <a href="https://github.com/AceMQ-Company/acemq-java-amqp">AceMQ for Java</a> &mdash;
-  Apache-2.0. Artifacts at
+  Apache-2.0, and provided without warranty &mdash; see the
+  <a href="licence.html">licence</a>.
+  <a href="https://acemq.com">Enterprise support</a>. Artifacts at
   <a href="https://acemq-company.github.io/maven/">acemq-company.github.io/maven</a>.
   Pre-1.0: the API may still change.
 </footer>'

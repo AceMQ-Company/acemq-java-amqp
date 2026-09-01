@@ -1,0 +1,17 @@
+AceMQ for Java
+Copyright 2026 AceMQ
+
+This product includes software developed at AceMQ (https://acemq.com).
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+---
+
+RabbitMQ is a trademark of Broadcom Inc. and/or its subsidiaries. AceMQ is an
+independent project and is not affiliated with, endorsed by, or sponsored by
+Broadcom. References to RabbitMQ describe compatibility only.
+
+AMQP is an open standard maintained by OASIS.
+
+This product depends on software developed by third parties, each under its own
+licence. The dependencies of a given artifact are listed in its POM.

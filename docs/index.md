@@ -39,6 +39,7 @@ recovery are already on.
 | [Security](security.html) | TLS, credentials, and what is not built yet |
 | [Testing](testing.html) | An in-memory broker, no Docker needed |
 | [API reference](apidocs/index.html) | Javadoc for every module |
+| [Licence and warranty](licence.html) | Apache-2.0, what it disclaims, and where support comes from |
 
 ## What it is not
 

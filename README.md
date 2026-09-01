@@ -206,6 +206,27 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Work follows a gate model —
 **design → code → test → benchmark → release** — in which telemetry and extension
 points are exit criteria of the design and code gates, not later additions.
 
-## License
+## Licence and warranty
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE). You may use these libraries in production,
+commercially, without asking and without paying.
+
+**They are provided "as is", without warranty of any kind**, and the authors and
+contributors accept no liability for any damages arising from their use. That is
+not a disclaimer bolted on here — it is sections 7 and 8 of the licence itself,
+which is the same footing every Apache-licensed dependency you already run sits
+on. If you need contractual guarantees, indemnity or a support commitment, those
+come from an agreement rather than from a licence: see
+[Enterprise support](https://acemq.com).
+
+Nothing here grants trademark rights (licence section 6). **RabbitMQ is a
+trademark of Broadcom Inc. and/or its subsidiaries**; AceMQ is an independent
+project, is not affiliated with or endorsed by Broadcom, and references to
+RabbitMQ describe compatibility only.
+
+## Enterprise support
+
+Commercial support for RabbitMQ and for these libraries — architecture review,
+production readiness, TLS and permission design, incident response — is available
+from [acemq.com](https://acemq.com). The libraries are complete and free to use
+without it.
