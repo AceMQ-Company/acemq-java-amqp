@@ -10,6 +10,26 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.5] - 2026-09-01
+
+### Fixed
+- **The outbox relay published a payload nothing could read as a typed event.**
+  An outbox stores an already-serialised payload — that is what makes it safe to
+  write inside the caller's transaction — and the relay republished it *through
+  the ordinary codec*, encoding it a second time. What arrived was a JSON string
+  containing JSON, so `consume(queue, OrderPlaced.class)` failed with "no
+  String-argument constructor" and the only thing able to read an outbox queue
+  was a consumer taking `String` and parsing by hand. The relay now writes the
+  stored bytes unchanged, with `application/json`.
+
+  **This changes the wire format of outbox messages.** A consumer that worked
+  around the old behaviour by taking `String` needs to either ask for the event
+  type — which is the point — or keep taking `String` with
+  `ConsumerOptions.as(Codecs.byName("text"))`.
+- A NUL byte in `OutboxRelay`'s source, used as a map-key separator
+  (`exchange + '\0' + routingKey`). It compiled, and it made the file register as
+  binary to git, grep and every diff tool that sniffs content. Now a space.
+
 ## [0.2.4] - 2026-09-01
 
 ### Added

@@ -15,6 +15,7 @@
  */
 package org.acemq.amqp.patterns;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.OutboxRecord;
 import org.acemq.amqp.api.OutboxStore;
 import org.acemq.amqp.api.Publisher;
@@ -213,8 +215,54 @@ public final class OutboxRelay implements AutoCloseable {
     private Publisher<String> publisherFor(String exchange, String routingKey) {
         // Publishers are meant to be long lived, and building one per record would create a
         // channel's worth of work for every message.
-        return publishers.computeIfAbsent(exchange + ' ' + routingKey, key -> mq.publisher(exchange, routingKey));
+        //
+        // VERBATIM is what makes an outbox message readable by a typed consumer. The
+        // payload was serialised inside the caller's transaction, which is the whole
+        // reason the pattern works, so the relay's job is to put those bytes on the wire
+        // unchanged. Publishing them through the ordinary codec encodes them a second
+        // time, and what arrives is a JSON string containing JSON: a consumer asking for
+        // the event type fails with "no String-argument constructor", and the only thing
+        // able to read the queue is one taking String and parsing it by hand.
+        return publishers.computeIfAbsent(
+                exchange + ' ' + routingKey,
+                key -> mq.publisher(exchange, routingKey, String.class).as(VERBATIM));
     }
+
+    /**
+     * Writes an already-serialised payload out as it is.
+     *
+     * <p>Reports {@code application/json} because that is what an outbox holds by
+     * convention and what a consumer's codec will be asked to read. It never decodes:
+     * nothing consumes through this codec, and a relay able to read its own messages
+     * would be doing something it has no business doing.
+     */
+    private static final Codec VERBATIM = new Codec() {
+
+        @Override
+        public String contentType() {
+            return "application/json";
+        }
+
+        @Override
+        public byte[] encode(Object payload) {
+            return String.valueOf(payload).getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public <T> T decode(byte[] body, Class<T> target) {
+            throw new UnsupportedOperationException("the outbox relay only publishes");
+        }
+
+        @Override
+        public boolean canDecode(@Nullable String contentType) {
+            return false;
+        }
+
+        @Override
+        public String toString() {
+            return "OutboxRelay.VERBATIM";
+        }
+    };
 
     /** @return how many records this relay has published */
     public long published() {
