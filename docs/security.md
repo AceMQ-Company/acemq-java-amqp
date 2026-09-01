@@ -65,38 +65,64 @@ is rejected however the trust store is configured, unless you call
 production is the kind of mistake that looks like it is working, so the marker is
 checked at the point where it would otherwise do damage.
 
-## What is not built yet
+## Development certificates, in one command
 
-Two things this documentation would otherwise imply, stated plainly because
-guessing wrong about security is expensive:
-
-- **There is no certificate generator.** The plan is a module that mints
-  self-signed development certificates carrying the marker above. It does not
-  exist. The JDK cannot generate a certificate on its own — `keytool` and
-  `KeyPairGenerator` produce key pairs, and the signing needs something like
-  BouncyCastle — so this is a real dependency decision rather than a few lines
-  that were forgotten.
-- **There is no payload encryption.** Transport security protects the message in
-  flight; it does nothing about a message at rest in a queue that an operator can
-  read. If your payloads need to be opaque to the broker, encrypt them in your
-  own code today, or wait for this.
-
-Until the generator exists, make development certificates with the tools you
-already have:
+TLS on a laptop is the thing that gets postponed for months, so it takes one
+command:
 
 ```bash
-# A self-signed certificate and a keystore RabbitMQ can use.
-keytool -genkeypair -alias rabbitmq -keyalg RSA -keysize 4096 \
-        -dname "CN=localhost, OU=ACEMQ DEVELOPMENT ONLY - DO NOT TRUST" \
-        -validity 90 -keystore dev-keystore.p12 -storetype PKCS12 \
-        -storepass changeit
-
-keytool -exportcert -alias rabbitmq -keystore dev-keystore.p12 \
-        -storepass changeit -rfc -file dev-cert.pem
+mvn org.acemq:acemq-security-dev:0.2.0:certs -Dbroker=localhost -Dout=./certs
 ```
 
-Put the marker in the subject as shown. It costs nothing and makes the certificate
-refuse to work anywhere that has not explicitly opted in.
+That writes a throwaway certificate authority, a broker certificate valid for
+the host you named, a client key pair, the two keystores
+`Security.fromKeystore(...)` reads, and a matching `rabbitmq.conf`:
+
+```
+ca.crt          the authority to trust
+server.crt/.key for the broker
+keystore.p12    this client's key pair
+truststore.p12  the authority
+rabbitmq.conf   mount at /etc/rabbitmq/rabbitmq.conf
+```
+
+Then connect:
+
+```java
+AceMq.connect(ConnectionConfig.url("amqps://localhost:5671")
+        .security(Security.fromKeystore(Path.of("./certs"))
+                .keystorePassword("acemq-dev")
+                .allowDevelopmentCertificates())
+        .build());
+```
+
+Options: `-Ddays=30` (the default, deliberately short), `-Dpassword=...` (at
+least six characters — `keytool` refuses to open a PKCS12 store with fewer, so a
+shorter one produces stores the standard tooling cannot read),
+`-DskipBrokerConfig=true`.
+
+Three things make these safe to lose:
+
+- Every certificate carries `ACEMQ DEVELOPMENT ONLY - DO NOT TRUST` in its
+  subject, and the library refuses such a certificate unless you call
+  `allowDevelopmentCertificates()`.
+- They expire in thirty days by default. A development certificate that never
+  expires outlives the reason it was created.
+- The goal **refuses to run when `ACEMQ_ENV` starts with `prod`**. That is not a
+  security control — anyone can unset an environment variable — but the mistake
+  it catches is not malice. It is a deployment script that ran a development
+  command because somebody copied a README.
+
+The signing key is written next to the certificates and is not a secret. That is
+the point of the marker: these fail closed anywhere that has not explicitly
+opted in.
+
+## What is still not built
+
+**There is no payload encryption.** Transport security protects the message in
+flight and does nothing about a message at rest in a queue an operator can read.
+If your payloads need to be opaque to the broker, encrypt them in your own code
+today.
 
 ## Production checklist
 

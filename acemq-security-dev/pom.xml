@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-parent</artifactId>
+    <version>0.2.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>acemq-security-dev</artifactId>
+  <packaging>maven-plugin</packaging>
+
+  <name>AceMQ Security (development)</name>
+  <description>Generates throwaway TLS certificates for local development:
+    mvn org.acemq:acemq-security-dev:certs -Dbroker=localhost -Dout=./certs</description>
+
+  <properties>
+    <!-- A Maven plugin runs inside Maven, which is on 17 or newer here. The
+         Java 11 floor the library keeps for its runtime artifacts does not
+         apply: nothing ships this to production. -->
+    <maven.compiler.release>17</maven.compiler.release>
+    <!-- Signing a certificate is not something the JDK exposes. keytool and
+         KeyPairGenerator produce key pairs; turning one into a signed
+         certificate needs a library. BouncyCastle is acceptable precisely
+         because this artifact is a build-time tool: it never reaches the
+         runtime classpath of anything that uses AceMQ. -->
+    <bouncycastle.version>1.79</bouncycastle.version>
+    <maven.plugin.api.version>3.9.9</maven.plugin.api.version>
+    <maven.plugin.annotations.version>3.15.1</maven.plugin.annotations.version>
+    <maven.plugin.plugin.version>3.15.1</maven.plugin.plugin.version>
+
+    <!-- Nothing here is on a message path, and the coverage gate measures the
+         library rather than its tooling. -->
+    <jacoco.line.coverage>0.00</jacoco.line.coverage>
+    <jacoco.branch.coverage>0.00</jacoco.branch.coverage>
+
+    <!-- japicmp resolves the artifact by packaging type, and there is no
+         "maven-plugin" artifact to compare against. Binary compatibility is a
+         promise about the library's API; this is a command you run at a
+         terminal, and its signatures are not something anyone compiles against. -->
+    <japicmp.skip>true</japicmp.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-plugin-api</artifactId>
+      <version>${maven.plugin.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.maven.plugin-tools</groupId>
+      <artifactId>maven-plugin-annotations</artifactId>
+      <version>${maven.plugin.annotations.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-plugin-plugin</artifactId>
+        <version>${maven.plugin.plugin.version}</version>
+        <configuration>
+          <!-- Maven derives a prefix from the artifact id and cannot here, because
+               this one does not end in -maven-plugin. Stated rather than renamed:
+               acemq-security-dev is what the documentation and the library's own
+               error messages already point at. -->
+          <goalPrefix>acemq-security-dev</goalPrefix>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
