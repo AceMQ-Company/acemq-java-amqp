@@ -3,9 +3,22 @@
 #
 # Triggered by a tag:  git tag v0.1.0 && git push origin v0.1.0
 #
-# Needs a secret named MAVEN_REPO_TOKEN: a token with write access to
-# AceMQ-Company/maven. The built-in GITHUB_TOKEN is scoped to this repository
-# only, so it cannot push to another one.
+# The built-in GITHUB_TOKEN is scoped to this repository, so it cannot push to
+# the two others this release writes to. Each gets its own **deploy key**, held
+# here as MAVEN_REPO_DEPLOY_KEY and LANDING_PAGE_DEPLOY_KEY:
+#
+#   - a deploy key can write to exactly one repository and nothing else, which
+#     a personal access token cannot express -- the one this replaced carried
+#     admin:org, delete_repo and repo across every repository its owner could
+#     reach, to push two commits;
+#   - it belongs to the repository rather than to a person, so it survives them
+#     leaving and cannot be used as them;
+#   - it does not expire, so a release cannot fail at three in the morning
+#     because a token quietly aged out.
+#
+# Rotating one: generate a key pair, replace the deploy key on the target
+# repository, then update the secret here. Both are listed under the target
+# repository's Settings -> Deploy keys.
 name: release
 
 on:
@@ -79,7 +92,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: AceMQ-Company/maven
-          token: ${{ secrets.MAVEN_REPO_TOKEN }}
+          # A deploy key rather than a token: write access to this repository
+          # alone, and to nothing else in the organisation.
+          ssh-key: ${{ secrets.MAVEN_REPO_DEPLOY_KEY }}
           path: maven-repo
 
       - name: Deploy into it
@@ -215,7 +230,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: AceMQ-Company/AceMQ-Company.github.io
-          token: ${{ secrets.MAVEN_REPO_TOKEN }}
+          ssh-key: ${{ secrets.LANDING_PAGE_DEPLOY_KEY }}
       - name: Show this release on the landing page
         env:
           VERSION: ${{ needs.publish.outputs.version }}

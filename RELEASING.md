@@ -101,6 +101,37 @@ mvn versions:set -DnewVersion=0.2.2-SNAPSHOT -DgenerateBackupPoms=false
 
 The next *patch*, per the policy above.
 
+## Credentials the release uses
+
+The release writes to three repositories: this one, `maven`, and
+`AceMQ-Company.github.io`. The built-in `GITHUB_TOKEN` covers this one; the
+other two each have a **deploy key**, held here as `MAVEN_REPO_DEPLOY_KEY` and
+`LANDING_PAGE_DEPLOY_KEY`.
+
+A deploy key writes to exactly one repository and nothing else. That is the
+whole reason for them. What they replaced was a personal access token carrying
+`repo`, `admin:org` and `delete_repo` across every repository its owner could
+reach — to push two commits. Anyone able to add a step to a workflow in this
+repository could read it, and it would have taken the organisation with it.
+
+They also belong to the repository rather than to a person, so they survive
+whoever made them leaving, and they do not expire — a release cannot fail
+because a token quietly aged out.
+
+To rotate one:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C 'acemq-java-amqp release -> maven' -f /tmp/k
+gh api repos/AceMQ-Company/maven/keys -X POST \
+  -f title='acemq-java-amqp release' -f key="$(cat /tmp/k.pub)" -F read_only=false
+gh secret set MAVEN_REPO_DEPLOY_KEY -R AceMQ-Company/acemq-java-amqp < /tmp/k
+rm /tmp/k /tmp/k.pub          # and delete the old key from the target repository
+```
+
+Deploy keys are an organisation-level permission
+(`deploy_keys_enabled_for_repositories`), off by default on a new organisation
+and enabled here.
+
 ## Notifications
 
 A release, a failed release, a documentation deploy and a broken examples build
@@ -116,9 +147,11 @@ gh secret set SLACK_DELIVERY_WEBHOOK -R AceMQ-Company/acemq-java-amqp-examples -
 gh secret set SLACK_DELIVERY_WEBHOOK -R AceMQ-Company/AceMQ-Company.github.io  --body "$SLACK_WEBHOOK_URL"
 ```
 
-One organisation secret would replace all three
-(`gh secret set SLACK_DELIVERY_WEBHOOK --org AceMQ-Company --visibility all`),
-but that needs organisation admin rights.
+One organisation secret would replace all three:
+
+```bash
+gh secret set SLACK_DELIVERY_WEBHOOK --org AceMQ-Company --visibility all
+```
 
 Where the secret is absent the notification step does nothing and succeeds. A
 missing webhook must never fail a release that worked.
