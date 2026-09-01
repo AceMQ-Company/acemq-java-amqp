@@ -8,7 +8,11 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- The javadoc examples on `AceMq.pipeline` and `PipelineBuilder` called
+  `RetryPolicy.exponential(int, Duration)`, which does not exist — the shortest
+  overload takes a maximum delay as well. The snippet a reader copied did not
+  compile.
 
 ## [0.2.3] - 2026-09-01
 
