@@ -204,6 +204,43 @@ jobs:
           git commit -m "docs: point at $VERSION"
           git push origin main
 
+  # The organisation landing page shows the current release on its Java card, and
+  # it drifted for the same reason the other two did: a version written by hand.
+  # Three places now, all owned by the release.
+  landing-page:
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: AceMQ-Company/AceMQ-Company.github.io
+          token: ${{ secrets.MAVEN_REPO_TOKEN }}
+      - name: Show this release on the landing page
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          python3 - "$VERSION" <<'PYTHON'
+          import pathlib, re, sys
+          version = sys.argv[1]
+          page = pathlib.Path("index.html")
+          text = page.read_text()
+          # Every version-shaped string on this page refers to the Java library.
+          updated = re.sub(r"\b0\.\d+\.\d+\b", version, text)
+          if updated != text:
+              page.write_text(updated)
+              print(f"landing page now shows {version}")
+          else:
+              print("landing page already current")
+          PYTHON
+          if [ -z "$(git status --porcelain)" ]; then
+            exit 0
+          fi
+          git config user.name "acemq-release"
+          git config user.email "noreply@acemq.org"
+          git commit -am "Show $VERSION on the Java card"
+          git push
+
   # Announced whatever happened. A release that fails silently is the one that
   # gets discovered a week later by somebody wondering why the version they were
   # told about cannot be resolved.
