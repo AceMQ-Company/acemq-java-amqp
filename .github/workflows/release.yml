@@ -109,6 +109,37 @@ jobs:
           git commit -m "Publish $VERSION"
           git push origin HEAD
 
+      # The step that would have caught the bad 0.2.1. That release was published
+      # from a working tree whose fix had never been committed, so the artifacts
+      # did not match the repository and nothing noticed until CI in another
+      # repository failed. Resolving the new version from an empty local
+      # repository is the only check that asks what a consumer will actually get.
+      - name: Verify the published version resolves
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          echo "Waiting for GitHub Pages to serve $VERSION"
+          POM="https://acemq-company.github.io/maven/org/acemq/acemq-amqp-core/$VERSION/acemq-amqp-core-$VERSION.pom"
+          for attempt in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$POM")
+            [ "$code" = "200" ] && break
+            echo "  attempt $attempt: HTTP $code"
+            sleep 15
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::$VERSION was pushed but is not being served at $POM"
+            exit 1
+          fi
+
+          # An empty local repository, so nothing can resolve from what this
+          # build just installed. A release that only works on the machine that
+          # made it is the failure being guarded against.
+          mvn -B --no-transfer-progress -Dmaven.repo.local="$RUNNER_TEMP/verify-m2" \
+            dependency:get \
+            -DremoteRepositories=https://acemq-company.github.io/maven/ \
+            -Dartifact="org.acemq:acemq-amqp-core:$VERSION"
+          echo "$VERSION resolves from a clean repository."
+
       - name: Where it landed
         id: landed
         env:

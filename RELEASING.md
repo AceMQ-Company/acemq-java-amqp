@@ -42,26 +42,34 @@ version**, not a range.
    `docs/getting-started.md`, `docs/testing.md`, and the landing page in the
    `maven` repository. These are what people copy; a stale one sends them to a
    version that does not exist.
-3. **Tag it.** `git tag v0.1.0 && git push origin v0.1.0`.
+3. **Commit everything**, and check `git status` is clean.
+4. **Tag it.** `git tag v0.2.3 && git push origin v0.2.3`.
 
-The tag triggers `.github/workflows/release.yml`, which runs the full suite
-including integration tests, deploys into a checkout of the `maven` repository,
-and pushes.
+That is the whole release. The tag triggers
+`.github/workflows/release.yml`, which runs the full suite including integration
+tests, publishes into the `maven` repository, **verifies the new version
+resolves from an empty local repository**, and announces it in Slack.
 
-### Publishing by hand
+### Release from the tag, not from a working tree
 
-The workflow needs a credential with write access to `AceMQ-Company/maven`
-(`MAVEN_REPO_TOKEN`, or a deploy key once org policy allows one). Until that is
-in place, publish from a machine that can already push there:
+`0.2.1` was published by hand and went out without the fix it was named for: the
+commit had not been made, so the artifacts did not match the repository, and
+nothing noticed until CI in another repository failed. The workflow builds from
+the tag, which makes that impossible.
+
+The script in `scripts/publish-maven-repo.sh` still exists for the case where
+the workflow itself cannot run. It builds from the **working tree**, so if you
+ever use it:
 
 ```bash
-DRY_RUN=1 ./scripts/publish-maven-repo.sh 0.1.0    # build and stage, push nothing
-./scripts/publish-maven-repo.sh 0.1.0              # publish
+git status                                          # must be clean
+DRY_RUN=1 ./scripts/publish-maven-repo.sh 0.2.3     # stage, push nothing
+./scripts/publish-maven-repo.sh 0.2.3
 ```
 
-That script lives outside this repository, in the working folder alongside it.
-It builds a copy at the requested version, so the working tree is never left
-holding a release version that has to be reverted.
+and then check the published artifact actually contains what you released —
+downloading the jar and looking is thirty seconds, and is the step whose absence
+cost a version.
 
 ## What a release contains
 
