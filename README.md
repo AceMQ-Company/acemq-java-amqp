@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.0.1--SNAPSHOT-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
+[![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
 [![brokers](https://img.shields.io/badge/brokers-RabbitMQ%20%7C%20Qpid-lightgrey)](#requirements)
@@ -11,10 +11,13 @@ Broker-portable AMQP library for Java. Reliable publishing, non-blocking retries
 topology planning, and distributed messaging patterns as first-class types —
 against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
 
-> **Status: pre-release (`0.0.1-SNAPSHOT`).** Nothing is published yet and the
-> public API changes without notice. The current goal is a walking skeleton: one
-> working path from publish through the broker to consume and acknowledge, proven
-> against a real RabbitMQ, before any breadth is added.
+> **Status: `0.1.0`, published.** The public API may still change while the
+> version is `0.x`. Everything documented here is proven against a real RabbitMQ
+> in continuous integration, on both 4.x and 3.13.
+>
+> Artifacts are published to <https://acemq-company.github.io/maven/> rather than
+> Maven Central, which is a deliberate pre-1.0 choice — see
+> [RELEASING.md](RELEASING.md) for the reasoning and the cost.
 
 ## Why
 
@@ -153,24 +156,35 @@ result as CI.
 
 ## Using it
 
-Not yet published. Snapshots will be available from GitHub Packages and tagged
-releases from Maven Central, under the `org.acemq` group.
+Published to the AceMQ Maven repository under the `org.acemq` group. It needs no
+credentials — add it alongside your other repositories:
 
 ```xml
+<repositories>
+  <repository>
+    <id>acemq</id>
+    <url>https://acemq-company.github.io/maven/</url>
+  </repository>
+</repositories>
+
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>0.1.0</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-transport-rabbitmq</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>0.1.0</version>
 </dependency>
 ```
 
-GitHub Packages requires authentication even for public artifacts, so Maven
-Central remains the distribution channel for releases.
+`acemq-transport-rabbitmq` can be `<scope>runtime</scope>`: it is discovered by
+the `amqp://` scheme in your URL, and your code should not compile against it.
+
+Snapshots go to GitHub Packages, which requires authentication even for public
+artifacts — which is exactly why releases do not. Maven Central comes at 1.0;
+[RELEASING.md](RELEASING.md) explains the trade.
 
 ## Contributing
 

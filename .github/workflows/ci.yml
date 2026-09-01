@@ -101,7 +101,7 @@ jobs:
           retention-days: 7
 
   # Snapshots are published to GitHub Packages on every green push to main.
-  # Tagged releases additionally go to Maven Central; see RELEASING.md.
+  # Tagged releases go to the Git-hosted Maven repository; see RELEASING.md.
   publish-snapshot:
     name: publish snapshot to GitHub Packages
     needs: build

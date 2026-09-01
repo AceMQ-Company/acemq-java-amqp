@@ -8,6 +8,13 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] - 2026-09-01
+
+The first published release. Everything below has been proven against a real
+RabbitMQ in continuous integration, on both 4.x and 3.13.
+
 ### Added
 - Maven multi-module skeleton with the six modules of the target architecture.
 - Build quality gates: enforcer (Maven 3.8+, JDK 17+ toolchain), Spotless with
@@ -220,7 +227,59 @@ While the version is `0.x` the public API may change in any release.
 - `Envelope.route()`, because the AceMQ header prefix is closed to application headers
   and a slip put there by hand was silently dropped.
 
+- Pipelines. `mq.pipeline(...)` chains steps through the broker, each hop a real
+  queue, so a stage that fails is retried and dead-lettered on its own rather
+  than taking the whole chain with it. The route travels in a routing slip on
+  the message, which makes the chain choreography rather than orchestration.
+- Replay. `mq.replay(queue)` moves messages out of `<queue>.dlq` — or
+  `<queue>.parked` via `parked()` — back to the queue they failed in. Bounded
+  batches, an optional filter, and `pending()` to look before touching. A
+  dead-letter queue nobody can drain is a slower way of losing data.
+- `Envelope.replayedFrom()`, `replayedAt()` and `replayCount()`. First-class
+  fields rather than headers, because engine-owned headers are stripped before
+  an application sees them: an audit trail written as a header would have been
+  invisible to the code handling the message.
+- Blocked connections. RabbitMQ stops reading from publishing sockets under a
+  memory or disk alarm without closing them or returning an error, so a
+  publisher awaiting confirms waited forever with nothing in the logs. Publishes
+  now wait a bounded `blockedTimeout` and then raise `ConnectionBlockedException`,
+  which carries the broker's own reason and whether the message may already have
+  arrived. `AceMq.isBlocked()` reports it for a readiness probe.
+- `PublishOptions`: transient delivery, unroutable tolerance, and per-message
+  expiry, per publisher or per message. The defaults stay the safe ones.
+- Asynchronous and batch publishing. `sendAsync` returns a future and `sendAll`
+  publishes a whole batch before awaiting any of it, which is materially faster
+  than a round trip per message. Outstanding publishes are bounded, because an
+  async publisher with no ceiling is a memory leak that looks like throughput.
+- `JdbcIdempotencyStore`, shared by every consumer pointing at it. A claim is a
+  lease rather than a lock: without an expiry, a consumer that dies mid-handler
+  would leave a claim that discards every future redelivery of that message, and
+  one crash would become silent message loss.
+- An interceptor chain. `mq.intercept(...)` runs application code around every
+  publish and every handler, for the things every message in an organisation
+  needs and no library can guess. Refusing a publish, or a delivery, is part of
+  the contract.
+- `TransportConnection.receive` and `messageCount`, the pull and the depth that
+  draining a queue needs. A subscription is never told that no more messages are
+  coming, so a drain built on one either stops early or hangs on an empty queue.
+- A user guide and aggregated Javadoc published to GitHub Pages, and artifacts
+  published to a Git-hosted Maven repository that needs no credentials to read.
+
 ### Fixed
+
+- `@apiNote`, `@implSpec` and `@implNote` are declared to the Javadoc plugin.
+  They are standard tags, but Javadoc only recognises them for the JDK's own
+  build unless a project declares them; undeclared, they were "unknown tag"
+  errors that failed the Javadoc jar and so failed any release, while every
+  ordinary build passed.
+- The outbound message is built inside the telemetry scope. Trace context is
+  read from the current span, so gathering those headers before the publish span
+  existed propagated the caller's span instead, and consumers attached their
+  work to the wrong parent — a broken trace that still looked like a trace.
+- The in-memory broker honours per-message expiry and stops reporting an
+  unroutable message as a failure when the publisher asked not to be told. A
+  fake that is stricter than the broker it stands in for fails tests that would
+  pass in production, which is the one thing a fake must not do.
 
 - The in-memory transport delivered exactly one more message after a subscription was
   cancelled, because a blocked poll returned a message it had already taken. It is put
