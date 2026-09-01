@@ -1,0 +1,121 @@
+# Posts a message to Slack. Called by other workflows, in this repository and in
+# the other AceMQ repositories, so the formatting and the failure behaviour live
+# in one place rather than being copied four times and drifting.
+#
+# Called like this:
+#
+#   notify:
+#     needs: publish
+#     if: always()
+#     uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+#     with:
+#       status: ${{ needs.publish.result }}
+#       title: "AceMQ for Java 0.2.2 released"
+#       message: "Artifacts are on the Maven repository."
+#       url: https://github.com/AceMQ-Company/acemq-java-amqp/releases
+#     secrets: inherit
+#
+# The webhook lives in the SLACK_DELIVERY_WEBHOOK secret. Where it is absent —
+# a fork, or a repository nobody has configured yet — this does nothing and
+# succeeds. A missing notification must never fail a release that worked.
+name: slack-notify
+
+on:
+  workflow_call:
+    inputs:
+      status:
+        description: 'success, failure, cancelled, or skipped'
+        required: true
+        type: string
+      title:
+        description: 'One line: what happened'
+        required: true
+        type: string
+      message:
+        description: 'A sentence of detail'
+        required: false
+        default: ''
+        type: string
+      url:
+        description: 'Where to go to see it'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      SLACK_DELIVERY_WEBHOOK:
+        required: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Slack
+        env:
+          # Everything reaches the shell through the environment. Tag names,
+          # branch names and titles are caller-controlled text, and interpolating
+          # any of them into a script would let whoever writes one run commands
+          # here — with the webhook in reach.
+          WEBHOOK: ${{ secrets.SLACK_DELIVERY_WEBHOOK }}
+          STATUS: ${{ inputs.status }}
+          TITLE: ${{ inputs.title }}
+          MESSAGE: ${{ inputs.message }}
+          URL: ${{ inputs.url }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "SLACK_DELIVERY_WEBHOOK is not set; nothing to notify."
+            exit 0
+          fi
+
+          case "$STATUS" in
+            success)   ICON=":white_check_mark:" ;;
+            failure)   ICON=":red_circle:" ;;
+            cancelled) ICON=":black_circle:" ;;
+            *)         ICON=":large_blue_circle:" ;;
+          esac
+
+          # Built with jq rather than by pasting strings into a template: a
+          # quote or a backslash in a title would otherwise produce malformed
+          # JSON, and Slack answers that with a flat "invalid_payload".
+          PAYLOAD=$(jq -n \
+            --arg icon "$ICON" \
+            --arg title "$TITLE" \
+            --arg message "$MESSAGE" \
+            --arg url "$URL" \
+            --arg repo "$REPO" \
+            --arg run_url "$RUN_URL" \
+            --arg status "$STATUS" \
+            '{
+              text: ($icon + " " + $title),
+              blocks: (
+                [
+                  {
+                    type: "section",
+                    text: { type: "mrkdwn", text: ($icon + " *" + $title + "*") }
+                  }
+                ]
+                + (if $message == "" then [] else
+                    [{ type: "section", text: { type: "mrkdwn", text: $message } }]
+                  end)
+                + [
+                  {
+                    type: "context",
+                    elements: [
+                      { type: "mrkdwn",
+                        text: ("`" + $repo + "` · " + $status
+                               + (if $url == "" then "" else " · <" + $url + "|details>" end)
+                               + " · <" + $run_url + "|run>") }
+                    ]
+                  }
+                ]
+              )
+            }')
+
+          # --fail so a rejected payload fails this step rather than being
+          # reported as a delivered notification. -sS keeps the log quiet but
+          # still prints the error when there is one.
+          printf '%s' "$PAYLOAD" | curl -sS --fail \
+            -X POST -H 'Content-Type: application/json' \
+            --data @- "$WEBHOOK"
+          echo "Notified Slack: $TITLE"

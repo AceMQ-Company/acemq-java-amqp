@@ -66,3 +66,23 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  notify:
+    needs: deploy
+    # Only when something went wrong, or when the documentation actually moved.
+    # A message for every push to main would be noise nobody reads, and a channel
+    # people mute is worse than no channel.
+    if: always() && (needs.deploy.result == 'failure' || github.event_name == 'workflow_dispatch')
+    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+    with:
+      status: ${{ needs.deploy.result }}
+      title: >-
+        ${{ needs.deploy.result == 'success'
+            && 'AceMQ for Java documentation published'
+            || 'AceMQ for Java documentation build FAILED' }}
+      message: >-
+        ${{ needs.deploy.result == 'success'
+            && 'The guide and the API reference are live.'
+            || 'The site was not updated, so it still shows the previous version.' }}
+      url: https://acemq-company.github.io/acemq-java-amqp/
+    secrets: inherit

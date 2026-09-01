@@ -93,6 +93,28 @@ mvn versions:set -DnewVersion=0.2.2-SNAPSHOT -DgenerateBackupPoms=false
 
 The next *patch*, per the policy above.
 
+## Notifications
+
+A release, a failed release, a documentation deploy and a broken examples build
+all announce themselves in Slack, through the reusable workflow in
+`.github/workflows/slack-notify.yml`. Every repository calls that one workflow,
+so the formatting lives in a single place.
+
+Each repository needs the webhook as a secret:
+
+```bash
+gh secret set SLACK_DELIVERY_WEBHOOK -R AceMQ-Company/acemq-java-amqp        --body "$SLACK_WEBHOOK_URL"
+gh secret set SLACK_DELIVERY_WEBHOOK -R AceMQ-Company/acemq-java-amqp-examples --body "$SLACK_WEBHOOK_URL"
+gh secret set SLACK_DELIVERY_WEBHOOK -R AceMQ-Company/AceMQ-Company.github.io  --body "$SLACK_WEBHOOK_URL"
+```
+
+One organisation secret would replace all three
+(`gh secret set SLACK_DELIVERY_WEBHOOK --org AceMQ-Company --visibility all`),
+but that needs organisation admin rights.
+
+Where the secret is absent the notification step does nothing and succeeds. A
+missing webhook must never fail a release that worked.
+
 ## Rules
 
 - **Never publish a `SNAPSHOT`** to the release repository. Both the script and

@@ -110,9 +110,31 @@ jobs:
           git push origin HEAD
 
       - name: Where it landed
+        id: landed
         env:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           echo "Published $VERSION to" \
                "https://acemq-company.github.io/maven/org/acemq/"
           echo "Pages takes a minute or two to serve the new files."
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # Announced whatever happened. A release that fails silently is the one that
+  # gets discovered a week later by somebody wondering why the version they were
+  # told about cannot be resolved.
+  notify:
+    needs: publish
+    if: always()
+    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+    with:
+      status: ${{ needs.publish.result }}
+      title: >-
+        ${{ needs.publish.result == 'success'
+            && format('AceMQ for Java {0} released', github.ref_name)
+            || format('AceMQ for Java {0} release FAILED', github.ref_name) }}
+      message: >-
+        ${{ needs.publish.result == 'success'
+            && 'Artifacts are on the Maven repository. Consumers need no credentials.'
+            || 'The tag is pushed but the artifacts are not published. Nothing is half-released; the repository is untouched.' }}
+      url: https://acemq-company.github.io/maven/org/acemq/
+    secrets: inherit
