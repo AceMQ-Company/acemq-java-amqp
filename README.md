@@ -3,6 +3,7 @@
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
 [![version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
+[![docs](https://img.shields.io/badge/docs-acemq--company.github.io-blue)](https://acemq-company.github.io/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
 [![brokers](https://img.shields.io/badge/brokers-RabbitMQ%20%7C%20Qpid-lightgrey)](#requirements)
@@ -18,6 +19,15 @@ against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
 > Artifacts are published to <https://acemq-company.github.io/maven/> rather than
 > Maven Central, which is a deliberate pre-1.0 choice — see
 > [RELEASING.md](RELEASING.md) for the reasoning and the cost.
+
+## Links
+
+| | |
+|---|---|
+| **Documentation** | <https://acemq-company.github.io/acemq-java-amqp/> |
+| **API reference** | <https://acemq-company.github.io/acemq-java-amqp/apidocs/> |
+| **Artifacts** | <https://acemq-company.github.io/maven/> |
+| Releases | [CHANGELOG.md](CHANGELOG.md) · [releases](https://github.com/AceMQ-Company/acemq-java-amqp/releases) |
 
 ## Why
 
@@ -178,6 +188,10 @@ credentials — add it alongside your other repositories:
   <version>0.1.0</version>
 </dependency>
 ```
+
+The [getting started guide](https://acemq-company.github.io/acemq-java-amqp/getting-started.html)
+takes it from here: a broker in Docker, a first message, and what the library did
+on your behalf that the code does not show.
 
 `acemq-transport-rabbitmq` can be `<scope>runtime</scope>`: it is discovered by
 the `amqp://` scheme in your URL, and your code should not compile against it.
