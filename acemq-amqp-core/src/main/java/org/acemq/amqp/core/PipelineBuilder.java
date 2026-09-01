@@ -33,7 +33,7 @@ import org.acemq.amqp.api.Step;
  * mq.pipeline("fulfilment", Order.class)
  *         .step("validate", Order.class, new ValidateOrder())
  *         .step("enrich", Enriched.class, new EnrichOrder())
- *             .withRetry(RetryPolicy.exponential(5, Duration.ofSeconds(2)))
+ *             .withRetry(RetryPolicy.exponential(5, Duration.ofSeconds(2), Duration.ofMinutes(1)))
  *             .concurrency(10)
  *         .step("dispatch", Void.class, new DispatchOrder())
  *         .build();
