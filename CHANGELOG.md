@@ -8,6 +8,19 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.4] - 2026-09-01
+
+### Added
+- `AvroCodec.registered(registry, readerSchema)`, which reads every message
+  against a schema of your own rather than the writer's. This is what schema
+  evolution needs on the generic path: a field the reader does not know is
+  skipped, and one the writer omitted is filled in from the reader's default, so
+  a consumer sees the shape it was written against whichever version produced the
+  message. Previously only a generated `SpecificRecord` could supply a reader
+  schema, and a `GenericRecord` asks for nothing in particular.
+
 ### Fixed
 - **A fixed-schema `AvroCodec` silently misread messages written by a registered
   one.** The two framings differ by five bytes at the front, Avro does not

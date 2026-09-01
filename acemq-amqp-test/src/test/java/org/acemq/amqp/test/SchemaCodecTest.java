@@ -229,6 +229,42 @@ class SchemaCodecTest {
         }
 
         @Test
+        void a_reader_schema_drops_a_field_the_consumer_has_never_heard_of() {
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
+                    .register(1, AvroCodec.definitionOf(schema(V1)))
+                    .register(2, AvroCodec.definitionOf(schema(V2)));
+
+            // The producer has been redeployed and writes the field. This consumer was
+            // written against V1 and has not been.
+            byte[] fromNewProducer = AvroCodec.registered(registry).encode(order(schema(V2), "o-9", 500));
+
+            GenericRecord decoded = AvroCodec.registered(registry, schema(V1))
+                    .decode(fromNewProducer, GenericRecord.class);
+
+            assertThat(decoded.get("orderId")).hasToString("o-9");
+            assertThat(decoded.get("total")).isEqualTo(500);
+            // Skipped, not shifted. The consumer sees the shape it was written against.
+            assertThat(decoded.getSchema().getField("currency")).isNull();
+        }
+
+        @Test
+        void a_reader_schema_fills_in_a_default_for_a_field_the_writer_did_not_send() {
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
+                    .register(1, AvroCodec.definitionOf(schema(V1)))
+                    .register(2, AvroCodec.definitionOf(schema(V2)));
+
+            // The other direction, and the one that lets consumers be deployed first: a
+            // producer still on V1, read by a consumer already on V2.
+            byte[] fromOldProducer = AvroCodec.registered(registry).encode(order(schema(V1), "o-3", 25));
+
+            GenericRecord decoded = AvroCodec.registered(registry, schema(V2))
+                    .decode(fromOldProducer, GenericRecord.class);
+
+            assertThat(decoded.get("orderId")).hasToString("o-3");
+            assertThat(decoded.get("currency")).hasToString("GBP");
+        }
+
+        @Test
         void a_generic_reader_adopts_the_writers_schema_rather_than_resolving_against_its_own() {
             // Worth stating, because it is the limit of what a GenericRecord can express. Avro's
             // reader-schema resolution needs a reader schema, and a GenericRecord asks for

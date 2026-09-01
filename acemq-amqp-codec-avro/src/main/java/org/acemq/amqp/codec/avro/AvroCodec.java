@@ -125,6 +125,31 @@ public final class AvroCodec implements Codec {
         return new AvroCodec(null, Objects.requireNonNull(registry, "registry"), false);
     }
 
+    /**
+     * As {@link #registered(SchemaRegistry)}, but reading every message against a schema of your
+     * own rather than the writer's.
+     *
+     * <p>This is what schema evolution actually needs. With a writer's schema alone, a consumer
+     * receives whatever the producer sent — a field it has never heard of arrives, and a field it
+     * expects is simply absent if the producer has not started sending it yet. Given both, Avro
+     * resolves them: a field the reader does not know is skipped, and one the writer omitted is
+     * filled in from the reader's default. The consumer then sees the shape it was written
+     * against, whichever version produced the message.
+     *
+     * <p>The alternative is a generated {@code SpecificRecord}, whose class carries the reader
+     * schema. This exists for the generic path, where there is no class to read it from.
+     *
+     * @param registry where schema identifiers are resolved
+     * @param readerSchema the schema this consumer was written against
+     * @return a codec that resolves every message onto {@code readerSchema}
+     */
+    public static AvroCodec registered(SchemaRegistry registry, Schema readerSchema) {
+        return new AvroCodec(
+                Objects.requireNonNull(readerSchema, "readerSchema"),
+                Objects.requireNonNull(registry, "registry"),
+                false);
+    }
+
     @Override
     public String contentType() {
         return registry != null ? REGISTERED_CONTENT_TYPE : FIXED_CONTENT_TYPE;
