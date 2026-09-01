@@ -9,6 +9,13 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Fixed
+- **A fixed-schema `AvroCodec` silently misread messages written by a registered
+  one.** The two framings differ by five bytes at the front, Avro does not
+  notice, and the decode returned a record whose every field was wrong -- an
+  empty id and a total of `5.4e-67` -- without throwing. `canDecode` also
+  accepted the other framing's content type, so a consumer would pick the wrong
+  codec on its own. Each codec now accepts only its own framing, and decoding
+  identifier-framed bytes with a fixed schema fails with an explanation.
 - The javadoc examples on `AceMq.pipeline` and `PipelineBuilder` called
   `RetryPolicy.exponential(int, Duration)`, which does not exist — the shortest
   overload takes a maximum delay as well. The snippet a reader copied did not

@@ -151,11 +151,46 @@ class SchemaCodecTest {
         void announces_a_content_type_that_says_the_schema_is_not_in_the_message() {
             assertThat(AvroCodec.of(schema(V1)).contentType()).isEqualTo("avro/binary");
         }
+
+        @Test
+        void refuses_bytes_written_by_a_registered_codec_rather_than_misreading_them() {
+            // Regression, and a bad one. The two framings differ by five bytes at the front,
+            // and Avro does not notice: reading a registered message with a fixed-schema codec
+            // returned orderId="" and total=<garbage> with no exception at all. Every value in
+            // the record was wrong and nothing said so.
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1,
+                    AvroCodec.definitionOf(schema(V1)));
+            byte[] registered = AvroCodec.registered(registry).encode(order(schema(V1), "o-1", 4200));
+
+            assertThatThrownBy(() -> AvroCodec.of(schema(V1)).decode(registered, GenericRecord.class))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("schema identifier");
+        }
+
+        @Test
+        void does_not_volunteer_for_the_other_framings_content_type() {
+            // The check above only helps a caller who reached decode directly. A consumer picks
+            // its codec by content type first, so that path has to refuse as well.
+            assertThat(AvroCodec.of(schema(V1)).canDecode("application/vnd.acemq.avro")).isFalse();
+            assertThat(AvroCodec.of(schema(V1)).canDecode("avro/binary")).isTrue();
+        }
     }
 
     @Nested
     @DisplayName("Avro with a registry")
     class Registered {
+
+        @Test
+        void accepts_its_own_framing_and_not_the_fixed_one() {
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry().register(1,
+                    AvroCodec.definitionOf(schema(V1)));
+            Codec codec = AvroCodec.registered(registry);
+
+            assertThat(codec.canDecode("application/vnd.acemq.avro")).isTrue();
+            // The mirror of the fixed codec's refusal: a registered codec reading unframed
+            // bytes would take the first five bytes of the record as an identifier.
+            assertThat(codec.canDecode("avro/binary")).isFalse();
+        }
 
         @Test
         void puts_the_schema_identifier_on_the_front_where_confluent_clients_look_for_it() {
@@ -175,19 +210,39 @@ class SchemaCodecTest {
         }
 
         @Test
-        void a_reader_on_the_old_schema_survives_a_producer_adding_a_field() {
+        void a_consumer_keeps_working_when_a_producer_adds_a_field() {
             InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
                     .register(1, AvroCodec.definitionOf(schema(V1))).register(2,
                             AvroCodec.definitionOf(schema(V2)));
 
-            // Producer has been redeployed and writes the new record.
+            // Producer has been redeployed and writes the new record. The consumer has not
+            // changed: it holds the same registered codec it always did.
             byte[] fromNewProducer = AvroCodec.registered(registry).encode(order(schema(V2), "o-9", 500));
 
-            // Consumer has not, and still reads with the old schema. It resolves against the
-            // writer's, so the field it does not know is skipped rather than shifting everything
-            // after it. This is the entire reason a registry is worth running.
-            GenericRecord decoded = AvroCodec.of(schema(V1)).decode(fromNewProducer, GenericRecord.class);
-            assertThat(decoded).isNotNull();
+            GenericRecord decoded = AvroCodec.registered(registry).decode(fromNewProducer, GenericRecord.class);
+
+            // The fields it already knew are still right, which is the property that matters:
+            // the added field did not shift everything after it.
+            assertThat(decoded.get("orderId")).hasToString("o-9");
+            assertThat(decoded.get("total")).isEqualTo(500);
+            assertThat(decoded.get("currency")).hasToString("EUR");
+        }
+
+        @Test
+        void a_generic_reader_adopts_the_writers_schema_rather_than_resolving_against_its_own() {
+            // Worth stating, because it is the limit of what a GenericRecord can express. Avro's
+            // reader-schema resolution needs a reader schema, and a GenericRecord asks for
+            // nothing in particular -- so the writer's schema is used for both and a field the
+            // "old" consumer does not know still arrives. Dropping it, or filling in a default
+            // for a field the writer omitted, needs a generated SpecificRecord whose class
+            // carries the reader schema.
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
+                    .register(2, AvroCodec.definitionOf(schema(V2)));
+            byte[] written = AvroCodec.registered(registry).encode(order(schema(V2), "o-9", 500));
+
+            GenericRecord decoded = AvroCodec.registered(registry).decode(written, GenericRecord.class);
+
+            assertThat(decoded.getSchema().getField("currency")).isNotNull();
         }
 
         @Test

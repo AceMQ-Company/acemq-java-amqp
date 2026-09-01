@@ -175,6 +175,17 @@ public final class AvroCodec implements Codec {
                 });
                 offset = HEADER_BYTES;
             } else {
+                // Framing this codec cannot read, caught before Avro turns it into nonsense.
+                // Without this the five bytes of identifier are decoded as the beginning of the
+                // first field: no exception, and a record whose every value is wrong. A caller
+                // that reached decode directly never went through canDecode, so the check has
+                // to exist here too.
+                if (body.length >= HEADER_BYTES && body[0] == MAGIC) {
+                    throw new AceMqException("these bytes carry a schema identifier and this codec"
+                            + " has a fixed schema, so reading them would silently produce the wrong"
+                            + " values. Build the codec with registered(registry) to read messages"
+                            + " written by a registered one.");
+                }
                 writerSchema = requireFixedSchema();
                 offset = 0;
             }
@@ -204,9 +215,18 @@ public final class AvroCodec implements Codec {
             return false;
         }
         String type = contentType.toLowerCase(Locale.ROOT);
-        return type.startsWith(contentType().toLowerCase(Locale.ROOT))
-                || type.startsWith("avro/")
-                || type.contains("avro");
+        // The two framings are not interchangeable and the difference is invisible in the bytes:
+        // a registered message begins with five bytes of framing that a fixed-schema codec would
+        // read as the first field. That does not throw -- Avro decodes the shifted bytes into
+        // whatever they happen to mean -- so a codec that accepted the other framing would hand
+        // back a record full of silent nonsense. Each accepts only its own.
+        if (type.startsWith(REGISTERED_CONTENT_TYPE)) {
+            return registry != null;
+        }
+        if (type.startsWith(FIXED_CONTENT_TYPE) || type.startsWith("avro/")) {
+            return registry == null;
+        }
+        return type.contains("avro") && !type.contains("acemq.avro");
     }
 
     /**
