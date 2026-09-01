@@ -43,7 +43,9 @@ version**, not a range.
    while it was a manual step — the landing page by two releases — which is
    worse than saying nothing, because a reader copies it.
 3. **Commit everything**, and check `git status` is clean.
-4. **Tag it.** `git tag v0.2.3 && git push origin v0.2.3`.
+4. **Tag it.** `git tag -a v0.2.5 -m 0.2.5 && git push origin v0.2.5`.
+   Annotated: a bare `git tag -m` is rejected, and `git tag` alone opens an
+   editor that fails in a non-interactive shell.
 
 That is the whole release. The tag triggers
 `.github/workflows/release.yml`, which runs the full suite including integration
@@ -63,8 +65,8 @@ ever use it:
 
 ```bash
 git status                                          # must be clean
-DRY_RUN=1 ./scripts/publish-maven-repo.sh 0.2.3     # stage, push nothing
-./scripts/publish-maven-repo.sh 0.2.3
+DRY_RUN=1 ./scripts/publish-maven-repo.sh 0.2.5     # stage, push nothing
+./scripts/publish-maven-repo.sh 0.2.5
 ```
 
 and then check the published artifact actually contains what you released —
@@ -86,17 +88,46 @@ consumer can actually use it:
 ```bash
 mvn -q -Dmaven.repo.local=/tmp/verify-m2 dependency:get \
   -DremoteRepositories=https://acemq-company.github.io/maven/ \
-  -Dartifact=org.acemq:acemq-amqp-core:0.1.0
+  -Dartifact=org.acemq:acemq-amqp-core:0.2.4
 ```
 
 GitHub Pages takes a minute or two to serve newly pushed files.
+
+### The URLs redirect
+
+The organisation site carries the custom domain `acemq.org`, and GitHub redirects
+every project page beneath it. So
+`https://acemq-company.github.io/maven/...` answers **301** to
+`https://acemq.org/maven/...`, whatever the `maven` repository's own Pages
+settings say.
+
+Nothing is broken by this — Maven follows the redirect, and the documented
+`<repository>` URL keeps working. It did cost one release: the verification step
+compared the 301 against 200 and reported `0.2.4` as never published, after
+publishing it correctly. That step now uses `curl -L`. Anything else that checks
+these URLs by hand needs to as well.
+
+### A failed verification skips the rest of the release
+
+`document` and `landing-page` only run when `publish` succeeds. That is
+deliberate — a version that cannot be resolved should not be advertised — but it
+means a false failure leaves the artifacts published and every page still naming
+the previous version. If that happens, run the two steps by hand rather than
+re-tagging: re-releasing would rewrite a published version, which is the one
+thing this repository does not do.
+
+```bash
+.github/scripts/set-documented-version.sh 0.2.4   # then commit and push
+```
+
+and edit the version on the organisation landing page the same way.
 
 ## After a release
 
 Bump the development version:
 
 ```bash
-mvn versions:set -DnewVersion=0.2.2-SNAPSHOT -DgenerateBackupPoms=false
+mvn versions:set -DnewVersion=0.2.5-SNAPSHOT -DgenerateBackupPoms=false
 ```
 
 The next *patch*, per the policy above.

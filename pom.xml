@@ -6,7 +6,7 @@
 
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-parent</artifactId>
-  <version>0.2.3-SNAPSHOT</version>
+  <version>0.2.5-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>AceMQ AMQP Parent</name>
