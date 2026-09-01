@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.4-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
+[![version](https://img.shields.io/badge/version-0.2.5-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
 [![docs](https://img.shields.io/badge/docs-acemq--company.github.io-blue)](https://acemq-company.github.io/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
@@ -12,7 +12,7 @@ Broker-portable AMQP library for Java. Reliable publishing, non-blocking retries
 topology planning, and distributed messaging patterns as first-class types —
 against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
 
-> **Status: `0.2.4`, published.** The public API may still change while the
+> **Status: `0.2.5`, published.** The public API may still change while the
 > version is `0.x`. Everything documented here is proven against a real RabbitMQ
 > in continuous integration, on both 4.x and 3.13.
 >
@@ -180,12 +180,12 @@ credentials — add it alongside your other repositories:
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.2.4</version>
+  <version>0.2.5</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-transport-rabbitmq</artifactId>
-  <version>0.2.4</version>
+  <version>0.2.5</version>
 </dependency>
 ```
 

@@ -85,7 +85,7 @@ wrong one is looked for in Maven Central alone.
 Then:
 
 ```bash
-mvn org.acemq:acemq-security-dev:0.2.4:certs -Dbroker=localhost -Dout=./certs
+mvn org.acemq:acemq-security-dev:0.2.5:certs -Dbroker=localhost -Dout=./certs
 ```
 
 The [examples repository](https://github.com/AceMQ-Company/acemq-java-amqp-examples)
