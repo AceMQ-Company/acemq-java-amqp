@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -173,6 +175,34 @@ jobs:
                "https://acemq-company.github.io/maven/"
           echo "Pages takes a minute or two to serve the new files."
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # The guide tells people which version to depend on. Left to a manual step it
+  # sat two releases behind, which is worse than saying nothing: a reader copies
+  # it and gets a version that is no longer current.
+  document:
+    needs: publish
+    if: needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Point the documentation at this release
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          .github/scripts/set-documented-version.sh "$VERSION"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "documentation already current"
+            exit 0
+          fi
+          git config user.name "acemq-release"
+          git config user.email "noreply@acemq.org"
+          git add -A
+          git commit -m "docs: point at $VERSION"
+          git push origin main
 
   # Announced whatever happened. A release that fails silently is the one that
   # gets discovered a week later by somebody wondering why the version they were

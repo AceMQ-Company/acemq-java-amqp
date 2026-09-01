@@ -38,10 +38,10 @@ version**, not a range.
 
 1. **Check the changelog.** Move `[Unreleased]` to the new version with today's
    date, and start a fresh `[Unreleased]`.
-2. **Update the version in prose** — the README badge and status paragraph,
-   `docs/getting-started.md`, `docs/testing.md`, and the landing page in the
-   `maven` repository. These are what people copy; a stale one sends them to a
-   version that does not exist.
+2. **Nothing to update by hand.** The release rewrites the version in the guide,
+   the README and the Maven repository's landing page. Those had all drifted
+   while it was a manual step — the landing page by two releases — which is
+   worse than saying nothing, because a reader copies it.
 3. **Commit everything**, and check `git status` is clean.
 4. **Tag it.** `git tag v0.2.3 && git push origin v0.2.3`.
 

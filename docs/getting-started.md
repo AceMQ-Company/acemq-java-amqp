@@ -17,12 +17,12 @@ other repositories — no credentials are needed.
   <dependency>
     <groupId>org.acemq</groupId>
     <artifactId>acemq-amqp-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.3</version>
   </dependency>
   <dependency>
     <groupId>org.acemq</groupId>
     <artifactId>acemq-transport-rabbitmq</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.3</version>
     <scope>runtime</scope>
   </dependency>
 </dependencies>
@@ -37,8 +37,8 @@ repositories {
 }
 
 dependencies {
-    implementation("org.acemq:acemq-amqp-core:0.1.0")
-    runtimeOnly("org.acemq:acemq-transport-rabbitmq:0.1.0")
+    implementation("org.acemq:acemq-amqp-core:0.2.3")
+    runtimeOnly("org.acemq:acemq-transport-rabbitmq:0.2.3")
 }
 ```
 
