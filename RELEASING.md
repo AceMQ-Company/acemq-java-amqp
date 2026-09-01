@@ -19,6 +19,21 @@ is the reason 1.0 moves to Central.
 Central also means Javadoc is self-hosted rather than served by javadoc.io, so
 the documentation site is part of the release rather than a nicety.
 
+## Which number
+
+**Stay on `0.2.x` until 1.0.** Releases are `0.2.1`, `0.2.2`, and so on; the minor
+number does not move again until the API is settled enough to call it `1.0.0`.
+
+That is deliberate, and it is not quite semantic versioning. A `0.2.x` release
+here may change the API — the changelog has always said so ("while the version is
+`0.x` the public API may change in any release"), and semver explicitly leaves
+`0.y.z` outside its compatibility guarantees. What the policy buys is a version
+number that stops implying the API has stabilised before it has. `0.9.0` reads as
+"nearly there"; `0.2.7` reads as what it is.
+
+The corollary: **anything depending on AceMQ before 1.0 should pin an exact
+version**, not a range.
+
 ## Cutting a release
 
 1. **Check the changelog.** Move `[Unreleased]` to the new version with today's
@@ -73,8 +88,10 @@ GitHub Pages takes a minute or two to serve newly pushed files.
 Bump the development version:
 
 ```bash
-mvn versions:set -DnewVersion=0.2.0-SNAPSHOT -DgenerateBackupPoms=false
+mvn versions:set -DnewVersion=0.2.2-SNAPSHOT -DgenerateBackupPoms=false
 ```
+
+The next *patch*, per the policy above.
 
 ## Rules
 

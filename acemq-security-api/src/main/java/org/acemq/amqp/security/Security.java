@@ -59,6 +59,20 @@ public final class Security {
     /** Subject the development certificate generator stamps, so this library can refuse it. */
     public static final String DEVELOPMENT_MARKER = "ACEMQ DEVELOPMENT ONLY - DO NOT TRUST";
 
+    /**
+     * What {@link #fromKeystore} assumes when nothing says otherwise, and what
+     * {@code acemq-security-dev} writes.
+     *
+     * <p>Six characters, because {@code keytool} refuses to create a PKCS12 keystore with a
+     * shorter password. The previous default was five, which meant the library's own default
+     * described a keystore the standard JDK tooling could not produce — a default nobody could
+     * use is worse than no default.
+     *
+     * <p>It protects a store on a developer's machine and is not a secret. Anything real passes
+     * {@link #keystorePassword(String)} with a value from a secret store.
+     */
+    public static final String DEFAULT_KEYSTORE_PASSWORD = "acemq-dev";
+
     /** What a connection does about transport security. */
     public enum Mode {
         /** Encrypt, verify the chain, verify the hostname. */
@@ -90,7 +104,7 @@ public final class Security {
 
     /** @return TLS with the chain and the hostname verified, using the JVM's trust store */
     public static Security required() {
-        return new Security(Mode.REQUIRED, null, "acemq".toCharArray(), false, null);
+        return new Security(Mode.REQUIRED, null, DEFAULT_KEYSTORE_PASSWORD.toCharArray(), false, null);
     }
 
     /**
@@ -103,7 +117,11 @@ public final class Security {
      */
     public static Security fromKeystore(Path directory) {
         return new Security(
-                Mode.REQUIRED, Objects.requireNonNull(directory, "directory"), "acemq".toCharArray(), false, null);
+                Mode.REQUIRED,
+                Objects.requireNonNull(directory, "directory"),
+                DEFAULT_KEYSTORE_PASSWORD.toCharArray(),
+                false,
+                null);
     }
 
     /** @return plaintext, for tests and for a broker on this machine */

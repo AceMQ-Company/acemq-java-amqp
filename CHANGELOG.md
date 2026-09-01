@@ -10,6 +10,20 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.1] - 2026-09-01
+
+### Fixed
+- The default keystore password is now `acemq-dev` rather than `acemq`. Five
+  characters meant `keytool` refused to create a PKCS12 keystore with it, so the
+  library's own default described a store the standard JDK tooling could not
+  produce — a default nobody can use is worse than no default. It is exposed as
+  `Security.DEFAULT_KEYSTORE_PASSWORD`, and `acemq-security-dev` writes stores
+  with the same value, so `Security.fromKeystore(dir)` now needs no password at
+  all for generated certificates.
+
+  A keystore created with the old default still opens: pass
+  `keystorePassword("acemq")`.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

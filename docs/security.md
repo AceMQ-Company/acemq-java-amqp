@@ -68,11 +68,28 @@ checked at the point where it would otherwise do damage.
 ## Development certificates, in one command
 
 TLS on a laptop is the thing that gets postponed for months, so it takes one
-command:
+command. First tell Maven where the plugin lives — this is a
+`<pluginRepositories>` entry, **not** `<repositories>`: the first says where
+dependencies come from, the second where plugins do, and a plugin declared in the
+wrong one is looked for in Maven Central alone.
+
+```xml
+<pluginRepositories>
+  <pluginRepository>
+    <id>acemq</id>
+    <url>https://acemq-company.github.io/maven/</url>
+  </pluginRepository>
+</pluginRepositories>
+```
+
+Then:
 
 ```bash
-mvn org.acemq:acemq-security-dev:0.2.0:certs -Dbroker=localhost -Dout=./certs
+mvn org.acemq:acemq-security-dev:0.2.1:certs -Dbroker=localhost -Dout=./certs
 ```
+
+The [examples repository](https://github.com/AceMQ-Company/acemq-java-amqp-examples)
+wires this into a profile, so there it is just `mvn -Pgencert`.
 
 That writes a throwaway certificate authority, a broker certificate valid for
 the host you named, a client key pair, the two keystores
@@ -91,14 +108,16 @@ Then connect:
 ```java
 AceMq.connect(ConnectionConfig.url("amqps://localhost:5671")
         .security(Security.fromKeystore(Path.of("./certs"))
-                .keystorePassword("acemq-dev")
                 .allowDevelopmentCertificates())
         .build());
 ```
 
-Options: `-Ddays=30` (the default, deliberately short), `-Dpassword=...` (at
-least six characters — `keytool` refuses to open a PKCS12 store with fewer, so a
-shorter one produces stores the standard tooling cannot read),
+No password needed: the generator writes the stores with the same default
+`fromKeystore` assumes. Anything real passes `keystorePassword(...)` with a value
+from a secret store.
+
+Options: `-Ddays=30` (the default, deliberately short), `-Dpassword=...` (at least six
+characters — `keytool` refuses to create a PKCS12 store with fewer),
 `-DskipBrokerConfig=true`.
 
 Three things make these safe to lose:

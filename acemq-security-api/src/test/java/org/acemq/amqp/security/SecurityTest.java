@@ -106,6 +106,39 @@ class SecurityTest {
             assertThat(security.mode()).isEqualTo(Security.Mode.REQUIRED);
             assertThat(security.verifiesHostname()).isTrue();
         }
+
+        @Test
+        void the_default_password_is_long_enough_for_the_tooling_that_creates_keystores() {
+            // Regression. The default was "acemq", five characters, and keytool refuses to
+            // create a PKCS12 keystore with fewer than six -- so the library's own default
+            // described a store the standard JDK tooling could not produce. A default nobody
+            // can use is worse than no default, and the failure surfaced only when somebody
+            // followed the documentation.
+            assertThat(Security.DEFAULT_KEYSTORE_PASSWORD.length())
+                    .as("keytool requires at least six characters for a PKCS12 keystore")
+                    .isGreaterThanOrEqualTo(6);
+        }
+
+        @Test
+        void a_keystore_written_with_the_default_password_can_be_read_back(@TempDir Path directory)
+                throws Exception {
+            // The property that matters is not the length but that a store created with this
+            // password opens again. Written with the JDK's own KeyStore API, which is what
+            // both keytool and the generator ultimately use.
+            char[] password = Security.DEFAULT_KEYSTORE_PASSWORD.toCharArray();
+            java.security.KeyStore store = java.security.KeyStore.getInstance("PKCS12");
+            store.load(null, password);
+            Path file = directory.resolve("truststore.p12");
+            try (var out = java.nio.file.Files.newOutputStream(file)) {
+                store.store(out, password);
+            }
+
+            java.security.KeyStore reopened = java.security.KeyStore.getInstance("PKCS12");
+            try (var in = java.nio.file.Files.newInputStream(file)) {
+                reopened.load(in, password);
+            }
+            assertThat(reopened.size()).isZero();
+        }
     }
 
     @Nested
