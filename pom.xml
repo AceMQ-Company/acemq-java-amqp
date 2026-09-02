@@ -102,18 +102,18 @@
     <postgresql.version>42.7.5</postgresql.version>
 
     <!-- plugin versions -->
-    <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
-    <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
-    <maven.failsafe.plugin.version>3.5.2</maven.failsafe.plugin.version>
-    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
-    <maven.javadoc.plugin.version>3.11.2</maven.javadoc.plugin.version>
-    <maven.source.plugin.version>3.3.1</maven.source.plugin.version>
-    <maven.gpg.plugin.version>3.2.7</maven.gpg.plugin.version>
-    <spotless.plugin.version>2.44.0</spotless.plugin.version>
+    <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>3.5.6</maven.surefire.plugin.version>
+    <maven.failsafe.plugin.version>3.5.6</maven.failsafe.plugin.version>
+    <maven.enforcer.plugin.version>3.6.3</maven.enforcer.plugin.version>
+    <maven.javadoc.plugin.version>3.12.0</maven.javadoc.plugin.version>
+    <maven.source.plugin.version>3.4.0</maven.source.plugin.version>
+    <maven.gpg.plugin.version>3.2.8</maven.gpg.plugin.version>
+    <spotless.plugin.version>3.10.1</spotless.plugin.version>
     <jacoco.plugin.version>0.8.15</jacoco.plugin.version>
     <flatten.plugin.version>1.6.0</flatten.plugin.version>
     <exec.plugin.version>3.5.0</exec.plugin.version>
-    <maven.shade.plugin.version>3.6.0</maven.shade.plugin.version>
+    <maven.shade.plugin.version>3.6.2</maven.shade.plugin.version>
     <jmh.version>1.37</jmh.version>
     <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
     <errorprone.version>2.50.0</errorprone.version>
