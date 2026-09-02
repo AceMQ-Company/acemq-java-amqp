@@ -43,6 +43,16 @@ version**, not a range.
    while it was a manual step — the landing page by two releases — which is
    worse than saying nothing, because a reader copies it.
 3. **Commit everything**, and check `git status` is clean.
+3. **Pull first.** The previous release's `document` and `landing-page` jobs push
+   to `main`, so `main` has almost certainly moved since you started. Tagging
+   without pulling gives a tag whose commit is not on `main` — the release still
+   builds correctly, because it builds from the tag, but the released commit is
+   not in the branch history. This has happened three times; `git pull --rebase`
+   before tagging costs nothing.
+
+   If it happens anyway, **merge rather than rebase**: rebasing changes the
+   commit the tag points at, and a release tag that is not reachable from `main`
+   is worse than a merge commit.
 4. **Tag it.** `git tag -a v0.2.5 -m 0.2.5 && git push origin v0.2.5`.
    Annotated: a bare `git tag -m` is rejected, and `git tag` alone opens an
    editor that fails in a non-interactive shell.
