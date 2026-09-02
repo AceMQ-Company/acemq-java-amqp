@@ -23,7 +23,7 @@ jobs:
         # not the other, and knowing which narrows it immediately.
         java: ["21", "25"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: graalvm/setup-graalvm@v1
         with:
