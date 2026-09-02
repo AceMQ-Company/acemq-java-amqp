@@ -157,7 +157,8 @@ class RequestReplyTest {
                         Duration.ofSeconds(10));
 
                 assertThat(price).isEqualTo(new Price("WIDGET", 10.0));
-                assertThat(responder.answered()).isEqualTo(1);
+                // The responder counts after publishing, so the caller can return first.
+                await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 1);
             }
         }
 

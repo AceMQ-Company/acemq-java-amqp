@@ -17,6 +17,7 @@ package org.acemq.amqp.transport.rabbitmq;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -76,8 +77,13 @@ class RequestReplyIT {
             String price = requester.request("", "pricing", "WIDGET", String.class, Duration.ofSeconds(30));
 
             assertThat(price).isEqualTo("WIDGET:42");
-            assertThat(responder.answered()).isEqualTo(1);
             assertThat(requester.timedOut()).isZero();
+
+            // Awaited rather than asserted outright: the responder increments this after the
+            // reply is published, and the caller can be back from request(...) before that
+            // line runs. Locally it always won the race; on CI it did not, which is exactly
+            // the kind of assertion that turns into an intermittent failure nobody trusts.
+            await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 1);
         }
     }
 
