@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.9-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
+[![version](https://img.shields.io/badge/version-0.2.10-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
 [![docs](https://img.shields.io/badge/docs-acemq--company.github.io-blue)](https://acemq-company.github.io/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
@@ -16,7 +16,7 @@ broker-specific sits behind a transport SPI, which is what makes the second
 binding a module rather than a rewrite — but that module does not exist yet.
 `acemq-transport-amqp10` (Qpid Proton-J) arrives at milestone M3.
 
-> **Status: `0.2.9`, published.** The public API may still change while the
+> **Status: `0.2.10`, published.** The public API may still change while the
 > version is `0.x`. Everything documented here is proven against a real RabbitMQ
 > in continuous integration, on both 4.x and 3.13.
 >
@@ -186,12 +186,12 @@ credentials — add it alongside your other repositories:
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.2.9</version>
+  <version>0.2.10</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-transport-rabbitmq</artifactId>
-  <version>0.2.9</version>
+  <version>0.2.10</version>
 </dependency>
 ```
 
