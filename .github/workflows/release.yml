@@ -38,6 +38,9 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.value }}
+      # Whether anything reached the Maven repository. False for every failure
+      # before the push, which is most of them.
+      published: ${{ steps.push.outputs.published }}
     steps:
       - uses: actions/checkout@v4
 
@@ -135,7 +138,12 @@ jobs:
                   print(f"  {name} now advertises {version}")
           PYTHON
 
+      # `published` is the line between "nothing happened" and "something is out
+      # there". Everything before this step leaves the Maven repository untouched;
+      # everything after it is operating on a version consumers can already
+      # resolve. The notification at the end keys off it -- see that job for why.
       - name: Commit and push
+        id: push
         working-directory: maven-repo
         env:
           VERSION: ${{ steps.version.outputs.value }}
@@ -144,11 +152,16 @@ jobs:
           git config user.email "noreply@acemq.org"
           if [ -z "$(git status --porcelain)" ]; then
             echo "nothing to publish; $VERSION may already exist"
+            # Already in the repository, so from a consumer's point of view this
+            # version is published. Reporting otherwise would make a re-run of a
+            # good release look like a release that never happened.
+            echo "published=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git add -A
           git commit -m "Publish $VERSION"
           git push origin HEAD
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
       # The step that would have caught the bad 0.2.1. That release was published
       # from a working tree whose fix had never been committed, so the artifacts
@@ -261,22 +274,33 @@ jobs:
           git commit -am "Show $VERSION on the Java card"
           git push
 
-  # Announced whatever happened. A release that fails silently is the one that
-  # gets discovered a week later by somebody wondering why the version they were
-  # told about cannot be resolved.
+  # Announced only when something actually reached the Maven repository.
+  #
+  # A tag whose build fails has released nothing: the repository is untouched, no
+  # version exists, and nobody can resolve anything they could not resolve before.
+  # Announcing that as "release FAILED" puts a red message in a channel about an
+  # event that did not happen, and a channel that cries wolf is one people stop
+  # reading -- which costs us the announcement that matters. The failure is not
+  # hidden: it is a red tag build in Actions, and whoever pushed the tag is
+  # watching it.
+  #
+  # What does get announced is anything from the push onwards, including failure.
+  # A version that is published but did not finish its release is the genuinely
+  # dangerous state -- consumers can resolve it while the documentation still
+  # names the previous one -- and that is worth interrupting someone for.
   notify:
     needs: publish
-    if: always()
+    if: always() && needs.publish.outputs.published == 'true'
     uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
     with:
       status: ${{ needs.publish.result }}
       title: >-
         ${{ needs.publish.result == 'success'
             && format('AceMQ for Java {0} released', github.ref_name)
-            || format('AceMQ for Java {0} release FAILED', github.ref_name) }}
+            || format('AceMQ for Java {0} is published but the release did not finish', github.ref_name) }}
       message: >-
         ${{ needs.publish.result == 'success'
             && 'Artifacts are on the Maven repository. Consumers need no credentials.'
-            || 'The tag is pushed but the artifacts are not published. Nothing is half-released; the repository is untouched.' }}
+            || 'The artifacts are on the Maven repository and consumers can resolve them, but a later step failed, so the documentation and the landing page may still name the previous version. Check the run.' }}
       url: https://acemq-company.github.io/maven/
     secrets: inherit

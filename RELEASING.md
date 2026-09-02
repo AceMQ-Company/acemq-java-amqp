@@ -107,6 +107,25 @@ compared the 301 against 200 and reported `0.2.4` as never published, after
 publishing it correctly. That step now uses `curl -L`. Anything else that checks
 these URLs by hand needs to as well.
 
+### What Slack hears, and what it does not
+
+**A release that fails before publishing is not announced.** Nothing reached the
+Maven repository, no version exists, and nobody can resolve anything they could
+not resolve before — announcing that as "release FAILED" puts a red message in
+the channel about an event that did not happen. A channel that cries wolf is one
+people stop reading, and that costs the announcement that matters. The failure is
+still a red tag build in Actions, and whoever pushed the tag is watching it.
+
+**Everything from the push onwards is announced, success or failure.** A version
+that is published but whose release did not finish is the genuinely dangerous
+state: consumers can resolve it while the documentation and the landing page
+still name the previous one. That is worth interrupting someone for.
+
+The switch is the `published` output of the `publish` job, set by the step that
+pushes to the Maven repository. Job outputs survive the job failing — verified
+with a throwaway workflow rather than assumed, because guessing wrong here means
+silence on the one failure that matters.
+
 ### A failed verification skips the rest of the release
 
 `document` and `landing-page` only run when `publish` succeeds. That is
