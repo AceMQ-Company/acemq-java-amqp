@@ -80,10 +80,12 @@ jobs:
 
   notify:
     needs: deploy
-    # Only when something went wrong, or when the documentation actually moved.
-    # A message for every push to main would be noise nobody reads, and a channel
-    # people mute is worse than no channel.
-    if: always() && (needs.deploy.result == 'failure' || github.event_name == 'workflow_dispatch')
+    # Failures only. A message for every push to main would be noise nobody
+    # reads, and a channel people mute is worse than no channel. Success on
+    # workflow_dispatch used to be announced too, which stopped being useful once
+    # the release dispatches this job itself -- that turned every release into two
+    # messages saying the same thing.
+    if: always() && needs.deploy.result == 'failure'
     uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
     with:
       status: ${{ needs.deploy.result }}

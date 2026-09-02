@@ -226,24 +226,40 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # To dispatch the docs workflow after pushing; see the last step.
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
       - name: Point the documentation at this release
+        id: document
         env:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
           .github/scripts/set-documented-version.sh "$VERSION"
           if [ -z "$(git status --porcelain)" ]; then
             echo "documentation already current"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
           git config user.name "acemq-release"
           git config user.email "noreply@acemq.org"
           git add -A
           git commit -m "docs: point at $VERSION"
           git push origin main
+
+      # A push made with GITHUB_TOKEN does not trigger workflows. Without this the
+      # docs job that already ran for the release commit is the last one, so the
+      # published guide keeps advertising the *previous* version -- the exact
+      # drift this job exists to prevent, reintroduced one step further along. It
+      # cost 0.2.9, where the site said 0.2.8 for twenty minutes after release.
+      - name: Rebuild the documentation site
+        if: steps.document.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run docs.yml --repo "$GITHUB_REPOSITORY" --ref main
 
   # The organisation landing page shows the current release on its Java card, and
   # it drifted for the same reason the other two did: a version written by hand.
