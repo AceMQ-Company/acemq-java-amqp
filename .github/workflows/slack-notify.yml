@@ -41,6 +41,15 @@ on:
         required: false
         default: ''
         type: string
+      icon:
+        description: >-
+          Slack emoji to lead with, such as :construction:. Overrides the one the
+          status would choose. For the cases where "failure" is the right status
+          but a red dot is the wrong picture — a release that published and then
+          did not finish needs attention without reading as a dead build.
+        required: false
+        default: ''
+        type: string
     secrets:
       SLACK_DELIVERY_WEBHOOK:
         required: false
@@ -60,6 +69,7 @@ jobs:
           TITLE: ${{ inputs.title }}
           MESSAGE: ${{ inputs.message }}
           URL: ${{ inputs.url }}
+          ICON_OVERRIDE: ${{ inputs.icon }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -74,6 +84,12 @@ jobs:
             cancelled) ICON=":black_circle:" ;;
             *)         ICON=":large_blue_circle:" ;;
           esac
+          # A caller that knows better wins. The status still says `failure` in
+          # the context line, because that is what the run was; the icon is about
+          # what the reader should do, and those are not always the same thing.
+          if [ -n "$ICON_OVERRIDE" ]; then
+            ICON="$ICON_OVERRIDE"
+          fi
 
           # Built with jq rather than by pasting strings into a template: a
           # quote or a backslash in a title would otherwise produce malformed

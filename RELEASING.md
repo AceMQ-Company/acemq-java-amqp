@@ -121,6 +121,12 @@ that is published but whose release did not finish is the genuinely dangerous
 state: consumers can resolve it while the documentation and the landing page
 still name the previous one. That is worth interrupting someone for.
 
+That one leads with :construction: rather than a red dot. The status underneath
+still reads `failure`, because that is what the run was — but the icon is about
+what the reader should *do*, and "usable and unfinished" is a different
+instruction from "broken". `slack-notify.yml` takes an optional `icon` input for
+exactly this.
+
 The switch is the `published` output of the `publish` job, set by the step that
 pushes to the Maven repository. Job outputs survive the job failing — verified
 with a throwaway workflow rather than assumed, because guessing wrong here means

@@ -302,5 +302,8 @@ jobs:
         ${{ needs.publish.result == 'success'
             && 'Artifacts are on the Maven repository. Consumers need no credentials.'
             || 'The artifacts are on the Maven repository and consumers can resolve them, but a later step failed, so the documentation and the landing page may still name the previous version. Check the run.' }}
+      # Roadworks rather than a red dot: the release is usable and unfinished,
+      # which is a different thing from broken and reads differently at a glance.
+      icon: ${{ needs.publish.result == 'success' && '' || ':construction:' }}
       url: https://acemq-company.github.io/maven/
     secrets: inherit
