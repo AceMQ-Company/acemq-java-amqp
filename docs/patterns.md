@@ -19,12 +19,13 @@ registry that survives a restart.
 | **Idempotency store** | `InMemoryIdempotencyStore`, `JdbcIdempotencyStore` |
 | **Transactional outbox** | `JdbcOutboxStore`, `OutboxRelay` |
 | **Schema registry** | `JdbcSchemaRegistry` |
+| **Claim check** | `ClaimCheckCodec`, `InMemoryClaimCheckStore`, `FilesystemClaimCheckStore` |
+| **Scheduling** | `Scheduler` |
+| **Saga** | `Saga`, `SagaResult` |
 
-**Not here: saga, claim-check, scheduling.** Earlier versions of this
-documentation listed all three. They were never built, and saying otherwise was
-worse than saying nothing — a missing feature you know about is a decision, and
-one you find out about at integration time is an outage. They are on the roadmap;
-they are not in the jar.
+The last three were advertised here for months before they existed. That was
+removed rather than excused, and they are now in the jar — built after three
+applications had needed them, which is why the shapes are what they are.
 
 Three more live in the core rather than here, because they are wired into the
 consumer runtime: the [retry ladder](reliability.html),
@@ -216,6 +217,94 @@ still parse, just as the wrong schema, which is the worst way to fail.
 
 `InMemorySchemaRegistry` (in the Avro module) forgets on restart and belongs in
 tests only. Full detail is in [serialization](serialization.html).
+
+## The claim check
+
+```java
+Codec checked = ClaimCheckCodec.wrapping(new JsonCodec(), store);
+```
+
+A scanned medical report is tens of megabytes. Putting it on a queue is possible
+and is a mistake: it fills the broker's memory, it is copied to every bound
+queue, it makes a dead-letter queue impossible to inspect, and it turns a broker
+into a filesystem with worse tools. What travels instead is a **claim check** —
+the payload goes to a store, the message carries the key.
+
+**Only above a threshold.** Below 64 KiB by default the payload travels inline,
+because offloading a small message turns one round trip into two — making the
+common case slower to fix the rare one. The framing says which it is, so a
+consumer reads both without being told, and the threshold can change without a
+flag day. Messages written before the codec was introduced are still readable.
+
+`ClaimCheckCodec.keyOf(body)` reads which object a message needs without
+fetching it: the question in front of a dead-letter queue.
+
+**Retention is what goes wrong.** The store and the queue have different
+lifetimes and nothing relates them. A message replayed a month later carries a
+key, and if the store expired it the replay produces a message nobody can read —
+worse than a lost message, because it looks like a message. Store retention must
+outlast every queue TTL, every dead-letter queue, and any manual replay.
+
+## Scheduling
+
+```java
+scheduler.in(Duration.ofHours(4), "billing", "invoice.due", invoice);
+scheduler.at(renewalDate, "policies", "policy.renew", policy);
+```
+
+**Not a per-message time to live.** The obvious implementation — set
+`expiration`, drop it in a queue nobody consumes, let it dead-letter — is wrong
+for anything but a single fixed delay, because a classic queue expires messages
+**only at its head**. A four-hour message followed by a one-minute message
+delivers the second one in four hours, and nothing reports it.
+
+Instead: a ladder of queues each with a *uniform* TTL, and a message hops through
+them until due. Every message in a rung has the same delay, so the head is always
+the one due soonest. A four-hour delay is four one-hour hops.
+
+The cost, stated plainly: a long delay is several round trips rather than one,
+and accuracy is about the smallest rung. A scheduler that must fire at
+09:00:00.000 is a scheduler, not a message broker.
+
+## Saga
+
+```java
+Saga<Order> booking = Saga.<Order>named("place-order")
+        .step("take-payment", order -> payments.charge(order))
+                .compensateWith(order -> payments.refund(order))
+        .step("reserve-stock", order -> inventory.reserve(order))
+                .compensateWith(order -> inventory.release(order))
+        .step("book-courier", order -> couriers.book(order))
+        .build();
+
+SagaResult result = booking.run(order);
+```
+
+If `book-courier` throws, the stock is released and the payment refunded, in that
+order — reverse of the order the world was changed in.
+
+**Not a distributed transaction, and the difference matters.** After
+`take-payment` the money really has moved and anybody looking sees it. The refund
+is a *new fact*, not an erasure, and for a few seconds the world contained a
+charge that should not have happened. A saga is honest about that where a
+two-phase commit pretends otherwise — so steps must be undoable *by doing
+something else*. Sending an email cannot be compensated; the apology is a second
+email. Put it last, after everything that can still fail.
+
+**Not durable.** State is on the stack, so a crash midway leaves the saga
+half-applied with nothing to resume it. Where that matters the steps have to be
+messages and the state has to be in a database, which is a much larger thing.
+
+### The number to alert on
+
+```java
+result.unresolved()   // steps whose compensation itself failed
+```
+
+When a compensation throws, it is logged and the remaining ones still run —
+stopping would leave more undone than continuing. What comes back is the list of
+effects that happened, were meant to be undone, and were not. **No retry resolves
+those; a person does.**
 
 ## `createSchemaIfAbsent()` is for development
 

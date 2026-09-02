@@ -8,6 +8,50 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+- **Claim check** — `ClaimCheckCodec` plus in-memory and filesystem stores.
+  Payloads above a threshold go to a store and the message carries the key;
+  below it they travel inline, because offloading a small message turns one
+  round trip into two. The framing says which it is, so a consumer reads both
+  without being told and the threshold can change without a flag day. Messages
+  written before the codec existed are still readable. `keyOf(body)` answers
+  "which object does this need" from a dead-letter queue without fetching it.
+- **Scheduling** — `Scheduler.in(...)` and `.at(...)`.
+
+  **Not a per-message time to live.** The obvious implementation is wrong for
+  mixed delays: a classic queue expires messages only at its head, so a four-hour
+  message followed by a one-minute message delivers the second in four hours,
+  and nothing reports it. Instead a ladder of queues each with a *uniform* TTL,
+  with messages hopping until due — every message in a rung has the same delay,
+  so the head is always the one due soonest.
+
+  The cost is stated rather than hidden: long delays are several round trips, and
+  accuracy is about the smallest rung.
+- **Saga** — `Saga` and `SagaResult`. Steps that each know how to undo
+  themselves, compensating in reverse when one fails.
+
+  Deliberately not sold as a distributed transaction: after a payment step the
+  money really has moved, and the refund is a new fact rather than an erasure.
+  Deliberately not durable either — state is on the stack, so a crash midway
+  leaves it half-applied.
+
+  When a compensation itself fails it is logged and the remaining ones still
+  run, because stopping leaves more undone. `unresolved()` is the list of effects
+  that happened, were meant to be undone, and were not — the thing to alert on,
+  because no retry resolves it.
+
+  All three were advertised in the README for months before they existed. They
+  were built after three applications had needed them, which is why the shapes
+  are what they are.
+
+### Changed
+- `AceHeaders.PREFIX` now documents that `x-acemq-` is **reserved**: a header
+  carrying it is dropped from the application's view on the way in, because
+  engine headers are materialised as envelope fields instead. Using it for your
+  own header means writing it on publish and finding it gone on consume, with
+  nothing reporting the loss. Found by doing exactly that while writing the
+  scheduler.
+
 ### Security
 - **Dependency updates for 21 Dependabot alerts**, surfaced the moment scanning
   was switched on. All are dependencies consumers inherit:

@@ -30,6 +30,18 @@ package org.acemq.amqp.api;
 public final class AceHeaders {
 
     /** Prefix shared by every AceMQ-defined header. */
+    /**
+     * The engine's namespace.
+     *
+     * <p><strong>Reserved.</strong> A header carrying this prefix is treated as the engine's,
+     * materialised as a field on the {@link Envelope} if it is one this version knows about,
+     * and <em>dropped from the application's headers either way</em>. Putting your own header
+     * here means writing it on publish and finding it gone on consume, with nothing reporting
+     * the loss.
+     *
+     * <p>Use a namespace of your own — {@code x-yourcompany-} — for anything the application or
+     * a pattern needs to survive the round trip.
+     */
     public static final String PREFIX = "x-acemq-";
 
     /** Unique message identifier, and the default idempotency key. */
