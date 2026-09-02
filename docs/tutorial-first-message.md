@@ -101,6 +101,44 @@ that already exists **with different settings** is not, and AceMQ will tell you
 which setting differs rather than failing at the broker. That is
 [topology drift](topology.html), and it is tutorial 2's problem, not yours yet.
 
+### The same thing, as data
+
+Three calls is how every AMQP client does this, and it is the right way to *learn*
+it — three concepts, one line each. It is not the way to run it. Once you know
+what the three are, declare them as a value instead:
+
+```java
+Topology orders = Topology.define()
+        .exchange("orders", "topic")
+        .classicQueue("orders.new", Collections.emptyMap())
+        .bind("orders.new", "orders", "order.*")
+        .build();
+
+mq.topology().apply(orders, ApplyMode.CREATE_ONLY);
+```
+
+Identical result. The difference is that the topology is now **a thing you can
+hold**, and three useful things follow from that:
+
+```java
+mq.topology().apply(orders, ApplyMode.DRY_RUN);    // print the plan, change nothing
+mq.topology().apply(orders, ApplyMode.VALIDATE);   // fail if it is not already there
+System.out.println(mq.topology().plan(orders).render());
+```
+
+`DRY_RUN` is what a pull request should show. `VALIDATE` is for the environments
+where an operator provisions the topology and an application finding it absent is
+a deployment error rather than something to silently fix. And because the plan is
+computed before anything is declared, a queue that exists with the *wrong*
+settings is reported — with the argument named — instead of failing partway
+through and taking the channel with it.
+
+None of that is reachable from three imperative calls, because by the time the
+second one runs the first has already happened.
+
+**Use the builder in anything real.** The rest of this tutorial keeps the three
+calls, because it is still teaching what they are.
+
 ## Step 4 — Consume
 
 ```java

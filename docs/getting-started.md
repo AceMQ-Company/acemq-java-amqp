@@ -82,6 +82,31 @@ try (AceMq mq = AceMq.connect("amqp://localhost")) {
 
 That prints `got Order[id=o-1, total=42.0]`.
 
+### Declaring topology as data instead
+
+The three `declare` calls are the shortest thing that works, and they are what
+every AMQP client offers. For anything you deploy, describe the topology as a
+value and let AceMQ work out what applying it would do:
+
+```java
+Topology orders = Topology.define()
+        .exchange("orders", "topic")
+        .queue("orders.new")                       // durable quorum
+        .bind("orders.new", "orders", "order.*")
+        .build();
+
+mq.topology().apply(orders, ApplyMode.DRY_RUN);    // print the plan, change nothing
+mq.topology().apply(orders, ApplyMode.CREATE_ONLY);
+```
+
+Same result, but the topology is now something you can print in a pull request,
+validate against an environment you do not provision, and — the part that matters
+in production — **check before touching anything**, so a queue that already
+exists with different settings is reported with the offending argument named
+rather than failing partway through and closing the channel.
+
+[Topology](topology.html) covers the modes and what drift looks like.
+
 ## What just happened
 
 More than the code suggests, and all of it on purpose:
