@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 import org.acemq.amqp.api.AceMqException;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,8 +139,9 @@ public final class Saga<T> {
                 // whose effect is harmless, needs no compensation.
                 continue;
             }
+            Consumer<T> undo = step.compensation;
             try {
-                step.compensation.accept(subject);
+                undo.accept(subject);
                 log.debug("saga {} compensated step {}", this.name, name);
             } catch (RuntimeException failure) {
                 // Logged and carried on. Stopping here would leave more undone than continuing,
@@ -179,9 +181,11 @@ public final class Saga<T> {
 
         private final String name;
         private final Consumer<T> action;
-        private final Consumer<T> compensation;
 
-        Step(String name, Consumer<T> action, Consumer<T> compensation) {
+        /** Null when the step needs no undoing, which is legitimate and is checked before use. */
+        private final @Nullable Consumer<T> compensation;
+
+        Step(String name, Consumer<T> action, @Nullable Consumer<T> compensation) {
             this.name = name;
             this.action = action;
             this.compensation = compensation;
