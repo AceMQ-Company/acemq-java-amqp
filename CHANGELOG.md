@@ -10,6 +10,25 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.8] - 2026-09-02
+
+### Added
+- **TOML**, in `acemq-amqp-codec-toml`, reachable as `Codecs.byName("toml")`. For
+  the same audience as YAML — a message a person edits and a machine consumes —
+  with the ambiguity removed: one way to write a string, no significant
+  indentation, and `country = NO` is an error rather than a boolean.
+
+  It refuses a payload whose top level is not an object. That check exists
+  because Jackson does not fail: given a list it writes ` = ['a', 'b']`, a
+  key-less assignment that is not TOML and that its own parser rejects with "Got
+  KEY_VAL_SEP, expected key or table". Left alone it would publish messages
+  nothing can read, discovered by the consumer rather than the publisher.
+- A test for `AvroCodec.of(Class<? extends SpecificRecord>)`, which had none. It
+  is the same decode path whose generic half silently returned wrong values
+  before `0.2.5`, so the specific half being uncovered was the least comfortable
+  gap in the module. Covered with a hand-written `SpecificRecord` rather than by
+  adding code generation to every build for one class.
+
 ## [0.2.7] - 2026-09-02
 
 ### Added

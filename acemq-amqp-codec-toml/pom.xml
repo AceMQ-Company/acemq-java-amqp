@@ -10,12 +10,10 @@
     <version>0.2.8-SNAPSHOT</version>
   </parent>
 
-  <artifactId>acemq-amqp-codec-xml</artifactId>
-  <name>AceMQ AMQP XML Codec</name>
-  <description>XML payloads, for the parts of an estate that speak XML and will not be
-    rewritten. Also the second implementation of the codec SPI, which is what shows the seam is
-    real: one implementation only proves that a class compiles against an interface written
-    around it.</description>
+  <artifactId>acemq-amqp-codec-toml</artifactId>
+  <name>AceMQ AMQP TOML Codec</name>
+  <description>TOML payloads, for configuration a person edits and a machine consumes: unambiguous
+    where YAML is not, and readable where JSON is not.</description>
 
   <dependencies>
     <dependency>
@@ -24,7 +22,7 @@
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.dataformat</groupId>
-      <artifactId>jackson-dataformat-xml</artifactId>
+      <artifactId>jackson-dataformat-toml</artifactId>
     </dependency>
     <dependency>
       <groupId>com.fasterxml.jackson.datatype</groupId>

@@ -177,6 +177,65 @@ class SchemaCodecTest {
     }
 
     @Nested
+    @DisplayName("Avro from a generated class")
+    class Specific {
+
+        @Test
+        void carries_a_generated_record_out_and_back() {
+            // AvroCodec.of(Class) had no test at all until this one. It is the same decode
+            // path whose generic half returned an empty id and a total of 5.4e-67 before
+            // 0.2.5, so leaving the specific half uncovered was the least comfortable gap
+            // in this module.
+            Codec codec = AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.class);
+
+            byte[] encoded = codec.encode(new org.acemq.amqp.test.avro.TestOrder("o-7", 4200));
+            org.acemq.amqp.test.avro.TestOrder decoded = codec.decode(encoded,
+                    org.acemq.amqp.test.avro.TestOrder.class);
+
+            assertThat(decoded.id()).isEqualTo("o-7");
+            assertThat(decoded.total()).isEqualTo(4200);
+        }
+
+        @Test
+        void takes_its_schema_from_the_class_rather_than_being_told_one() {
+            Codec fromClass = AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.class);
+            Codec fromSchema = AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.SCHEMA$);
+
+            // Same schema, so the bytes are identical: the class is only a carrier for it.
+            assertThat(fromClass.encode(new org.acemq.amqp.test.avro.TestOrder("o-1", 1)))
+                    .isEqualTo(fromSchema.encode(new org.acemq.amqp.test.avro.TestOrder("o-1", 1)));
+            assertThat(fromClass.contentType()).isEqualTo("avro/binary");
+        }
+
+        @Test
+        void a_class_that_is_not_a_generated_record_says_so() {
+            // The failure a caller actually hits: passing something that looks close enough.
+            assertThatThrownBy(() -> AvroCodec.of(NotGenerated.class))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("no-argument constructor");
+        }
+
+        @Test
+        void a_generated_class_still_refuses_registered_bytes() {
+            // The specific path shares the framing check with the generic one. Without this
+            // it would be the only decode path where the 0.2.5 fix is unproven.
+            InMemorySchemaRegistry registry = new InMemorySchemaRegistry()
+                    .register(1, AvroCodec.definitionOf(org.acemq.amqp.test.avro.TestOrder.SCHEMA$));
+            byte[] registered = AvroCodec.registered(registry)
+                    .encode(new org.acemq.amqp.test.avro.TestOrder("o-2", 2));
+
+            assertThatThrownBy(() -> AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.class)
+                    .decode(registered, org.acemq.amqp.test.avro.TestOrder.class))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("schema identifier");
+        }
+    }
+
+    /** Deliberately not something the Avro compiler produced. */
+    abstract static class NotGenerated implements org.apache.avro.specific.SpecificRecord {
+    }
+
+    @Nested
     @DisplayName("Avro with a registry")
     class Registered {
 
