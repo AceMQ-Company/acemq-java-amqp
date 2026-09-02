@@ -1,0 +1,61 @@
+name: nightly-native
+
+# Building a native image takes minutes, so it does not belong in the ordinary
+# build. It does belong somewhere: "AceMQ works ahead-of-time" is a claim, and a
+# dependency bump is what quietly breaks it. Nothing here needs a broker.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native image on GraalVM ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest and the newest supported. A break usually lands on one and
+        # not the other, and knowing which narrows it immediately.
+        java: ["21", "25"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: graalvm-community
+          cache: maven
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report the toolchain
+        run: |
+          java -version
+          native-image --version
+
+      - name: Install the reactor
+        # The smoke test consumes this commit rather than a published snapshot,
+        # so the modules it depends on have to be in the local repository first.
+        run: mvn -B --no-transfer-progress install -DskipTests -DskipITs -Djacoco.skip=true
+
+      - name: Build a native image and run it
+        # clean, deliberately. Without it the plugin can reuse the previous
+        # binary and report a pass for code that was never compiled.
+        run: mvn -B --no-transfer-progress -Pnative -pl acemq-amqp-native clean verify
+
+  notify:
+    needs: native
+    # Only on a break. A nightly that says "still fine" every morning is a
+    # channel people mute, and a muted channel is worse than no channel.
+    if: always() && needs.native.result == 'failure'
+    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
+    with:
+      status: ${{ needs.native.result }}
+      title: AceMQ for Java native image FAILED
+      message: >-
+        GraalVM 21 and 25. See the run for which one broke and on which check.
+    secrets: inherit

@@ -57,6 +57,26 @@ public final class TopologyPlan {
         return changes;
     }
 
+    /**
+     * @return the items that exist but do not match. Separate from {@link #changes()} because
+     *     applying the plan will not fix them: AMQP forbids changing these settings in place,
+     *     so every one of these is a decision for a person
+     */
+    public List<Action> drift() {
+        List<Action> drifted = new ArrayList<>();
+        for (Action action : actions) {
+            if (action.kind() == Kind.DRIFT) {
+                drifted.add(action);
+            }
+        }
+        return drifted;
+    }
+
+    /** @return whether anything exists with settings the topology disagrees with */
+    public boolean hasDrift() {
+        return !drift().isEmpty();
+    }
+
     /** @return whether applying this plan would change anything */
     public boolean hasChanges() {
         return !changes().isEmpty();
@@ -74,7 +94,7 @@ public final class TopologyPlan {
         }
         for (Action action : actions) {
             text.append("  ")
-                    .append(action.kind() == Kind.CREATE ? "create " : "present")
+                    .append(label(action.kind()))
                     .append("  ")
                     .append(action.description())
                     .append('\n');
@@ -82,9 +102,23 @@ public final class TopologyPlan {
         return text.toString();
     }
 
+    private static String label(Kind kind) {
+        switch (kind) {
+            case CREATE :
+                return "create ";
+            case DRIFT :
+                return "DRIFT  ";
+            case UNKNOWN :
+                return "unknown";
+            default :
+                return "present";
+        }
+    }
+
     @Override
     public String toString() {
-        return "TopologyPlan{" + changes().size() + " change(s) of " + actions.size() + " item(s)}";
+        return "TopologyPlan{" + changes().size() + " change(s), " + drift().size() + " drifted, of "
+                + actions.size() + " item(s)}";
     }
 
     /** What a plan proposes to do about one item. */
@@ -92,7 +126,23 @@ public final class TopologyPlan {
         /** The item is missing and would be created. */
         CREATE,
         /** The item already exists and would be left alone. */
-        PRESENT
+        PRESENT,
+        /**
+         * The item exists with settings the topology disagrees with.
+         *
+         * <p>Not a change, because applying will not resolve it. AMQP forbids altering most
+         * queue arguments in place, so the declare fails and takes the channel with it. Someone
+         * has to decide between changing the topology to match the broker and migrating the
+         * queue.
+         */
+        DRIFT,
+        /**
+         * The item exists and this transport cannot say whether it matches.
+         *
+         * <p>Deliberately not {@link #PRESENT}: an unanswered question reported as agreement is
+         * how drift goes unnoticed until a deployment.
+         */
+        UNKNOWN
     }
 
     /** One item of a plan. */

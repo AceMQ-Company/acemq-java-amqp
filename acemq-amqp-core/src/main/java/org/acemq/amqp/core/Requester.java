@@ -27,6 +27,8 @@ import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.Message;
+import org.acemq.amqp.api.MetricNames;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.QueueType;
 
 /**
@@ -116,10 +118,22 @@ public final class Requester implements AutoCloseable {
     public <Q, A> A request(
             String exchange, String routingKey, Q request, Class<A> responseType, Duration timeout) {
         String correlationId = UUID.randomUUID().toString();
+        Envelope envelope = Envelope.of(request.getClass().getSimpleName())
+                .correlationId(correlationId)
+                .build();
+
+        // Only the blocking call is wrapped. requestAsync hands back a future with no timeout
+        // attached, so the wait belongs to whoever holds it -- a scope closed at return would
+        // measure the publish and call it the round trip.
+        Telemetry.Scope scope = mq.telemetry().requestStarted(
+                routingKey == null || routingKey.isEmpty() ? exchange : routingKey, envelope);
         try {
-            return send(exchange, routingKey, request, responseType, correlationId)
+            A answer = send(exchange, routingKey, request, responseType, envelope)
                     .get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            scope.outcome(MetricNames.OUTCOME_ANSWERED);
+            return answer;
         } catch (java.util.concurrent.TimeoutException e) {
+            scope.outcome(MetricNames.OUTCOME_TIMED_OUT);
             // Forgetting the caller is the point. Left in place, the entry is never removed --
             // one leaked future per timeout, and a late reply would be handed to a caller that
             // stopped waiting, which looks like the request having succeeded.
@@ -133,12 +147,16 @@ public final class Requester implements AutoCloseable {
                     timeout);
         } catch (InterruptedException e) {
             waiting.remove(correlationId);
+            scope.failed(e);
             Thread.currentThread().interrupt();
             throw new AceMqException("interrupted while waiting for a reply from '" + routingKey + "'", e);
         } catch (java.util.concurrent.ExecutionException e) {
             waiting.remove(correlationId);
             Throwable cause = e.getCause();
+            scope.failed(cause == null ? e : cause);
             throw new AceMqException("the request to '" + routingKey + "' failed", cause == null ? e : cause);
+        } finally {
+            scope.close();
         }
     }
 
@@ -152,22 +170,20 @@ public final class Requester implements AutoCloseable {
      */
     public <Q, A> CompletableFuture<A> requestAsync(
             String exchange, String routingKey, Q request, Class<A> responseType) {
-        return send(exchange, routingKey, request, responseType, UUID.randomUUID().toString());
+        return send(exchange, routingKey, request, responseType,
+                Envelope.of(request.getClass().getSimpleName())
+                        .correlationId(UUID.randomUUID().toString())
+                        .build());
     }
 
     private <Q, A> CompletableFuture<A> send(
-            String exchange, String routingKey, Q request, Class<A> responseType, String correlationId) {
+            String exchange, String routingKey, Q request, Class<A> responseType, Envelope envelope) {
+        String correlationId = envelope.correlationId();
         CompletableFuture<Message<byte[]>> raw = new CompletableFuture<>();
         waiting.put(correlationId, raw);
 
         try {
-            mq.<Q>publisher(exchange, routingKey)
-                    .replyingTo(replyQueue)
-                    .send(
-                            request,
-                            Envelope.of(request.getClass().getSimpleName())
-                                    .correlationId(correlationId)
-                                    .build());
+            mq.<Q>publisher(exchange, routingKey).replyingTo(replyQueue).send(request, envelope);
         } catch (RuntimeException failure) {
             // Nothing will ever complete this one, and leaving it in the map leaks a future
             // per failed publish.

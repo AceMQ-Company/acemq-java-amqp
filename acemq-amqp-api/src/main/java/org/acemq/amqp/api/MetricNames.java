@@ -50,6 +50,29 @@ public final class MetricNames {
     /** Messages sent to a dead-letter or parking queue. */
     public static final String DEAD_LETTERED_TOTAL = "acemq.messages.dead.lettered.total";
 
+    /** Round trip of a request/reply call, as the caller experienced it. */
+    public static final String REQUEST_DURATION = "acemq.request.duration";
+
+    /** Request/reply calls, tagged with {@link #TAG_OUTCOME}. */
+    public static final String REQUEST_TOTAL = "acemq.request.total";
+
+    /**
+     * How long an outbox record waited between being committed and being published.
+     *
+     * <p>The one number that reveals a stopped relay. A committed, unpublished row is a message
+     * that exists and is owed to somebody, and it appears in no queue depth anywhere.
+     */
+    public static final String OUTBOX_LAG = "acemq.outbox.lag";
+
+    /** Outbox records the relay has handled, tagged with {@link #TAG_OUTCOME}. */
+    public static final String OUTBOX_TOTAL = "acemq.outbox.total";
+
+    /** How long a message had existed when it left a pipeline. */
+    public static final String PIPELINE_RUN_DURATION = "acemq.pipeline.run.duration";
+
+    /** Pipeline runs that finished, tagged with {@link #TAG_OUTCOME} and {@link #TAG_STEP}. */
+    public static final String PIPELINE_RUN_TOTAL = "acemq.pipeline.run.total";
+
     // ---------- tag keys ----------
 
     /** Exchange a message was published to; empty string for the default exchange. */
@@ -83,6 +106,17 @@ public final class MetricNames {
     public static final String OUTCOME_RETRIED = "retried";
     public static final String OUTCOME_DEAD_LETTERED = "dead_lettered";
     public static final String OUTCOME_REJECTED = "rejected";
+    public static final String OUTCOME_ANSWERED = "answered";
+    public static final String OUTCOME_TIMED_OUT = "timed_out";
+    public static final String OUTCOME_PUBLISHED = "published";
+    public static final String OUTCOME_COMPLETED = "completed";
+    public static final String OUTCOME_ENDED_EARLY = "ended_early";
+
+    /** Pipeline a run belongs to. */
+    public static final String TAG_PIPELINE = "pipeline";
+
+    /** Step a pipeline run was at when it finished. */
+    public static final String TAG_STEP = "step";
 
     // ---------- span names ----------
 
@@ -91,6 +125,9 @@ public final class MetricNames {
 
     /** Span covering a handler running. Rendered as {@code <queue> process}. */
     public static final String SPAN_PROCESS_SUFFIX = " process";
+
+    /** Span covering a whole request/reply round trip. Rendered as {@code <destination> request}. */
+    public static final String SPAN_REQUEST_SUFFIX = " request";
 
     private MetricNames() {
         throw new AssertionError("MetricNames is a constant holder and must not be instantiated");

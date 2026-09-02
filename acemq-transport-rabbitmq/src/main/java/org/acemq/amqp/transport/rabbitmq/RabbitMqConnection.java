@@ -33,6 +33,7 @@ import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.amqp.transport.DeliveryListener;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.OutboundMessage;
+import org.acemq.amqp.transport.QueueCheck;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Subscription;
 import org.acemq.amqp.transport.TransportConnection;
@@ -60,6 +61,9 @@ import com.rabbitmq.client.ShutdownSignalException;
 final class RabbitMqConnection implements TransportConnection {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitMqConnection.class);
+
+    /** AMQP 0-9-1 reply code 406: what the broker says when a declare disagrees with reality. */
+    private static final int PRECONDITION_FAILED = 406;
 
     private final Connection connection;
     private final ConnectionConfig config;
@@ -191,12 +195,7 @@ final class RabbitMqConnection implements TransportConnection {
 
     @Override
     public void declareQueue(String name, QueueType type, boolean durable, Map<String, Object> arguments) {
-        Map<String, Object> args = arguments == null ? new HashMap<>() : new HashMap<>(arguments);
-        if (type == QueueType.QUORUM) {
-            args.put("x-queue-type", "quorum");
-        } else if (type == QueueType.STREAM) {
-            args.put("x-queue-type", "stream");
-        }
+        Map<String, Object> args = declarationArguments(type, arguments);
         // Quorum and stream queues must be durable; declaring otherwise fails at the broker
         // with a message that does not explain itself, so it is corrected here.
         boolean effectiveDurable = durable || type != QueueType.CLASSIC;
@@ -205,6 +204,23 @@ final class RabbitMqConnection implements TransportConnection {
             channel.queueDeclare(name, effectiveDurable, false, false, args);
             return null;
         });
+    }
+
+    /**
+     * The arguments that actually reach the broker.
+     *
+     * <p>Shared with {@link #checkQueue}, which has to offer the identical set: an equivalence
+     * declare that left out {@code x-queue-type} would report drift against a quorum queue the
+     * topology asked for and got.
+     */
+    private static Map<String, Object> declarationArguments(QueueType type, @Nullable Map<String, Object> arguments) {
+        Map<String, Object> args = arguments == null ? new HashMap<>() : new HashMap<>(arguments);
+        if (type == QueueType.QUORUM) {
+            args.put("x-queue-type", "quorum");
+        } else if (type == QueueType.STREAM) {
+            args.put("x-queue-type", "stream");
+        }
+        return args;
     }
 
     @Override
@@ -368,6 +384,61 @@ final class RabbitMqConnection implements TransportConnection {
         } catch (Exception e) {
             throw new TransportException("could not check whether queue '" + name + "' exists", e);
         }
+    }
+
+    @Override
+    public QueueCheck checkQueue(String name, QueueType type, boolean durable, Map<String, Object> arguments) {
+        if (!queueExists(name)) {
+            return QueueCheck.absent();
+        }
+
+        // The queue is there, so a declare cannot create one, and the broker itself will say
+        // whether the settings match. Nothing else can answer this: AMQP has no way to read a
+        // queue's arguments back, only to offer some and be told they are wrong. RabbitMQ's
+        // refusal names the offending argument and both values, which is more than an
+        // inspection API would have given us anyway.
+        //
+        // On its own channel, because a mismatch closes the channel it happens on.
+        Map<String, Object> args = declarationArguments(type, arguments);
+        boolean effectiveDurable = durable || type != QueueType.CLASSIC;
+        try (Channel channel = connection.createChannel()) {
+            channel.queueDeclare(name, effectiveDurable, false, false, args);
+            return QueueCheck.matches();
+        } catch (IOException e) {
+            String reason = shutdownReason(e);
+            if (reason == null) {
+                throw new TransportException("could not check queue '" + name + "' against the topology", e);
+            }
+            return QueueCheck.differs(reason);
+        } catch (Exception e) {
+            throw new TransportException("could not check queue '" + name + "' against the topology", e);
+        }
+    }
+
+    /**
+     * Digs the broker's own words out of a failed declare.
+     *
+     * <p>A 406 PRECONDITION_FAILED names the argument and both values — "inequivalent arg
+     * 'x-message-ttl' for queue 'orders.new' in vhost '/': received none but current is the
+     * value '60000'". Rewriting that into something tidier would lose the two values, which are
+     * the only part anybody needs.
+     *
+     * @return the reason, or {@code null} if this failure was not the broker refusing
+     */
+    private static @Nullable String shutdownReason(IOException e) {
+        Throwable cause = e.getCause();
+        if (!(cause instanceof ShutdownSignalException)) {
+            return null;
+        }
+        Object reason = ((ShutdownSignalException) cause).getReason();
+        if (!(reason instanceof AMQP.Channel.Close)) {
+            return null;
+        }
+        AMQP.Channel.Close close = (AMQP.Channel.Close) reason;
+        if (close.getReplyCode() != PRECONDITION_FAILED) {
+            return null;
+        }
+        return close.getReplyText();
     }
 
     @Override

@@ -12,7 +12,8 @@
 
   <artifactId>acemq-amqp-patterns</artifactId>
   <name>AceMQ AMQP Patterns</name>
-  <description>Distributed messaging patterns as first-class types: outbox, idempotent consumer, saga, claim-check, request-reply and scheduling.</description>
+  <description>Distributed messaging patterns as first-class types: the transactional outbox and its
+    relay, idempotency stores backed by memory or JDBC, and a persistent schema registry.</description>
 
   <dependencies>
     <dependency>

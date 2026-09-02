@@ -34,11 +34,15 @@ recovery are already on.
 | [Publishing](publishing.html) | Confirms, unroutable messages, delivery options |
 | [Consuming](consuming.html) | Prefetch, acknowledgement, concurrency |
 | [Reliability](reliability.html) | Retries, dead letters, replay, idempotency |
-| [Serialization](serialization.html) | JSON, XML, YAML, Avro, Protobuf |
+| [Topology](topology.html) | Planning exchanges and queues, and catching drift before a deployment does |
+| [Patterns](patterns.html) | Idempotency, the transactional outbox, the schema registry |
+| [Serialization](serialization.html) | JSON, XML, YAML, TOML, Avro, Protobuf |
 | [Streams](streams.html) | Append-only logs, offsets, replay |
 | [Request and reply](request-reply.html) | Asking a question over a broker, and when not to |
 | [Security](security.html) | TLS, credentials, and what is not built yet |
+| [Observability](observability.html) | Traces that cross the broker, metrics, and what to alert on |
 | [Testing](testing.html) | An in-memory broker, no Docker needed |
+| [Native image](native-image.html) | GraalVM ahead-of-time: what works, and the one thing you must configure |
 | [API reference](apidocs/index.html) | Javadoc for every module |
 | [Licence and warranty](licence.html) | Apache-2.0, what it disclaims, and where support comes from |
 

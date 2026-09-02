@@ -23,6 +23,7 @@ import org.acemq.amqp.api.ApplyMode;
 import org.acemq.amqp.api.Capability;
 import org.acemq.amqp.api.Topology;
 import org.acemq.amqp.api.TopologyPlan;
+import org.acemq.amqp.transport.QueueCheck;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Transport;
 import org.acemq.amqp.transport.TransportConnection;
@@ -42,11 +43,17 @@ import org.slf4j.LoggerFactory;
  * would be created; {@link ApplyMode#DRY_RUN} prints it without touching anything, and
  * {@link ApplyMode#VALIDATE} refuses to start when the topology is not already there.
  *
- * <p>What this does not yet do is compare the settings of a queue that already exists. That
- * needs the arguments the broker actually holds, which AMQP will not report — only the
- * management API will — so a queue present with different arguments is reported as present
- * here. Detecting that drift, and the shadow-queue migration that resolves it, are the next
- * pieces and are deliberately absent rather than approximated.
+ * <p>A queue that exists with settings the topology disagrees with is reported as
+ * {@link TopologyPlan.Kind#DRIFT} rather than as present, and {@link #apply} refuses to run
+ * rather than failing partway through. AMQP has no way to read a queue's arguments back, so the
+ * check is made by offering the declaration to the broker on a channel of its own and reading
+ * its refusal — which names the argument and both values, and is therefore better than an
+ * inspection API would have been.
+ *
+ * <p>What is still missing is the shadow-queue migration that <em>resolves</em> drift: creating
+ * the replacement, moving the messages, and swapping the bindings. That is deliberately absent
+ * rather than approximated, because the safe order depends on whether the queue can be drained
+ * first, which is not something a library can decide.
  */
 public final class TopologyPlanner {
 
@@ -78,10 +85,31 @@ public final class TopologyPlanner {
         }
 
         for (Topology.QueueSpec queue : topology.queues()) {
-            boolean exists = connection.queueExists(queue.name());
-            actions.add(action(
-                    exists ? TopologyPlan.Kind.PRESENT : TopologyPlan.Kind.CREATE,
-                    "queue " + queue.name() + (queue.quorum() ? " (quorum)" : " (classic)")));
+            String described = "queue " + queue.name() + (queue.quorum() ? " (quorum)" : " (classic)");
+            QueueType type = queue.quorum() ? QueueType.QUORUM : QueueType.CLASSIC;
+            QueueCheck check = connection.checkQueue(queue.name(), type, queue.durable(), queue.arguments());
+
+            switch (check.result()) {
+                case ABSENT :
+                    actions.add(action(TopologyPlan.Kind.CREATE, described));
+                    break;
+                case MATCHES :
+                    actions.add(action(TopologyPlan.Kind.PRESENT, described));
+                    break;
+                case DIFFERS :
+                    actions.add(action(TopologyPlan.Kind.DRIFT, described + " — " + check.detail()));
+                    break;
+                default :
+                    // The transport cannot inspect the queue, so fall back to the smaller
+                    // question it can answer. A queue reported as present here may still be
+                    // wrong, which is why the plan says UNKNOWN rather than PRESENT.
+                    actions.add(action(
+                            connection.queueExists(queue.name())
+                                    ? TopologyPlan.Kind.UNKNOWN
+                                    : TopologyPlan.Kind.CREATE,
+                            described));
+                    break;
+            }
         }
 
         for (Topology.BindingSpec binding : topology.bindings()) {
@@ -108,6 +136,21 @@ public final class TopologyPlanner {
         if (mode == ApplyMode.DRY_RUN) {
             log.info("topology dry run, nothing was changed:\n{}", plan.render());
             return plan;
+        }
+
+        // Before anything else, and in every mode that touches the broker. Declaring a drifted
+        // queue fails at the broker and takes the channel with it, so the difference this makes
+        // is between a message naming the argument and a channel-level protocol error partway
+        // through applying a topology.
+        if (plan.hasDrift()) {
+            List<String> drifted = new ArrayList<>();
+            for (TopologyPlan.Action action : plan.drift()) {
+                drifted.add(action.description());
+            }
+            throw new AceMqException("the broker holds queues that do not match this topology, and AMQP does"
+                    + " not allow changing them in place. Declaring them would fail and close the channel."
+                    + " Either change the topology to match what is there, or migrate the queue: "
+                    + String.join("; ", drifted));
         }
 
         if (mode == ApplyMode.VALIDATE) {

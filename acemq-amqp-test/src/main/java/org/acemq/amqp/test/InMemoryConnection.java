@@ -31,6 +31,7 @@ import org.acemq.amqp.transport.ConfirmResult;
 import org.acemq.amqp.transport.DeliveryListener;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.OutboundMessage;
+import org.acemq.amqp.transport.QueueCheck;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.Subscription;
 import org.acemq.amqp.transport.TransportConnection;
@@ -196,6 +197,12 @@ final class InMemoryConnection implements TransportConnection {
     public boolean queueExists(String name) {
         requireOpen();
         return broker.hasQueue(name);
+    }
+
+    @Override
+    public QueueCheck checkQueue(String name, QueueType type, boolean durable, Map<String, Object> arguments) {
+        requireOpen();
+        return broker.checkQueue(name, type, durable, arguments);
     }
 
     @Override

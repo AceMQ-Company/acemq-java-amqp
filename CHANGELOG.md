@@ -10,6 +10,177 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.9] - 2026-09-02
+
+### Added
+- **Payload encryption**, in a new `acemq-amqp-crypto`. `EncryptedCodec.wrapping(
+  codec, keyring)` puts AES-GCM around any codec, so the broker holds ciphertext
+  and choosing a format stays independent of choosing to encrypt. `security.md`
+  documented the absence of this; it now documents the thing.
+
+  The key identifier travels in the message rather than in an AMQP header. A
+  header would have been tidier and would have lost it — headers are dropped by
+  shovels, rewritten by federation, and absent from a message recovered out of a
+  backup, and a ciphertext whose key nobody can name is gone. It is authenticated
+  as associated data, so rewriting it fails to decrypt rather than quietly
+  decrypting as something else.
+
+  `EncryptedCodec.keyIdOf(body)` reads which key a message needs without holding
+  any key, because the first consequence of turning this on is a dead-letter
+  queue nobody can triage.
+- **Topology drift detection.** A queue that exists with settings the topology
+  disagrees with is now reported as `DRIFT` rather than as present, and `apply`
+  refuses before declaring anything instead of failing partway through with a
+  channel-level protocol error.
+
+  AMQP cannot read a queue's arguments back, so the check offers the declaration
+  to the broker on a channel of its own and reads the refusal — RabbitMQ's 406
+  names the argument and both values, which is more than an inspection API would
+  have given. The queue is asked about passively first, so a plan never creates
+  the topology it was only supposed to report on.
+
+  Resolving drift is still yours: the safe migration order depends on whether the
+  queue can be drained and whether its messages can be lost, which is not a
+  library's decision. New `docs/topology.md` covers both ways out.
+
+  Transports add this by overriding `TransportConnection.checkQueue`. The default
+  reports `UNSUPPORTED`, which the plan shows as `UNKNOWN` rather than as
+  agreement. The in-memory broker implements it, so drift is caught by a unit
+  test rather than only against a container.
+- **`JdbcSchemaRegistry`**, in `acemq-amqp-patterns`. Until now the only registry
+  was `InMemorySchemaRegistry`, which forgets every identifier on restart — and
+  since the identifier travels in the message rather than the schema, forgetting
+  makes every Avro or Protobuf message written before the restart unreadable,
+  silently. This one keeps them in a table, so they survive a restart and are
+  shared between replicas.
+
+  Registration is idempotent by content: the same schema offered from eight
+  replicas at once yields one row and one identifier. Identifiers come from a
+  locked counter row rather than from `MAX(id) + 1`, because two writers
+  registering two *different* schemas both compute the same next identifier and
+  neither can win by retrying — the loser is racing someone doing the same
+  arithmetic. Registration happens once per schema in the lifetime of a system,
+  so serialising it costs nothing worth measuring.
+
+  Both directions are cached and never invalidated, since neither answer can
+  change; without that it would be a database round trip per message.
+- **Request/reply, the outbox relay and pipelines now report what they do.** All
+  three kept counters readable only by calling a getter on the object, which no
+  dashboard can do — a number that exists and cannot be scraped is a number
+  nobody has during an incident.
+
+  | | |
+  |---|---|
+  | `acemq.request.duration` / `.total` | The round trip as the caller experienced it, `answered` or `timed_out` |
+  | `acemq.outbox.lag` / `acemq.outbox.total` | How long a record waited between commit and publish |
+  | `acemq.pipeline.run.duration` / `.total` | Message age on leaving, tagged `pipeline`, `step`, and `completed` or `ended_early` |
+
+  **`acemq.outbox.lag` is the one that earns its place.** A committed,
+  unpublished row is a message that exists, is owed to somebody, and appears in
+  no queue depth anywhere; a stopped relay is indistinguishable from a quiet
+  system until this is measured.
+
+  `acemq.request.duration` exists because neither span that already covered a
+  request/reply call was what the caller waited for — the publish is timed and
+  the reply's delivery is timed, and "how long did asking take" was the gap
+  between them. It traces as a `CLIENT` span with both as children. Only the
+  blocking `request(...)` is timed: `requestAsync` returns a future with no
+  timeout, so the wait belongs to its holder and a scope closed at return would
+  time the publish and call it the round trip.
+
+  **The four new `Telemetry` methods are `default` no-ops and will stay that
+  way.** That interface is implemented by applications with their own monitoring,
+  and an abstract method added after the fact breaks every one of them at compile
+  time for a signal they never asked for. A test asserts that a sink implementing
+  only the original four still compiles and works.
+- **GraalVM native image support**, which turned out to mean documenting rather
+  than building. Verified by compiling an image and running it on GraalVM CE 21
+  and 25: codec discovery through `ServiceLoader`, the in-memory transport, the
+  RabbitMQ transport with confirms, AES-GCM encryption, the schema registry
+  including the `.sql` file it reads out of the jar, and TLS with PKCS12 all work
+  with **no reachability metadata from the library**.
+
+  So none is shipped. Configuration that testing shows is unnecessary is a
+  promise to maintain something nobody reads.
+
+  What an application must do is register its own message types, because Jackson
+  reaches their accessors by reflection and nothing names them — the image builds
+  and then fails on the first publish. `docs/native-image.md` has the file and
+  the tracing-agent command that writes it.
+
+  `mvn -Pnative clean verify` builds `acemq-amqp-native`, a real image running
+  real checks, and a nightly job runs it on both JDKs. Two details make it a gate
+  rather than decoration: `--no-fallback`, since a fallback image passes by
+  bundling a JVM; and `clean`, since without it the plugin reuses the previous
+  binary and reports a pass for code that was never compiled. The second one was
+  found the hard way while writing the test.
+- **`PipelineBuilder.describedAs(String)`** — a sentence saying what a step is
+  for, carried into the declaration log line and anywhere a step is reported.
+
+  Separate from the step name rather than folded into it, because the name is
+  wire format: it is the routing key, the queue suffix and the routing slip
+  entry, so it is restricted to letters, digits, dashes and dots, and renaming a
+  step strands every message in flight against the old name. A description has no
+  such job, so improving how a stage reads can never move its messages.
+- **Tutorials**, at `/tutorials.html`, reachable from a new top-level navigation
+  link. Four of them, in order, each ending in something that runs: a first
+  message, surviving failure, never processing twice, and seeing what happens.
+  The guide explains how a thing works; these start from nothing and finish with
+  a working service.
+- **A Patterns page and an Observability page.** Both features existed and
+  neither was documented, which for the second one meant people reasonably
+  assumed there was no instrumentation at all.
+
+### Fixed
+- **The README claimed AMQP 1.0 support that does not exist.** The badge read
+  "RabbitMQ | Qpid" and the opening sentence said "against RabbitMQ (AMQP 0-9-1)
+  and AMQP 1.0 brokers such as Apache Qpid" — present tense, in the most-read
+  line in the project — while the module table and the requirements table
+  correctly said `acemq-transport-amqp10` arrives at M3. There is one transport.
+  Same fault as the patterns claim below and worth the same treatment.
+- **The README advertised patterns that do not exist.** It listed saga,
+  claim-check and scheduling among `acemq-amqp-patterns`, and an
+  `IdempotentConsumer` type, none of which were ever built — the module contains
+  the outbox and its relay, two idempotency stores, and the schema registry. The
+  same claim was in the module's own POM description. A missing feature somebody
+  knows about is a decision; one they discover at integration time is an outage.
+- `acemq-amqp-codec-toml` was missing from the coverage aggregator, so the module
+  shipped in `0.2.8` with its coverage uncounted.
+- `request-reply.html` was missing from the documentation navigation, so the page
+  shipped in `0.2.7` was reachable only from the index.
+- **`RetryLadderIT` leaked a retry queue between tests.** Teardown deleted
+  `orders.new.retry.1s`, but the test that proves a waiting message does not hold
+  up the queue behind it builds a five-second ladder — so `orders.new.retry.5s`
+  survived, still holding a poison message with a live time-to-live. When it
+  expired the broker routed it back into `orders.new`, which by then belonged to
+  whichever test ran next: one extra delivery, in a test that counted deliveries,
+  attributable to nothing. Teardown now covers every rung, and deletes rungs
+  before the queue they feed.
+
+  Two smaller races went with it. The first test incremented a counter and then
+  wrote the list it guarded, and waited on the counter — so the wait could be
+  satisfied while the list was one element short. It now waits on the list. And
+  the `until(x == n)` waits are `>= n`: a counter that overshoots between polls
+  never satisfies an equality, turning a wrong answer into a timeout that says
+  nothing about what was wrong.
+
+### Security
+- **Secret scanning and push protection are on**, along with Dependabot alerts,
+  Dependabot security updates and CodeQL, across every public AceMQ repository.
+  All were off. Push protection is the one that earns its place: it refuses the
+  push rather than reporting the credential after it is public, and a credential
+  in a public repository's history is compromised whether or not the commit is
+  reverted.
+
+  A grouped weekly Dependabot configuration comes with it. Ungrouped it produces
+  a pull request a day, and a queue of ignored bot pull requests trains everyone
+  to skim past the one that mattered. Jackson's modules are grouped because they
+  must move together — a mixed databind family fails at runtime, not at compile,
+  which this project has already paid for once.
+
+  Private repositories are untouched: secret scanning there needs paid GitHub
+  Secret Protection, which is a billing decision rather than a build one.
+
 ## [0.2.8] - 2026-09-02
 
 ### Added

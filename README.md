@@ -6,11 +6,15 @@
 [![docs](https://img.shields.io/badge/docs-acemq--company.github.io-blue)](https://acemq-company.github.io/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
-[![brokers](https://img.shields.io/badge/brokers-RabbitMQ%20%7C%20Qpid-lightgrey)](#requirements)
+[![brokers](https://img.shields.io/badge/broker-RabbitMQ-lightgrey)](#requirements)
 
 Broker-portable AMQP library for Java. Reliable publishing, non-blocking retries,
-topology planning, and distributed messaging patterns as first-class types —
-against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
+topology planning, and distributed messaging patterns as first-class types.
+
+**RabbitMQ (AMQP 0-9-1) today.** The core is protocol-agnostic and everything
+broker-specific sits behind a transport SPI, which is what makes the second
+binding a module rather than a rewrite — but that module does not exist yet.
+`acemq-transport-amqp10` (Qpid Proton-J) arrives at milestone M3.
 
 > **Status: `0.2.8`, published.** The public API may still change while the
 > version is `0.x`. Everything documented here is proven against a real RabbitMQ
@@ -27,7 +31,7 @@ against RabbitMQ (AMQP 0-9-1) and AMQP 1.0 brokers such as Apache Qpid.
 | **Documentation** | <https://acemq-company.github.io/acemq-java-amqp/> |
 | **API reference** | <https://acemq-company.github.io/acemq-java-amqp/apidocs/> |
 | **Artifacts** | <https://acemq-company.github.io/maven/> |
-| Releases | [CHANGELOG.md](CHANGELOG.md) · [releases](https://github.com/AceMQ-Company/acemq-java-amqp/releases) |
+| Releases | [CHANGELOG.md](CHANGELOG.md) · [tags](https://github.com/AceMQ-Company/acemq-java-amqp/tags) |
 
 ## Why
 
@@ -43,8 +47,8 @@ AceMQ aims to be that layer:
 
 - **Correct by default** — confirms on, manual ack, bounded prefetch, dead-letter
   wired, unless you opt out by name.
-- **Patterns as types** — `RetryPolicy`, `Outbox`, `IdempotentConsumer`, `Saga` are
-  things you configure, not blog posts you re-implement.
+- **Patterns as types** — `RetryPolicy`, `Outbox`, `IdempotencyStore` and
+  `Pipeline` are things you configure, not blog posts you re-implement.
 - **Portable core, honest edges** — broker-specific features are reachable, never
   silently emulated. A missing capability fails at startup and says so.
 - **Retries live in the broker** — a generated tier ladder, so throughput and
@@ -63,19 +67,21 @@ AceMQ aims to be that layer:
 |---|---|
 | `acemq-amqp-api` | The public API. No third-party dependencies, by design — every language port is transliterated from it |
 | `acemq-transport-spi` | What a broker binding must implement |
-| `acemq-amqp-core` | The protocol-agnostic engine: publisher, consumer runtime, retry ladder, topology planner, codec registry, interceptors, telemetry |
-| `acemq-amqp-patterns` | Outbox, idempotent consumer, saga, claim-check, request-reply, scheduling |
+| `acemq-amqp-core` | The protocol-agnostic engine: publisher, consumer runtime, retry ladder, topology planner, codec registry, interceptors, telemetry, request/reply |
+| `acemq-amqp-patterns` | Transactional outbox and relay, idempotency stores (in-memory and JDBC), JDBC schema registry |
+| `acemq-amqp-crypto` | Payload encryption: AES-GCM around any codec, with the key identifier in the message so keys rotate without a flag day |
 | `acemq-transport-rabbitmq` | AMQP 0-9-1 binding over the RabbitMQ Java client |
 | `acemq-amqp-test` | In-memory transport (`memory://`), Testcontainers harness, fluent assertions |
 | `acemq-amqp-codec-json` | JSON, via Jackson. A **required** dependency of the core: the format an application writes should not depend on what happens to be on its classpath |
 | `acemq-amqp-codec-xml` | XML, for the parts of an estate that will not be rewritten. External entities disabled and not configurable |
 | `acemq-amqp-codec-yaml` | YAML, for messages a person reads as well as a program |
+| `acemq-amqp-codec-toml` | TOML, for the same audience as YAML with the ambiguity removed |
 | `acemq-amqp-codec-avro` | Avro, with a fixed schema or a Confluent-compatible schema identifier per message |
 | `acemq-amqp-codec-protobuf` | Protocol Buffers, one codec per message type |
 
 `acemq-transport-amqp10` (Qpid Proton-J) joins at milestone M3.
 
-## Serialisation
+## Serialization
 
 Publishing an object needs nothing said about it:
 

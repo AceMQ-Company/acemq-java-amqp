@@ -31,6 +31,14 @@ on:
         description: 'Version to publish, without the leading v (e.g. 0.1.0)'
         required: true
 
+# Least privilege for every job that does not ask for more. Without this the
+# token gets the repository default, which on a public repository is read-only
+# today and is an organisation setting somebody can change later -- and a
+# workflow whose privileges depend on a setting elsewhere is one nobody can
+# review. Jobs needing more declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest

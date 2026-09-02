@@ -64,11 +64,27 @@ class RetryLadderIT {
         mq.bind("orders.new", "orders", "order.*");
     }
 
+    /**
+     * Every queue any test here can create, rungs first.
+     *
+     * <p>The rungs matter more than the rest and are the reason this list is spelled out. A rung
+     * left behind still holds a message with a live time-to-live, and when it expires the broker
+     * routes it back to {@code orders.new} — which by then belongs to the next test. That
+     * arrives as one extra delivery in a test that counted deliveries, minutes after the test
+     * that produced it passed.
+     *
+     * <p>Rungs before the source queue, so nothing can expire into a queue that is about to be
+     * left in place.
+     */
+    private static final String[] QUEUES = {
+            "orders.new.retry.1s", "orders.new.retry.5s", "orders.new.retry.25s",
+            "orders.new.dlq", "orders.new.parked", "orders.new",
+    };
+
     @AfterEach
     void disconnect() {
         if (mq != null && mq.isOpen()) {
-            for (String queue : new String[]{"orders.new", "orders.new.dlq", "orders.new.parked",
-                    "orders.new.retry.1s"}) {
+            for (String queue : QUEUES) {
                 try {
                     mq.deleteQueue(queue);
                 } catch (RuntimeException e) {
@@ -82,25 +98,33 @@ class RetryLadderIT {
     @Test
     @Timeout(120)
     void the_broker_returns_an_expired_message_to_its_source_queue() {
-        AtomicInteger attempts = new AtomicInteger();
         List<Integer> attemptNumbers = new CopyOnWriteArrayList<>();
         RetryPolicy policy = RetryPolicy.fixed(3, Duration.ofSeconds(1)).withJitter(0);
 
         try (MessageConsumer consumer = mq.consume(
                 "orders.new", String.class, ConsumerOptions.prefetch(1).withRetry(policy), message -> {
-                    attempts.incrementAndGet();
                     attemptNumbers.add(message.attempt());
                     throw new IllegalStateException("inventory service is unreachable");
                 })) {
 
             mq.publisher("orders", "order.placed").send("{\"id\":\"o-1\"}");
 
-            // Three deliveries, each separated by a real one-second expiry in the broker.
-            await().atMost(Duration.ofSeconds(60)).until(() -> attempts.get() == 3);
-            await().atMost(Duration.ofSeconds(30)).until(() -> consumer.deadLettered() == 1);
+            // Waiting on the list itself, not on a counter beside it. A separate counter is
+            // incremented either before or after the list is written, and whichever order it is
+            // gives a window where the wait is satisfied and the list is one short.
+            //
+            // At least three rather than exactly three: an await that overshoots between polls
+            // never sees an equality hold, and turns a wrong answer into a timeout that says
+            // nothing about what went wrong.
+            await().atMost(Duration.ofSeconds(60)).until(() -> attemptNumbers.size() >= 3);
+            await().atMost(Duration.ofSeconds(30)).until(() -> consumer.deadLettered() >= 1);
 
             assertThat(attemptNumbers).containsExactly(1, 2, 3);
-            assertThat(consumer.retried()).isEqualTo(2);
+            // Also awaited: the counter is updated around the dead-lettering rather than with
+            // it, so reading it the instant the message lands is a race the test loses rarely
+            // enough to be blamed on the broker.
+            await().atMost(Duration.ofSeconds(10)).until(() -> consumer.retried() == 2);
+            assertThat(consumer.deadLettered()).isEqualTo(1);
         }
     }
 
@@ -114,7 +138,7 @@ class RetryLadderIT {
                     throw new IllegalStateException("payment gateway timed out");
                 })) {
             mq.publisher("orders", "order.placed").send("{\"id\":\"o-2\"}");
-            await().atMost(Duration.ofSeconds(60)).until(() -> failing.deadLettered() == 1);
+            await().atMost(Duration.ofSeconds(60)).until(() -> failing.deadLettered() >= 1);
         }
 
         List<Message<String>> dead = new CopyOnWriteArrayList<>();
@@ -133,7 +157,7 @@ class RetryLadderIT {
 
     @Test
     @Timeout(120)
-    void a_fatal_failure_skips_the_ladder_entirely() {
+    void a_fatal_failure_skips_the_ladder_entirely() throws InterruptedException {
         AtomicInteger attempts = new AtomicInteger();
         RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofSeconds(1)).withJitter(0);
 
@@ -145,9 +169,16 @@ class RetryLadderIT {
 
             mq.publisher("orders", "order.placed").send("{\"id\":\"o-3\"}");
 
-            await().atMost(Duration.ofSeconds(30)).until(() -> consumer.deadLettered() == 1);
+            await().atMost(Duration.ofSeconds(30)).until(() -> consumer.deadLettered() >= 1);
             assertThat(attempts).hasValue(1);
             assertThat(consumer.retried()).isZero();
+
+            // A fatal failure skips the ladder, so nothing should arrive later. Waiting proves
+            // that rather than assuming it: the assertion above holds a moment after the
+            // dead-letter whether or not a rung is quietly holding a retry.
+            Thread.sleep(2_000);
+            assertThat(attempts).hasValue(1);
+            assertThat(consumer.deadLettered()).isEqualTo(1);
         }
     }
 
@@ -173,7 +204,12 @@ class RetryLadderIT {
             // With a five-second backoff and a prefetch of one, a sleeping handler would take
             // at least ten seconds to clear these. Parking the failure in the broker means the
             // rest are handled immediately.
-            await().atMost(Duration.ofSeconds(20)).until(() -> successes.get() == 10);
+            await().atMost(Duration.ofSeconds(20)).until(() -> successes.get() >= 10);
+            assertThat(successes).hasValue(10);
+
+            // The poison message is still going round the ladder, and its rung outlives this
+            // test unless somebody deletes it. That is what the teardown list is for; without
+            // the five-second rung in it, this message expires into the next test's queue.
         }
     }
 }

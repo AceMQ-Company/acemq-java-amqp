@@ -154,6 +154,52 @@ public final class Telemetries {
         }
 
         @Override
+        public Scope requestStarted(String destination, Envelope envelope) {
+            List<Scope> scopes = new ArrayList<>(delegates.size());
+            for (Telemetry delegate : delegates) {
+                try {
+                    scopes.add(delegate.requestStarted(destination, envelope));
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to start a request scope", e);
+                }
+            }
+            return new CompositeScope(scopes);
+        }
+
+        @Override
+        public void outboxPublished(String exchange, String routingKey, Duration lag) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.outboxPublished(exchange, routingKey, lag);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record an outbox publish", e);
+                }
+            }
+        }
+
+        @Override
+        public void outboxFailed(String exchange, String routingKey, String reason) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.outboxFailed(exchange, routingKey, reason);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record an outbox failure", e);
+                }
+            }
+        }
+
+        @Override
+        public void pipelineRunFinished(String pipeline, String step, String outcome, Duration age) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.pipelineRunFinished(pipeline, step, outcome, age);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record a pipeline run", e);
+                }
+            }
+        }
+
+        @Override
         public void messageRetried(String queue, Envelope envelope, Duration delay) {
             for (Telemetry delegate : delegates) {
                 try {

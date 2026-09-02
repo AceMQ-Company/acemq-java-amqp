@@ -27,6 +27,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.OutboundMessage;
+import org.acemq.amqp.transport.QueueCheck;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.TransportException;
 import org.jspecify.annotations.Nullable;
@@ -157,7 +158,14 @@ final class InMemoryBroker {
 
     void declareQueue(String queueName, QueueType type, boolean durable, Map<String, Object> arguments) {
         Map<String, Object> args = arguments == null ? Collections.emptyMap() : arguments;
+        boolean isNew = !queues.containsKey(queueName);
         Queue queue = queues.computeIfAbsent(queueName, Queue::new);
+        if (isNew) {
+            // Only the first declaration is recorded. A real broker keeps the settings a queue
+            // was created with and refuses to change them, so remembering the latest declare
+            // would make drift disappear the moment anything looked for it.
+            queue.recordDeclaration(type, durable, args);
+        }
 
         // Queue-level time-to-live with a dead-letter target is what makes the retry ladder
         // work: a message waits in a rung doing nothing, expires, and is routed onward. Without
@@ -211,6 +219,45 @@ final class InMemoryBroker {
 
     boolean hasQueue(String queueName) {
         return queues.containsKey(queueName);
+    }
+
+    /**
+     * Compares a queue against what somebody is about to declare.
+     *
+     * <p>Unlike a real broker this can simply read the settings back, so the comparison is
+     * direct and names every difference rather than the first one. What it must not do is be
+     * more permissive than RabbitMQ: a topology that passes here and fails at start-up in
+     * production would make this fake worse than nothing.
+     */
+    QueueCheck checkQueue(String queueName, QueueType type, boolean durable, @Nullable Map<String, Object> arguments) {
+        Queue queue = queues.get(queueName);
+        if (queue == null) {
+            return QueueCheck.absent();
+        }
+        Map<String, Object> wanted = arguments == null ? Collections.emptyMap() : arguments;
+
+        List<String> differences = new ArrayList<>();
+        if (queue.declaredType() != type) {
+            differences.add("queue type is " + queue.declaredType() + " but the topology asks for " + type);
+        }
+        if (queue.declaredDurable() != durable) {
+            differences.add("durable is " + queue.declaredDurable() + " but the topology asks for " + durable);
+        }
+        Set<String> names = new LinkedHashSet<>(queue.declaredArguments().keySet());
+        names.addAll(wanted.keySet());
+        for (String argument : names) {
+            Object held = queue.declaredArguments().get(argument);
+            Object asked = wanted.get(argument);
+            if (!java.util.Objects.equals(held, asked)) {
+                differences.add("inequivalent arg '" + argument + "' for queue '" + queueName
+                        + "': received " + describe(asked) + " but current is " + describe(held));
+            }
+        }
+        return differences.isEmpty() ? QueueCheck.matches() : QueueCheck.differs(String.join("; ", differences));
+    }
+
+    private static String describe(@Nullable Object value) {
+        return value == null ? "none" : "the value '" + value + "'";
     }
 
     Queue queue(String queueName) {
@@ -353,12 +400,41 @@ final class InMemoryBroker {
         private volatile @Nullable String deadLetterRoutingKey;
         private volatile @Nullable InMemoryBroker owner;
 
+        /**
+         * How this queue was first declared, so drift can be detected here as well as against a
+         * broker. A test whose topology drifts should fail in milliseconds rather than only
+         * against a container.
+         */
+        private volatile QueueType declaredType = QueueType.CLASSIC;
+
+        private volatile boolean declaredDurable;
+
+        private volatile Map<String, Object> declaredArguments = Collections.emptyMap();
+
         Queue(String name) {
             this.name = name;
         }
 
         String name() {
             return name;
+        }
+
+        void recordDeclaration(QueueType type, boolean durable, Map<String, Object> arguments) {
+            this.declaredType = type;
+            this.declaredDurable = durable;
+            this.declaredArguments = arguments;
+        }
+
+        QueueType declaredType() {
+            return declaredType;
+        }
+
+        boolean declaredDurable() {
+            return declaredDurable;
+        }
+
+        Map<String, Object> declaredArguments() {
+            return declaredArguments;
         }
 
         /** Configures queue-level expiry with a dead-letter target. */

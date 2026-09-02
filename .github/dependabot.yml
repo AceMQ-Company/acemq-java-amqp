@@ -1,0 +1,56 @@
+# Dependabot version updates.
+#
+# Separate from Dependabot *security* updates, which are a repository setting and
+# are on: those open a pull request when a dependency has a published
+# vulnerability, whatever this file says. This file is about staying current
+# rather than staying safe.
+#
+# Weekly and grouped, deliberately. A library with this many dependencies
+# produces a pull request a day if left ungrouped, and a queue of ignored bot
+# pull requests is worse than no bot: it trains everyone to skim past the one
+# that mattered.
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One pull request per family. Jackson's modules must move together --
+      # mixing versions inside the databind family is the "NoClassDefFoundError:
+      # JsonKey" class of failure, which surfaces at runtime and not at compile.
+      jackson:
+        patterns:
+          - "com.fasterxml.jackson*"
+      testing:
+        patterns:
+          - "org.junit*"
+          - "org.assertj:*"
+          - "org.testcontainers:*"
+          - "org.awaitility:*"
+          - "org.mockito:*"
+      build-plugins:
+        patterns:
+          - "org.apache.maven.plugins:*"
+          - "com.diffplug.spotless:*"
+          - "org.jacoco:*"
+      # Everything else one at a time: the broker client, the codecs' own
+      # libraries and the observability stack each deserve their own review.
+    #
+    # No ignore list. The bytecode target is Java 11 for Spring Boot 2.7
+    # (ADR-015), so a major version that drops 11 cannot be taken — but that is
+    # a judgement per release, and pre-emptively silencing a whole dependency is
+    # how a project stops hearing about the upgrade it could have taken. CI
+    # builds against 11 and will say so.
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"

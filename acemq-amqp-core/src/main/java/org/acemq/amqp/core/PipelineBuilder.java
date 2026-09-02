@@ -98,6 +98,28 @@ public final class PipelineBuilder<T, C> {
     }
 
     /**
+     * Describes the most recently declared step, for the humans reading the logs.
+     *
+     * <pre>{@code
+     * .step("reserve", Reservation.class, this::reserve)
+     *         .describedAs("hold stock for 15 minutes so payment cannot oversell")
+     * }</pre>
+     *
+     * <p>Separate from the step name rather than folded into it, because the name has a job:
+     * it is the routing key and the routing slip entry, so it is restricted to letters, digits,
+     * dashes and dots and cannot hold a sentence. Changing a name to make it more readable
+     * changes the wire format and orphans messages already in flight; changing a description
+     * changes a log line.
+     *
+     * @param text what this step is for, in a sentence
+     * @return this builder
+     */
+    public PipelineBuilder<T, C> describedAs(String text) {
+        Objects.requireNonNull(text, "text");
+        return replaceLast(last -> last.describedAs(text));
+    }
+
+    /**
      * Retries the most recently declared step on a schedule, using the broker's queues rather
      * than a sleeping handler.
      *

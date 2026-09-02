@@ -228,6 +228,33 @@ public interface TransportConnection extends AutoCloseable {
      */
     boolean queueExists(String name);
 
+    /**
+     * Asks whether a queue that already exists would accept this declaration.
+     *
+     * <p>{@link #queueExists(String)} answers "is something there", which is the smaller half
+     * of the question. The half that costs an outage is "is what is there the same as what this
+     * release expects" — a queue whose {@code x-message-ttl} was changed by hand, or whose
+     * dead-letter exchange was pointed somewhere else, or that somebody created as classic when
+     * the topology says quorum. AMQP forbids changing any of those in place, so the declare
+     * fails at start-up, in production, taking the channel with it.
+     *
+     * <p>The default answers {@link QueueCheck#unsupported()}. A transport that cannot inspect
+     * a queue must not claim it matches: silence read as agreement is how drift gets missed.
+     *
+     * @param name queue name
+     * @param type queue implementation the caller wants
+     * @param durable whether the caller wants it to survive a restart
+     * @param arguments the arguments the caller would declare
+     * @return what the broker says, including {@link QueueCheck.Result#UNSUPPORTED} when it
+     *     cannot be asked
+     * @implSpec must not create the queue, and must not disturb traffic on other channels. The
+     *     usual implementation asks passively first and, only for a queue that is already
+     *     there, attempts an equivalence declare on a channel of its own.
+     */
+    default QueueCheck checkQueue(String name, QueueType type, boolean durable, Map<String, Object> arguments) {
+        return QueueCheck.unsupported();
+    }
+
     /** @return whether the connection is usable */
     boolean isOpen();
 

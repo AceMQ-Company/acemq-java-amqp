@@ -17,6 +17,7 @@ package org.acemq.amqp.patterns;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -194,6 +195,7 @@ public final class OutboxRelay implements AutoCloseable {
             publisherFor(record.exchange(), record.routingKey()).send(record.payload(), record.envelope());
         } catch (RuntimeException failure) {
             failed.incrementAndGet();
+            mq.telemetry().outboxFailed(record.exchange(), record.routingKey(), failure.toString());
             log.warn("outbox record {} could not be published: {}", record.id(), failure.toString());
             store.markFailed(record.id(), failure.toString());
             return false;
@@ -209,6 +211,13 @@ public final class OutboxRelay implements AutoCloseable {
                     record.id(), failure.toString());
         }
         published.incrementAndGet();
+        // Measured from when the row was committed, not from when this batch was claimed. The
+        // question a lag answers is "how long has somebody been owed this message", and the
+        // claim is part of the answer rather than the start of it.
+        mq.telemetry().outboxPublished(
+                record.exchange(),
+                record.routingKey(),
+                Duration.between(record.createdAt(), Instant.now()));
         return true;
     }
 

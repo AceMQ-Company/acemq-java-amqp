@@ -136,12 +136,76 @@ The signing key is written next to the certificates and is not a secret. That is
 the point of the marker: these fail closed anywhere that has not explicitly
 opted in.
 
-## What is still not built
+## Payload encryption
 
-**There is no payload encryption.** Transport security protects the message in
-flight and does nothing about a message at rest in a queue an operator can read.
-If your payloads need to be opaque to the broker, encrypt them in your own code
-today.
+TLS protects a message while it is moving. It does nothing about one sitting in a
+queue that an operator, a backup, or the management UI can read. Where the
+payload has to be opaque to the broker itself, it must arrive already encrypted.
+
+```xml
+<dependency>
+  <groupId>org.acemq</groupId>
+  <artifactId>acemq-amqp-crypto</artifactId>
+</dependency>
+```
+
+```java
+Keyring keys = Keyring.of("orders-2026-09", Keys.fromBase64(vault.read("orders-key")));
+Codec encrypted = EncryptedCodec.wrapping(new JsonCodec(), keys);
+
+mq.publisher("payments", "card.stored", Card.class).as(encrypted);
+mq.consume("payments.stored", Card.class, encrypted, m -> store(m.payload()));
+```
+
+It wraps a codec rather than being one, so choosing a format and choosing to
+encrypt stay independent — AES-GCM around JSON, or around Avro, equally.
+
+### Rotating keys
+
+```java
+Keyring keys = Keyring.builder()
+        .add("orders-2026-06", june)      // still on some queue somewhere
+        .current("orders-2026-09", now)   // everything written from here
+        .build();
+```
+
+**The key identifier travels in the message, in the clear**, in front of the
+ciphertext. That is what makes rotation possible: a consumer reads which key a
+message needs instead of assuming the current one, so a new key can be introduced
+while messages written with the old one are still queued. An AMQP header would
+have been tidier and would have lost it — headers are dropped by shovels,
+rewritten by federation, and absent from a message recovered out of a backup, and
+a ciphertext whose key nobody can name is gone.
+
+The identifier is authenticated as well as visible: GCM binds the framing as
+associated data, so a rewritten identifier fails to decrypt rather than quietly
+decrypting as something else.
+
+Name keys for the key, never for what they protect — `orders-2026-09`, not
+`customer-card-numbers`.
+
+### Decide the operations story first
+
+The broker can no longer read the message, and neither can the people who run it.
+**A dead-letter queue full of ciphertext is a queue nobody can triage.**
+
+```java
+EncryptedCodec.keyIdOf(body)   // which key this needs, without holding any key
+```
+
+That answers the usual question — almost always a key retired while messages
+written with it were still queued — but it is not a substitute for deciding, before
+turning this on, how support looks at a message. Usually a small internal tool
+holding the keyring, rather than the management UI.
+
+Two more things it does not do:
+
+- **Encryption is not authorisation.** Every service holding the keyring reads
+  every message encrypted under those keys. The granularity is the key, so
+  separate audiences mean separate keys.
+- **The routing stays in the clear.** Exchange, routing key, headers and message
+  size are all visible, and for many systems the routing key is the sensitive
+  part.
 
 ## Production checklist
 
@@ -154,8 +218,9 @@ today.
   service uses. RabbitMQ's default `guest` account cannot connect remotely; do
   not "fix" that.
 - `allowDevelopmentCertificates()` appears nowhere in the deployment.
-- Payload encryption in your own code if the broker's operators should not be
-  able to read the messages.
+- `EncryptedCodec` where the broker's operators should not be able to read the
+  messages — and a decision, written down, about how those messages get triaged
+  when they fail.
 
 ---
 

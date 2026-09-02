@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-parent</artifactId>
+    <version>0.2.8-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>acemq-amqp-native</artifactId>
+  <name>AceMQ AMQP Native Image Smoke Test</name>
+  <description>Builds a GraalVM native image of the library and runs it. Not published: the
+    claim that AceMQ works ahead-of-time is only worth making if something keeps checking it,
+    and a dependency bump is what quietly breaks it. Built only under -Pnative.</description>
+
+  <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <maven.install.skip>true</maven.install.skip>
+    <!-- The measurement, not the thing measured. -->
+    <jacoco.skip>true</jacoco.skip>
+    <japicmp.skip>true</japicmp.skip>
+    <!-- Native images need a JDK the plugin can drive; the library target stays 11. -->
+    <maven.compiler.release>17</maven.compiler.release>
+    <native.maven.plugin.version>0.10.3</native.maven.plugin.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-test</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-patterns</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-crypto</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-transport-rabbitmq</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-yaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.graalvm.buildtools</groupId>
+        <artifactId>native-maven-plugin</artifactId>
+        <version>${native.maven.plugin.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <id>build-native</id>
+            <goals>
+              <goal>compile-no-fork</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
+        <configuration>
+          <imageName>acemq-native-smoke</imageName>
+          <mainClass>org.acemq.amqp.nativeimage.NativeSmokeTest</mainClass>
+          <buildArgs>
+            <!-- Refuse to fall back to a JVM. A fallback image "works" and proves
+                 nothing: it is the interpreter in a trench coat, and it would let
+                 this test pass on the day ahead-of-time compilation stopped. -->
+            <buildArg>--no-fallback</buildArg>
+            <!-- Optimising this binary is not the point and doubles the build. -->
+            <buildArg>-O0</buildArg>
+          </buildArgs>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>run-native</id>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <executable>${project.build.directory}/acemq-native-smoke</executable>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

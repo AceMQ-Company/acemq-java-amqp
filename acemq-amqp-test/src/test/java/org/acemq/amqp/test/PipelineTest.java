@@ -62,6 +62,35 @@ class PipelineTest {
 
         @Test
         @Timeout(60)
+        void a_described_step_still_routes_by_its_name() {
+            connect("pipeline-described");
+            List<String> visited = new CopyOnWriteArrayList<>();
+
+            try (Pipeline<String> fulfilment = mq.pipeline("fulfilment", String.class)
+                    .step("reserve", String.class, message -> {
+                        visited.add("reserve");
+                        return message.payload() + "|reserved";
+                    })
+                    .describedAs("hold stock for 15 minutes so payment cannot oversell")
+                    .step("dispatch", String.class, message -> {
+                        visited.add("dispatch");
+                        return null;
+                    })
+                    .build()) {
+
+                fulfilment.send("o-1");
+
+                await().atMost(Duration.ofSeconds(30)).until(() -> visited.size() == 2);
+            }
+
+            // The description is for people. The name is the routing key and the routing slip
+            // entry, so describing a step must not move it -- a step whose queue changed when
+            // somebody improved its documentation would strand every message in flight.
+            assertThat(visited).containsExactly("reserve", "dispatch");
+        }
+
+        @Test
+        @Timeout(60)
         void passes_a_message_through_every_step_in_order() {
             connect("pipeline-order");
             List<String> visited = new CopyOnWriteArrayList<>();

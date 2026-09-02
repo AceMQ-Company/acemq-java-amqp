@@ -1,0 +1,9 @@
+[
+  {
+    "_comment": "The smoke test's own message type. Registered here for exactly the reason every application has to register its own: Jackson reaches these accessors by reflection, no call site names them, and a closed-world compiler removes what nothing appears to use. Without this entry the image builds and then fails at the first encode with 'No serializer found ... no properties discovered'. See docs/native-image.md.",
+    "name": "org.acemq.amqp.nativeimage.NativeSmokeTest$Order",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true
+  }
+]

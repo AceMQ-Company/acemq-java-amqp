@@ -60,7 +60,11 @@ nav.top a.enterprise { color:var(--fg); opacity:.78; }
 nav.top a.enterprise:hover { opacity:1; color:var(--accent); }
 nav.top a { color:var(--fg); text-decoration:none; font-size:.9rem; opacity:.78; }
 nav.top a:hover { opacity:1; color:var(--accent); }
-nav.top a.api { margin-left:auto; color:var(--accent); opacity:1; font-weight:600; }
+/* The right-hand group: the three destinations somebody arrives looking for,
+   rather than the page-by-page guide. Tutorials carries the auto margin, so the
+   group stays together however many guide pages are added to its left. */
+nav.top a.tutorials { margin-left:auto; color:var(--accent); opacity:1; font-weight:600; }
+nav.top a.api { color:var(--accent); opacity:1; font-weight:600; }
 main { max-width:47rem; margin:0 auto; padding:2.5rem 1.25rem 5rem; }
 h1 { font-size:2rem; letter-spacing:-.025em; margin:0 0 1.5rem; }
 h2 { font-size:1.3rem; letter-spacing:-.015em; margin:2.75rem 0 .85rem;
@@ -89,10 +93,16 @@ NAV='<nav class="top">
   <a href="publishing.html">Publishing</a>
   <a href="consuming.html">Consuming</a>
   <a href="reliability.html">Reliability</a>
+  <a href="topology.html">Topology</a>
+  <a href="patterns.html">Patterns</a>
   <a href="serialization.html">Serialization</a>
   <a href="streams.html">Streams</a>
+  <a href="request-reply.html">Request/reply</a>
+  <a href="observability.html">Observability</a>
   <a href="security.html">Security</a>
   <a href="testing.html">Testing</a>
+  <a href="native-image.html">Native</a>
+  <a class="tutorials" href="tutorials.html">Tutorials</a>
   <a class="api" href="apidocs/index.html">API reference</a>
   <a class="enterprise" href="https://acemq.com">Enterprise support</a>
 </nav>

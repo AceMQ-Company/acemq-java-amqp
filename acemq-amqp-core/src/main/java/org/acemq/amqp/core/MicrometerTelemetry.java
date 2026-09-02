@@ -110,6 +110,70 @@ final class MicrometerTelemetry implements Telemetry {
     }
 
     @Override
+    public Scope requestStarted(String destination, Envelope envelope) {
+        Tags tags = Tags.of(
+                MetricNames.TAG_ROUTING_KEY, destination == null ? "" : destination,
+                MetricNames.TAG_MESSAGE_TYPE, envelope.type(),
+                MetricNames.TAG_TRANSPORT, transport);
+        return new MeterScope(MetricNames.REQUEST_DURATION, MetricNames.REQUEST_TOTAL, tags, null);
+    }
+
+    @Override
+    public void outboxPublished(String exchange, String routingKey, Duration lag) {
+        Tags tags = Tags.of(
+                MetricNames.TAG_EXCHANGE, exchange == null ? "" : exchange,
+                MetricNames.TAG_ROUTING_KEY, routingKey == null ? "" : routingKey,
+                MetricNames.TAG_TRANSPORT, transport);
+
+        // A timer rather than a counter, because the question is never "how many" but "how far
+        // behind", and a percentile answers that where a total does not.
+        Timer.builder(MetricNames.OUTBOX_LAG)
+                .description("how long an outbox record waited between being committed and published")
+                .tags(tags)
+                .register(registry)
+                .record(lag);
+        Counter.builder(MetricNames.OUTBOX_TOTAL)
+                .description("outbox records the relay has handled")
+                .tags(tags.and(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_PUBLISHED))
+                .register(registry)
+                .increment();
+    }
+
+    @Override
+    public void outboxFailed(String exchange, String routingKey, String reason) {
+        // The reason is not a tag, for the same cardinality reason as a dead-letter reason.
+        Counter.builder(MetricNames.OUTBOX_TOTAL)
+                .description("outbox records the relay has handled")
+                .tags(Tags.of(
+                        MetricNames.TAG_EXCHANGE, exchange == null ? "" : exchange,
+                        MetricNames.TAG_ROUTING_KEY, routingKey == null ? "" : routingKey,
+                        MetricNames.TAG_TRANSPORT, transport,
+                        MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_FAILED))
+                .register(registry)
+                .increment();
+    }
+
+    @Override
+    public void pipelineRunFinished(String pipeline, String step, String outcome, Duration age) {
+        Tags tags = Tags.of(
+                MetricNames.TAG_PIPELINE, pipeline,
+                MetricNames.TAG_STEP, step,
+                MetricNames.TAG_OUTCOME, outcome,
+                MetricNames.TAG_TRANSPORT, transport);
+
+        Timer.builder(MetricNames.PIPELINE_RUN_DURATION)
+                .description("how long a message had existed when it left a pipeline")
+                .tags(tags)
+                .register(registry)
+                .record(age);
+        Counter.builder(MetricNames.PIPELINE_RUN_TOTAL)
+                .description("pipeline runs that finished")
+                .tags(tags)
+                .register(registry)
+                .increment();
+    }
+
+    @Override
     public Map<String, String> propagationHeaders() {
         // Metrics carry no context across the broker; tracing does that.
         return Collections.emptyMap();

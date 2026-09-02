@@ -41,6 +41,16 @@ final class PipelineStep<I, O> {
     private final int concurrency;
     private final @Nullable Codec codec;
 
+    /**
+     * What this step is for, in a sentence, or null when nobody said.
+     *
+     * <p>Separate from the name because the name cannot carry it: a step name is a routing key
+     * and a routing slip entry, so it is constrained to letters, digits, dashes and dots. The
+     * description has no such job and is free text, which is what makes it useful in a log line
+     * that somebody is reading at three in the morning.
+     */
+    private final @Nullable String description;
+
     PipelineStep(
             String name,
             Class<I> inputType,
@@ -49,6 +59,19 @@ final class PipelineStep<I, O> {
             ConsumerOptions options,
             int concurrency,
             @Nullable Codec codec) {
+        this(name, inputType, outputType, handler, options, concurrency, codec, null);
+    }
+
+    PipelineStep(
+            String name,
+            Class<I> inputType,
+            Class<O> outputType,
+            Step<I, O> handler,
+            ConsumerOptions options,
+            int concurrency,
+            @Nullable Codec codec,
+            @Nullable String description) {
+        this.description = description;
         this.name = name;
         this.inputType = inputType;
         this.outputType = outputType;
@@ -60,6 +83,23 @@ final class PipelineStep<I, O> {
 
     String name() {
         return name;
+    }
+
+    /** @return what this step is for, when somebody said */
+    Optional<String> description() {
+        return Optional.ofNullable(description);
+    }
+
+    /**
+     * @return the description when there is one, otherwise the name. What a log line should
+     *     print: a step is always identifiable, and better identified when it was described
+     */
+    String label() {
+        return description == null ? name : name + " (" + description + ")";
+    }
+
+    PipelineStep<I, O> describedAs(String text) {
+        return new PipelineStep<>(name, inputType, outputType, handler, options, concurrency, codec, text);
     }
 
     Class<I> inputType() {
@@ -94,11 +134,11 @@ final class PipelineStep<I, O> {
     }
 
     PipelineStep<I, O> with(ConsumerOptions updated, int howMany, @Nullable Codec encoding) {
-        return new PipelineStep<>(name, inputType, outputType, handler, updated, howMany, encoding);
+        return new PipelineStep<>(name, inputType, outputType, handler, updated, howMany, encoding, description);
     }
 
     @Override
     public String toString() {
-        return "PipelineStep{" + name + " <- " + inputType.getSimpleName() + "}";
+        return "PipelineStep{" + label() + " <- " + inputType.getSimpleName() + "}";
     }
 }

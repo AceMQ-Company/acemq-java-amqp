@@ -107,6 +107,73 @@ public interface Telemetry {
      */
     Map<String, String> propagationHeaders();
 
+    // The methods below are default no-ops, and will stay that way. This interface is
+    // implemented by applications with their own monitoring, and every abstract method added
+    // after the fact breaks all of them at compile time for a signal they did not ask for.
+    // A sink that wants one of these overrides it; a sink written before it existed keeps
+    // working. The four above predate the rule and cannot be changed now without doing the
+    // exact thing this comment forbids.
+
+    /**
+     * Called once per request/reply round trip, around the wait for the answer.
+     *
+     * <p>The publish and the reply's delivery are each already traced, and the trace context in
+     * the message headers chains them. What none of that produces is a single span whose
+     * duration is what the caller actually experienced — the question "how long did asking take"
+     * has no answer in a picture made of two unrelated hops. This is that span, and the two hops
+     * become its children.
+     *
+     * @param destination where the request was sent
+     * @param envelope the request's envelope
+     * @return a scope closed with {@code answered} or {@code timed_out}
+     */
+    default Scope requestStarted(String destination, Envelope envelope) {
+        return Scope.NONE;
+    }
+
+    /**
+     * Called by the outbox relay when a record reaches the broker.
+     *
+     * <p>The lag is the number that matters and the one nothing else can see: a row committed
+     * and not yet published is a message that exists, is owed to somebody, and appears in no
+     * queue depth anywhere. A relay that has stopped looks exactly like a system with nothing
+     * to send until this is measured.
+     *
+     * @param exchange where the record was published
+     * @param routingKey the record's routing key
+     * @param lag how long the record sat between being committed and being published
+     */
+    default void outboxPublished(String exchange, String routingKey, Duration lag) {
+        // no-op
+    }
+
+    /**
+     * Called by the outbox relay when a record could not be published.
+     *
+     * @param exchange where the record was bound for
+     * @param routingKey the record's routing key
+     * @param reason why it failed
+     */
+    default void outboxFailed(String exchange, String routingKey, String reason) {
+        // no-op
+    }
+
+    /**
+     * Called when a message leaves a pipeline, whether it finished or stopped early.
+     *
+     * <p>A pipeline's steps are each traced as ordinary hops, so the stages are visible. What is
+     * not visible from them is the run: how long the whole thing took, and how often it ends
+     * before the last step. Both are properties of the run rather than of any step in it.
+     *
+     * @param pipeline the pipeline's name
+     * @param step the step it left at, which is the last one when it completed
+     * @param outcome {@code completed} or {@code ended_early}
+     * @param age how long the message had existed when it left
+     */
+    default void pipelineRunFinished(String pipeline, String step, String outcome, Duration age) {
+        // no-op
+    }
+
     /**
      * An operation in progress.
      *

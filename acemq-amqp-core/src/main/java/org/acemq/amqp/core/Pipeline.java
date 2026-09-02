@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.Message;
+import org.acemq.amqp.api.MetricNames;
 import org.acemq.amqp.api.Publisher;
 import org.acemq.amqp.api.RoutingSlip;
 import org.slf4j.Logger;
@@ -121,7 +122,13 @@ public final class Pipeline<T> implements AutoCloseable {
             mq.declareQueue(queue, type, java.util.Collections.emptyMap());
             mq.bind(queue, name, step.name());
         }
-        log.info("pipeline {} declared with {} steps: {}", name, steps.size(), String.join(" | ", stepNames()));
+        // Labels rather than bare names: this line is the one somebody reads to find out what
+        // a pipeline actually does, and a described step says so here without being looked up.
+        List<String> labels = new ArrayList<>();
+        for (PipelineStep<?, ?> step : steps) {
+            labels.add(step.label());
+        }
+        log.info("pipeline {} declared with {} steps: {}", name, steps.size(), String.join(" | ", labels));
     }
 
     /** Starts a consumer group per step. */
@@ -180,6 +187,10 @@ public final class Pipeline<T> implements AutoCloseable {
         // reading its null as "ended early" would report every completed run as a filtered one.
         if (!following.isPresent()) {
             completed.incrementAndGet();
+            // The age of the envelope, so this is the whole run rather than this step: the
+            // envelope was created when the message entered and carried through every hop.
+            mq.telemetry().pipelineRunFinished(
+                    name, step.name(), MetricNames.OUTCOME_COMPLETED, message.envelope().age());
             return;
         }
 
@@ -187,7 +198,9 @@ public final class Pipeline<T> implements AutoCloseable {
             // Stopped before the end of the route: a decision, not a failure. Counted apart
             // from both so that "how many were filtered out" needs no log reading.
             endedEarly.incrementAndGet();
-            log.debug("run {} ended at step {} of pipeline {}", slip.runId(), step.name(), name);
+            mq.telemetry().pipelineRunFinished(
+                    name, step.name(), MetricNames.OUTCOME_ENDED_EARLY, message.envelope().age());
+            log.debug("run {} ended at step {} of pipeline {}", slip.runId(), step.label(), name);
             return;
         }
 

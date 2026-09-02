@@ -27,6 +27,14 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Least privilege for every job that does not ask for more. Without this the
+# token gets the repository default, which on a public repository is read-only
+# today and is an organisation setting somebody can change later -- and a
+# workflow whose privileges depend on a setting elsewhere is one nobody can
+# review. Jobs needing more declare it themselves.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -57,7 +65,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # A job's own block replaces the workflow default rather than adding to it,
+    # so contents is repeated here. This is GitHub's own deploy-pages triple.
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:

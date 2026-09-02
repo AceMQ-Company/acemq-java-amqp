@@ -102,7 +102,25 @@ class TopologyTest {
         assertThat(plan.changes()).hasSize(1);
         assertThat(plan.hasChanges()).isTrue();
         assertThat(plan.render()).contains("create ", "present", "orders.new", "orders.old");
-        assertThat(plan.toString()).contains("1 change(s) of 2 item(s)");
+        assertThat(plan.hasDrift()).isFalse();
+        assertThat(plan.toString()).contains("1 change(s), 0 drifted, of 2 item(s)");
+    }
+
+    @Test
+    void a_plan_keeps_drift_apart_from_changes() {
+        // Applying the plan will not fix drift -- AMQP forbids changing these settings in
+        // place -- so counting it as a change would make "apply and it is done" look true.
+        TopologyPlan plan = TopologyPlan.of(Arrays.asList(
+                TopologyPlan.Action.of(TopologyPlan.Kind.CREATE, "queue orders.new (quorum)"),
+                TopologyPlan.Action.of(TopologyPlan.Kind.DRIFT, "queue orders.old (quorum) — x-message-ttl"),
+                TopologyPlan.Action.of(TopologyPlan.Kind.UNKNOWN, "queue orders.other (quorum)")));
+
+        assertThat(plan.changes()).hasSize(1);
+        assertThat(plan.drift()).hasSize(1);
+        assertThat(plan.hasDrift()).isTrue();
+        // UNKNOWN is neither: the transport could not answer, which is not agreement and is
+        // not a difference either.
+        assertThat(plan.render()).contains("DRIFT", "unknown", "create ");
     }
 
     @Test

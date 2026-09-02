@@ -62,6 +62,7 @@
     <module>acemq-amqp-codec-protobuf</module>
     <module>acemq-amqp-core</module>
     <module>acemq-amqp-patterns</module>
+    <module>acemq-amqp-crypto</module>
     <module>acemq-transport-rabbitmq</module>
     <module>acemq-amqp-test</module>
     <module>acemq-amqp-coverage</module>
@@ -197,6 +198,16 @@
         <groupId>org.acemq</groupId>
         <artifactId>acemq-amqp-patterns</artifactId>
         <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-crypto</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-simple</artifactId>
+        <version>${slf4j.version}</version>
       </dependency>
       <dependency>
         <groupId>org.acemq</groupId>
@@ -664,6 +675,17 @@
       <id>benchmarks</id>
       <modules>
         <module>acemq-amqp-benchmarks</module>
+      </modules>
+    </profile>
+
+    <!-- The native image smoke test. Needs a GraalVM JDK and takes a minute or two
+         to compile, so it is not part of an ordinary build; a nightly job runs it.
+         In the reactor for the same reason as the benchmarks: it has to exercise
+         this commit, not a published snapshot, or it reports yesterday's answer. -->
+    <profile>
+      <id>native</id>
+      <modules>
+        <module>acemq-amqp-native</module>
       </modules>
     </profile>
 

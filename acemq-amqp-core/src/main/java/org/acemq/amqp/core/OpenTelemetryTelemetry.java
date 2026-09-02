@@ -133,6 +133,57 @@ final class OpenTelemetryTelemetry implements Telemetry {
         return new SpanScope(span, span.makeCurrent());
     }
 
+    // The span is made current, so the publish this wraps and the reply's delivery become its
+    // children rather than three unrelated hops.
+    @SuppressWarnings("MustBeClosedChecker") // Closed by SpanScope, as above.
+    @Override
+    public Scope requestStarted(String destination, Envelope envelope) {
+        Span span = tracer.spanBuilder(destination + MetricNames.SPAN_REQUEST_SUFFIX)
+                // CLIENT rather than PRODUCER: this span is a call that waits for an answer,
+                // which is what a reader needs to know to interpret its duration.
+                .setSpanKind(SpanKind.CLIENT)
+                .setAttribute(MESSAGING_SYSTEM, transport)
+                .setAttribute(DESTINATION, destination == null ? "" : destination)
+                .setAttribute(OPERATION, "request")
+                .setAttribute(MESSAGE_ID, envelope.id())
+                .setAttribute(CONVERSATION_ID, envelope.correlationId())
+                .setAttribute(MESSAGE_TYPE, envelope.type())
+                .startSpan();
+        return new SpanScope(span, span.makeCurrent());
+    }
+
+    @Override
+    public void outboxPublished(String exchange, String routingKey, Duration lag) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            current.setAttribute(AttributeKey.longKey("messaging.acemq.outbox_lag_ms"), lag.toMillis());
+        }
+    }
+
+    @Override
+    public void outboxFailed(String exchange, String routingKey, String reason) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            current.addEvent("outbox.publish_failed", io.opentelemetry.api.common.Attributes.of(
+                    AttributeKey.stringKey("messaging.destination.name"), exchange == null ? "" : exchange,
+                    AttributeKey.stringKey("messaging.acemq.reason"), reason == null ? "" : reason));
+        }
+    }
+
+    @Override
+    public void pipelineRunFinished(String pipeline, String step, String outcome, Duration age) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            // An event on the step's own span rather than a span of its own: the run finished
+            // here, and a zero-length span at the end of a trace adds a row and no information.
+            current.addEvent("pipeline.run_finished", io.opentelemetry.api.common.Attributes.of(
+                    AttributeKey.stringKey(MetricNames.TAG_PIPELINE), pipeline,
+                    AttributeKey.stringKey(MetricNames.TAG_STEP), step,
+                    AttributeKey.stringKey(MetricNames.TAG_OUTCOME), outcome,
+                    AttributeKey.longKey("messaging.acemq.run_age_ms"), age.toMillis()));
+        }
+    }
+
     @Override
     public void messageRetried(String queue, Envelope envelope, Duration delay) {
         Span current = Span.current();

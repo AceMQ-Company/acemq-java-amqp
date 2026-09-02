@@ -51,6 +51,10 @@
     </dependency>
     <dependency>
       <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-codec-toml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-codec-avro</artifactId>
     </dependency>
     <dependency>
@@ -64,6 +68,10 @@
     <dependency>
       <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-patterns</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-crypto</artifactId>
     </dependency>
     <dependency>
       <groupId>org.acemq</groupId>

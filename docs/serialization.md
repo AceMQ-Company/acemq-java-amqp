@@ -90,6 +90,43 @@ Avro uses the Confluent wire framing — a zero byte, a four-byte big-endian sch
 id, then the body — so consumers written against other Confluent-compatible
 tooling can read it.
 
+## The schema registry
+
+Avro's bytes and Protobuf's carry no account of what they are. A reader has to
+already hold the schema the writer used, and what travels in the message is a
+small integer standing for it. Something has to remember which integer means
+which schema.
+
+```java
+JdbcSchemaRegistry registry = new JdbcSchemaRegistry(dataSource);
+registry.createSchemaIfAbsent();
+```
+
+**Identifiers have to be stable forever.** A message published today may be read
+next year by a consumer looking up the schema it was written with. A registry
+that hands out fresh identifiers on restart makes every message written before
+the restart unreadable, and does it silently — the bytes still parse as *a*
+schema, just not the right one.
+
+| | |
+|---|---|
+| `InMemorySchemaRegistry` | Tests and single-process demos. Forgets everything on restart |
+| `JdbcSchemaRegistry` | A table, in `acemq-amqp-patterns`. Survives restarts and is shared between replicas |
+
+`JdbcSchemaRegistry` caches both directions in memory and never invalidates,
+because neither answer can change: an identifier stands for one schema forever,
+and a schema keeps the identifier it was given. Registration is idempotent by
+content — the same schema text registered from eight replicas at once yields one
+row and one identifier.
+
+It is not Confluent's registry and does not try to be: no compatibility checking,
+no versioning UI, no REST API. It remembers which integer means which schema,
+which is the part the wire format depends on. Where a Confluent registry is
+already running, point the codec at that instead.
+
+`createSchemaIfAbsent()` is for development. In production the table belongs in
+whatever migration tool already owns the schema.
+
 ## Your own format
 
 ```java
