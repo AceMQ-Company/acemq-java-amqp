@@ -326,8 +326,14 @@ jobs:
         ${{ needs.publish.result == 'success'
             && 'Artifacts are on the Maven repository. Consumers need no credentials.'
             || 'The artifacts are on the Maven repository and consumers can resolve them, but a later step failed, so the documentation and the landing page may still name the previous version. Check the run.' }}
-      # Roadworks rather than a red dot: the release is usable and unfinished,
-      # which is a different thing from broken and reads differently at a glance.
-      icon: ${{ needs.publish.result == 'success' && '' || ':construction:' }}
+      # Roadworks rather than a red dot for the half-finished case: the release is
+      # usable and unfinished, which is a different thing from broken and reads
+      # differently at a glance.
+      #
+      # Both branches name an emoji. Leaving the success branch empty to fall back
+      # on the status-derived tick does not work: in GitHub's expression language
+      # `a && '' || b` yields b, because an empty string is falsy. Every successful
+      # release through 0.2.9 was therefore announced with roadworks.
+      icon: ${{ needs.publish.result == 'success' && ':white_check_mark:' || ':construction:' }}
       url: https://acemq-company.github.io/maven/
     secrets: inherit

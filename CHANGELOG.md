@@ -8,7 +8,48 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+- **Dependency updates for 21 Dependabot alerts**, surfaced the moment scanning
+  was switched on. All are dependencies consumers inherit:
+
+  | | | |
+  |---|---|---|
+  | `com.rabbitmq:amqp-client` | 5.25.0 | 5.33.1 |
+  | `com.fasterxml.jackson.core:*` | 2.18.2 | 2.18.9 |
+  | `org.postgresql:postgresql` | 42.7.5 | 42.7.12 |
+  | `org.assertj:assertj-core` | 3.27.0 | 3.27.7 |
+  | `org.bouncycastle:bcpkix-jdk18on` | 1.79 | 1.84 |
+
+  The full suite passes, integration tests included, which is the part that
+  mattered: the broker client moved eight minor versions.
+
+  **Micrometer is deliberately not bumped.** The advisory is a denial of service
+  in its HTTP server instrumentation, which this library does not use — it
+  records meters and nothing else — and there is no patched release in the
+  `1.14.x` line. It is also an `<optional>` dependency, so the version declared
+  here is not inherited: an application chooses its own.
+
+### Fixed
+- **Every successful release was announced in Slack with roadworks instead of a
+  tick.** The icon expression read `result == 'success' && '' || ':construction:'`,
+  intending to fall back on the status-derived tick by passing nothing. In
+  GitHub's expression language an empty string is falsy, so `a && '' || b` always
+  yields `b`. Both branches now name an emoji. The title was unaffected, because
+  its success value is a non-empty string — which is why this survived several
+  releases.
+- **The release did not rebuild the documentation site.** A push made with
+  `GITHUB_TOKEN` does not trigger workflows, so the last docs build was always
+  the one for the release commit — before the version rewrite — and the published
+  guide advertised the previous version. `0.2.9` shipped saying `0.2.8` until the
+  site was rebuilt by hand. The `document` job now dispatches `docs.yml`.
+
+### Changed
+- The getting-started page and tutorial 1 showed only
+  `declareExchange`/`declareQueue`/`bind`, which is what every AMQP client
+  offers, and never mentioned the `Topology` builder. Both now follow the three
+  calls with the value form and what it buys: a printable plan, `VALIDATE`, and
+  drift caught before anything is declared. The imperative calls stay where they
+  are teaching what the three things are.
 
 ## [0.2.9] - 2026-09-02
 
