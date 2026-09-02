@@ -70,6 +70,34 @@ inside its window.
 Options travel with the publisher, including through `asXml()` and friends:
 asking for a different format is not a request to start writing to disk again.
 
+
+## Priority
+
+```java
+mq.declareQueue("work", QueueType.CLASSIC, Map.of("x-max-priority", 10));
+
+mq.publisher("", "work", Job.class)
+        .with(PublishOptions.defaults().withPriority(9))
+        .send(urgent);
+```
+
+Two things decide whether this does anything, and both catch people:
+
+**The queue must be declared with `x-max-priority`.** Priority is a property of
+the queue before it is a property of the message; a broker that was not told a
+maximum ignores what a message asks for. Nothing fails — the message simply
+arrives in the order it was sent.
+
+**Prefetch has to be small.** Priority reorders what is *waiting*, not what has
+already been handed to a consumer. With `prefetch(50)` the urgent message queues
+behind up to fifty messages the consumer was already given, and priority appears
+not to work. That is the single most common report about priority queues on any
+broker.
+
+The in-memory transport does not support priority and **refuses** a publish that
+asks for one, rather than ignoring it — an ignored priority means a test that
+passes and a production that reorders.
+
 ## Publishing in bulk
 
 A synchronous publish costs a round trip per message, so a loop over ten thousand

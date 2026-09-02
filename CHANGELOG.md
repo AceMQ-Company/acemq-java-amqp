@@ -10,6 +10,32 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.6] - 2026-09-02
+
+A capability is a promise that *this library* can do the thing — not that the
+broker could if somebody wrote the code. Three were claimed with no API behind
+them, so `supports(...)` returned true and left the caller with nothing to call.
+
+### Added
+- `PublishOptions.withPriority(int)`, and priority on the wire. `PRIORITY` was
+  claimed by the RabbitMQ transport and there was no way to set one. Proven
+  against a real broker: an urgent message published last is delivered first,
+  ahead of four queued before it.
+
+### Changed
+- The RabbitMQ transport **no longer claims `TRANSACTIONS`**. RabbitMQ has
+  `tx.select`; this library offers no way to reach it, and publisher confirms
+  cover what almost every caller wants transactions for at a fraction of the
+  cost, with the transactional outbox covering the rest. Claiming it was the
+  dishonest option.
+- The in-memory transport **refuses a publish carrying a priority** rather than
+  ignoring it. Silently dropping it means a test that passes and a production
+  that reorders.
+
+`SINGLE_ACTIVE_CONSUMER` stays claimed: it is reachable today as the
+`x-single-active-consumer` queue argument, which is a declaration rather than a
+method.
+
 ## [0.2.5] - 2026-09-01
 
 ### Fixed

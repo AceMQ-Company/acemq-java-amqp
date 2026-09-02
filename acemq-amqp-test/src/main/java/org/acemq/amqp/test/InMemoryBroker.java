@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingDeque;
 
+import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.QueueType;
@@ -227,6 +228,18 @@ final class InMemoryBroker {
      *     turns into a failed publish
      */
     Set<String> route(OutboundMessage message) {
+        // Refused rather than ignored. This transport does not claim PRIORITY, and a
+        // priority silently dropped here means messages come back in a different order
+        // than they would against a broker that honours it -- a test that passes and a
+        // production that does not, which is the failure this transport exists to prevent.
+        if (message.priority().isPresent()) {
+            throw new AceMqException("the in-memory transport does not support priority, so the"
+                    + " message published to '" + message.routingKey() + "' at priority "
+                    + message.priority().orElseThrow() + " cannot be ordered as it would be on a"
+                    + " broker that does. Test priority against a real broker, or publish without"
+                    + " one.");
+        }
+
         Set<String> delivered = new LinkedHashSet<>();
 
         if (message.exchange().isEmpty()) {

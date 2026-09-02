@@ -394,7 +394,8 @@ public final class DefaultPublisher<T> implements Publisher<T> {
                 .headers(headers)
                 .messageId(prepared.envelope.id())
                 .contentType(codec.contentType())
-                .expiration(options.expiration().orElse(null));
+                .expiration(options.expiration().orElse(null))
+                .priority(options.priority().orElse(null));
         if (!options.persistent()) {
             outbound.transientDelivery();
         }

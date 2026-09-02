@@ -49,12 +49,17 @@ public final class RabbitMqTransport implements Transport {
      * ladder instead rather than assuming. {@code CONSISTENT_HASH_ROUTING} is missing for the
      * same reason.
      */
+    // TRANSACTIONS is deliberately absent. RabbitMQ has tx.select, and this library offers no
+    // way to reach it: a capability is a promise that the library can do the thing, not that
+    // the broker could if someone wrote the code. Publisher confirms cover what almost every
+    // caller wants transactions for, at a fraction of the cost, and the transactional outbox
+    // covers the rest. Claiming it made mq.supports(TRANSACTIONS) return true and left the
+    // caller with nothing to call.
     private static final Set<Capability> CAPABILITIES = Collections.unmodifiableSet(EnumSet.of(
             Capability.EXCHANGE_ROUTING,
             Capability.TOPIC_WILDCARDS,
             Capability.HEADERS_ROUTING,
             Capability.PUBLISHER_CONFIRMS,
-            Capability.TRANSACTIONS,
             Capability.DEAD_LETTER_NATIVE,
             Capability.TTL_PER_MESSAGE,
             Capability.PRIORITY,

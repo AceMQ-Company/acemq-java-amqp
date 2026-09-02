@@ -40,6 +40,7 @@ public final class OutboundMessage {
     private final boolean persistent;
     private final boolean mandatory;
     private final @Nullable Duration expiration;
+    private final @Nullable Integer priority;
 
     private OutboundMessage(Builder builder) {
         this.exchange = builder.exchange == null ? "" : builder.exchange;
@@ -51,6 +52,7 @@ public final class OutboundMessage {
         this.persistent = builder.persistent;
         this.mandatory = builder.mandatory;
         this.expiration = builder.expiration;
+        this.priority = builder.priority;
     }
 
     /**
@@ -114,6 +116,13 @@ public final class OutboundMessage {
         return java.util.Optional.ofNullable(expiration);
     }
 
+    /**
+     * @return the priority this message was published with, if any
+     */
+    public java.util.Optional<Integer> priority() {
+        return java.util.Optional.ofNullable(priority);
+    }
+
     @Override
     public String toString() {
         return "OutboundMessage{exchange=" + exchange + ", routingKey=" + routingKey + ", bytes="
@@ -132,6 +141,7 @@ public final class OutboundMessage {
         private boolean persistent = true;
         private boolean mandatory = true;
         private @Nullable Duration expiration;
+        private @Nullable Integer priority;
 
         public Builder exchange(String exchange) {
             this.exchange = exchange;
@@ -192,6 +202,20 @@ public final class OutboundMessage {
                 throw new IllegalArgumentException("expiration must be positive, was " + expiration);
             }
             this.expiration = expiration;
+            return this;
+        }
+
+        /**
+         * Sets the priority this message is published with.
+         *
+         * <p>Only meaningful on a queue declared with a maximum priority; elsewhere the broker
+         * ignores it. Higher is more urgent.
+         *
+         * @param priority priority to publish with, or {@code null} for none
+         * @return this builder
+         */
+        public Builder priority(@Nullable Integer priority) {
+            this.priority = priority;
             return this;
         }
 

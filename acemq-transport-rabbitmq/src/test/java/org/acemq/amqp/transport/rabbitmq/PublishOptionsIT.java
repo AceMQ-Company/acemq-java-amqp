@@ -26,6 +26,7 @@ import org.acemq.amqp.api.PublishFailedException;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.PublishOptions;
+import org.acemq.amqp.transport.QueueType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -126,6 +127,52 @@ class PublishOptionsIT {
                     .send("quick");
 
             assertThat(received.await(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @Timeout(120)
+    @DisplayName("a higher priority is delivered before work that was queued first")
+    void priority_reorders_what_is_waiting() throws Exception {
+        // Priority is a property of the queue before it is a property of the message: without
+        // x-max-priority the broker ignores what a message asks for, which is the usual reason
+        // this "does not work".
+        mq.declareQueue("work.priority", QueueType.CLASSIC, java.util.Map.of("x-max-priority", 10));
+        try {
+            // Published with nothing consuming, so all five are waiting when a consumer
+            // arrives. Priority reorders what is queued; it cannot reorder what has already
+            // been handed out.
+            for (int i = 1; i <= 4; i++) {
+                mq.publisher("", "work.priority", String.class)
+                        .asText()
+                        .send("ordinary-" + i);
+            }
+            mq.publisher("", "work.priority", String.class)
+                    .with(PublishOptions.defaults().withPriority(9))
+                    .asText()
+                    .send("urgent");
+
+            java.util.List<String> order = new java.util.concurrent.CopyOnWriteArrayList<>();
+            // prefetch(1), or the consumer is handed the whole queue before the broker has a
+            // chance to order it and the urgent message waits behind four ordinary ones.
+            try (MessageConsumer consumer = mq.consume(
+                    "work.priority",
+                    String.class,
+                    org.acemq.amqp.core.ConsumerOptions.prefetch(1)
+                            .as(org.acemq.amqp.core.Codecs.byName("text")),
+                    message -> order.add(message.payload()))) {
+
+                long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+                while (order.size() < 5 && System.nanoTime() < deadline) {
+                    Thread.sleep(50);
+                }
+            }
+
+            assertThat(order).hasSize(5);
+            // The whole claim: it jumped the four that were published before it.
+            assertThat(order.get(0)).isEqualTo("urgent");
+        } finally {
+            mq.deleteQueue("work.priority");
         }
     }
 }

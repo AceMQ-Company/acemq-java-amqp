@@ -45,21 +45,27 @@ public final class PublishOptions {
     private final boolean persistent;
     private final boolean mandatory;
     private final @Nullable Duration expiration;
+    private final @Nullable Integer priority;
 
-    private PublishOptions(boolean persistent, boolean mandatory, @Nullable Duration expiration) {
+    private PublishOptions(
+            boolean persistent, boolean mandatory, @Nullable Duration expiration, @Nullable Integer priority) {
         if (expiration != null && (expiration.isNegative() || expiration.isZero())) {
             throw new IllegalArgumentException("expiration must be positive, was " + expiration);
+        }
+        if (priority != null && priority < 0) {
+            throw new IllegalArgumentException("priority must not be negative, was " + priority);
         }
         this.persistent = persistent;
         this.mandatory = mandatory;
         this.expiration = expiration;
+        this.priority = priority;
     }
 
     /**
      * @return messages written to disk, unroutable messages reported as failures, and no expiry
      */
     public static PublishOptions defaults() {
-        return new PublishOptions(true, true, null);
+        return new PublishOptions(true, true, null, null);
     }
 
     /**
@@ -76,7 +82,7 @@ public final class PublishOptions {
      * @return options that let the broker skip the disk
      */
     public static PublishOptions transientDelivery() {
-        return new PublishOptions(false, true, null);
+        return new PublishOptions(false, true, null, null);
     }
 
     /**
@@ -94,7 +100,7 @@ public final class PublishOptions {
      * @return options that accept unroutable messages
      */
     public PublishOptions allowUnroutable() {
-        return new PublishOptions(persistent, false, expiration);
+        return new PublishOptions(persistent, false, expiration, priority);
     }
 
     /**
@@ -113,7 +119,34 @@ public final class PublishOptions {
      * @return options with that expiry
      */
     public PublishOptions expiringAfter(Duration expiration) {
-        return new PublishOptions(persistent, mandatory, expiration);
+        return new PublishOptions(persistent, mandatory, expiration, priority);
+    }
+
+    /**
+     * Publishes at the given priority.
+     *
+     * <p>Priority is a property of the <em>queue</em> first: it does nothing unless the queue was
+     * declared with {@code x-max-priority}, and a broker that was not told a maximum ignores what
+     * a message asks for. Declare the queue with it and publish with this:
+     *
+     * <pre>{@code
+     * mq.declareQueue("work", QueueType.CLASSIC, Map.of("x-max-priority", 10));
+     * mq.publisher("", "work", Job.class)
+     *         .with(PublishOptions.defaults().withPriority(9))
+     *         .send(urgent);
+     * }</pre>
+     *
+     * <p>Priority reorders what is <em>waiting</em>, not what has already been handed to a
+     * consumer. With a large prefetch the urgent message queues behind work the consumer was
+     * already given, which is the usual reason priority "does not work" -- see
+     * {@code ConsumerOptions.prefetch}.
+     *
+     * @param priority priority to publish at; higher is more urgent, and must not be negative
+     * @return a copy publishing at that priority
+     * @throws IllegalArgumentException if the priority is negative
+     */
+    public PublishOptions withPriority(int priority) {
+        return new PublishOptions(persistent, mandatory, expiration, priority);
     }
 
     /** @return whether the broker is asked to write these messages to disk */
@@ -129,6 +162,11 @@ public final class PublishOptions {
     /** @return how long a message stays worth delivering, when a limit was set */
     public java.util.Optional<Duration> expiration() {
         return java.util.Optional.ofNullable(expiration);
+    }
+
+    /** @return the priority to publish at, if one was chosen */
+    public java.util.Optional<Integer> priority() {
+        return java.util.Optional.ofNullable(priority);
     }
 
     @Override
