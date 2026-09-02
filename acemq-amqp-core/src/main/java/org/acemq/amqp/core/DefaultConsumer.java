@@ -346,7 +346,14 @@ final class DefaultConsumer<T> implements MessageConsumer {
         // The content type goes to the codec, because a codec that reads more than one format
         // cannot choose between them without knowing what the sender said it wrote.
         T payload = codec.decode(delivery.body(), payloadType, delivery.contentType());
-        return new ReceivedMessage<>(payload, envelope, queue, delivery.routingKey(), Instant.now());
+        return new ReceivedMessage<>(
+                payload,
+                envelope,
+                queue,
+                delivery.routingKey(),
+                Instant.now(),
+                delivery.replyTo().orElse(null),
+                delivery.contentType());
     }
 
     @Override

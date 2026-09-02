@@ -32,6 +32,7 @@ public final class InboundDelivery {
     private final @Nullable String messageId;
     private final @Nullable String contentType;
     private final boolean redelivered;
+    private final @Nullable String replyTo;
 
     public InboundDelivery(
             String queue,
@@ -42,6 +43,22 @@ public final class InboundDelivery {
             @Nullable String messageId,
             @Nullable String contentType,
             boolean redelivered) {
+        this(queue, exchange, routingKey, body, headers, messageId, contentType, redelivered, null);
+    }
+
+    /**
+     * @param replyTo queue the sender asked for a reply on, or {@code null} when it expects none
+     */
+    public InboundDelivery(
+            String queue,
+            String exchange,
+            String routingKey,
+            byte[] body,
+            @Nullable Map<String, Object> headers,
+            @Nullable String messageId,
+            @Nullable String contentType,
+            boolean redelivered,
+            @Nullable String replyTo) {
         this.queue = queue;
         this.exchange = exchange == null ? "" : exchange;
         this.routingKey = routingKey == null ? "" : routingKey;
@@ -52,6 +69,19 @@ public final class InboundDelivery {
         this.messageId = messageId;
         this.contentType = contentType;
         this.redelivered = redelivered;
+        this.replyTo = replyTo;
+    }
+
+    /**
+     * Where the sender asked for a reply.
+     *
+     * <p>AMQP's own {@code reply-to} property, so this is set whether or not the sender used
+     * this library.
+     *
+     * @return the reply queue, when the sender named one
+     */
+    public java.util.Optional<String> replyTo() {
+        return java.util.Optional.ofNullable(replyTo);
     }
 
     public String queue() {

@@ -79,6 +79,14 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     private final PublishOptions options;
     private final Interceptors interceptors;
 
+    /**
+     * Where a reply should go, when this publisher is asking a question.
+     *
+     * <p>Not final and not carried by {@link #with(PublishOptions)}: it is set last, by
+     * {@link #replyingTo(String)}, on a publisher built for one exchange and routing key.
+     */
+    private @org.jspecify.annotations.Nullable String replyTo;
+
     DefaultPublisher(
             TransportConnection connection,
             Codec codec,
@@ -127,6 +135,21 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         this.publishingPaused = publishingPaused;
         this.options = options;
         this.interceptors = interceptors;
+    }
+
+    /**
+     * Names the queue a reply to this message should be sent to.
+     *
+     * <p>Used by {@link Requester}; publishing this by hand means taking on the correlation and
+     * the timeout yourself, which is what {@code Requester} exists to avoid.
+     *
+     * @param replyQueue queue the responder should answer on
+     * @return a publisher that asks for a reply
+     */
+    public DefaultPublisher<T> replyingTo(String replyQueue) {
+        DefaultPublisher<T> copy = with(options);
+        copy.replyTo = java.util.Objects.requireNonNull(replyQueue, "replyQueue");
+        return copy;
     }
 
     /**
@@ -395,7 +418,8 @@ public final class DefaultPublisher<T> implements Publisher<T> {
                 .messageId(prepared.envelope.id())
                 .contentType(codec.contentType())
                 .expiration(options.expiration().orElse(null))
-                .priority(options.priority().orElse(null));
+                .priority(options.priority().orElse(null))
+                .replyTo(replyTo);
         if (!options.persistent()) {
             outbound.transientDelivery();
         }

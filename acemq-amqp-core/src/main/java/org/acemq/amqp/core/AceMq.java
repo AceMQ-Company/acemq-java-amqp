@@ -792,6 +792,70 @@ public final class AceMq implements AutoCloseable {
     }
 
     /**
+     * Opens a requester for asking questions and waiting for answers.
+     *
+     * <p>Before reaching for this: request/reply over a broker is synchronous calling in
+     * asynchronous clothes. Where two services can speak HTTP or gRPC, they should — those have
+     * timeouts, load balancing and circuit breakers that this will not match. Where the callee is
+     * reachable only on the broker, this is the right tool and doing it by hand means reply
+     * queues, correlation ids and a timeout somebody forgets.
+     *
+     * <p>One requester per connection. It owns a reply queue, so building one per call creates and
+     * destroys a queue for every question.
+     *
+     * @return a requester; close it to release its reply queue
+     */
+    public Requester requester() {
+        Requester requester = new Requester(this);
+        managed.add(requester);
+        return requester;
+    }
+
+    /**
+     * Answers requests arriving on a queue.
+     *
+     * <pre>{@code
+     * try (Responder responder = mq.respond("pricing", Quote.class, quote -> price(quote))) {
+     *     // serving until closed
+     * }
+     * }</pre>
+     *
+     * <p>The reply goes to whatever the request asked for and carries its correlation id back;
+     * the handler is a plain function and never sees either.
+     *
+     * @param queue queue requests arrive on
+     * @param requestType type to decode requests into
+     * @param handler computes the answer
+     * @param <Q> request type
+     * @param <A> response type
+     * @return a responder; close it to stop serving
+     */
+    public <Q, A> Responder respond(String queue, Class<Q> requestType, java.util.function.Function<Q, A> handler) {
+        return respond(queue, requestType, ConsumerOptions.defaults(), handler);
+    }
+
+    /**
+     * As {@link #respond(String, Class, java.util.function.Function)}, with consumer options.
+     *
+     * <p>Concurrency is the one worth setting: a responder handles one request at a time by
+     * default, and every caller behind a slow one is blocked waiting.
+     *
+     * @param queue queue requests arrive on
+     * @param requestType type to decode requests into
+     * @param options prefetch, concurrency, codec and failure policy
+     * @param handler computes the answer
+     * @param <Q> request type
+     * @param <A> response type
+     * @return a responder; close it to stop serving
+     */
+    public <Q, A> Responder respond(
+            String queue, Class<Q> requestType, ConsumerOptions options, java.util.function.Function<Q, A> handler) {
+        Responder responder = new Responder(this, queue, requestType, options, handler);
+        managed.add(responder);
+        return responder;
+    }
+
+    /**
      * Plans and applies a declared topology.
      *
      * <p>Preferable to the individual declare methods for anything beyond a single queue: it

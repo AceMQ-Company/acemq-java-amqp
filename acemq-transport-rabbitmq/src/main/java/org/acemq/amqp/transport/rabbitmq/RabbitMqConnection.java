@@ -344,7 +344,8 @@ final class RabbitMqConnection implements TransportConnection {
                             portableHeaders(properties.getHeaders()),
                             properties.getMessageId(),
                             properties.getContentType(),
-                            envelope.isRedeliver());
+                            envelope.isRedeliver(),
+                            properties.getReplyTo());
                     listener.onDelivery(delivery, new ChannelAcknowledger(channel, envelope.getDeliveryTag()));
                 }
             });
@@ -401,6 +402,7 @@ final class RabbitMqConnection implements TransportConnection {
                 // RabbitMQ rejects anything else on the channel rather than ignoring it.
                 .expiration(message.expiration().map(ttl -> String.valueOf(ttl.toMillis())).orElse(null))
                 .priority(message.priority().orElse(null))
+                .replyTo(message.replyTo().orElse(null))
                 .build();
     }
 
@@ -658,7 +660,8 @@ final class RabbitMqConnection implements TransportConnection {
                 portableHeaders(properties.getHeaders()),
                 properties.getMessageId(),
                 properties.getContentType(),
-                response.getEnvelope().isRedeliver());
+                response.getEnvelope().isRedeliver(),
+                properties.getReplyTo());
 
         long deliveryTag = response.getEnvelope().getDeliveryTag();
         AtomicBoolean settled = new AtomicBoolean();

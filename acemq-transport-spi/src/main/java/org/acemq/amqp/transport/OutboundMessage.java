@@ -41,6 +41,7 @@ public final class OutboundMessage {
     private final boolean mandatory;
     private final @Nullable Duration expiration;
     private final @Nullable Integer priority;
+    private final @Nullable String replyTo;
 
     private OutboundMessage(Builder builder) {
         this.exchange = builder.exchange == null ? "" : builder.exchange;
@@ -53,6 +54,7 @@ public final class OutboundMessage {
         this.mandatory = builder.mandatory;
         this.expiration = builder.expiration;
         this.priority = builder.priority;
+        this.replyTo = builder.replyTo;
     }
 
     /**
@@ -123,6 +125,13 @@ public final class OutboundMessage {
         return java.util.Optional.ofNullable(priority);
     }
 
+    /**
+     * @return the queue a reply should be sent to, if this message expects one
+     */
+    public java.util.Optional<String> replyTo() {
+        return java.util.Optional.ofNullable(replyTo);
+    }
+
     @Override
     public String toString() {
         return "OutboundMessage{exchange=" + exchange + ", routingKey=" + routingKey + ", bytes="
@@ -142,6 +151,7 @@ public final class OutboundMessage {
         private boolean mandatory = true;
         private @Nullable Duration expiration;
         private @Nullable Integer priority;
+        private @Nullable String replyTo;
 
         public Builder exchange(String exchange) {
             this.exchange = exchange;
@@ -216,6 +226,20 @@ public final class OutboundMessage {
          */
         public Builder priority(@Nullable Integer priority) {
             this.priority = priority;
+            return this;
+        }
+
+        /**
+         * Names the queue a reply should be sent to.
+         *
+         * <p>Carried as AMQP's own {@code reply-to} property rather than an AceMQ header, so a
+         * service written against this library can answer a caller that was not.
+         *
+         * @param replyTo queue to reply to, or {@code null} for a message expecting no reply
+         * @return this builder
+         */
+        public Builder replyTo(@Nullable String replyTo) {
+            this.replyTo = replyTo;
             return this;
         }
 

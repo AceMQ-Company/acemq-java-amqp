@@ -80,5 +80,25 @@ public interface Message<T> {
      * @param <R> replacement payload type
      * @return a new message sharing this message's metadata
      */
+    /**
+     * Where the sender asked for a reply.
+     *
+     * <p>Present only for a request. A handler answering one does not need to read this --
+     * {@code Responder} does it -- but a consumer that wants to tell a request from a plain
+     * message can.
+     *
+     * @return the reply queue, when the sender named one
+     */
+    default Optional<String> replyTo() {
+        return Optional.empty();
+    }
+
+    /**
+     * @return what the sender said the body was, when it said anything
+     */
+    default Optional<String> contentType() {
+        return Optional.empty();
+    }
+
     <R> Message<R> withPayload(R payload);
 }

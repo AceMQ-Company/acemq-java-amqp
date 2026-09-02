@@ -10,6 +10,32 @@ While the version is `0.x` the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.7] - 2026-09-02
+
+### Added
+- **Request and reply.** `mq.requester()` asks and waits; `mq.respond(queue, type,
+  handler)` answers. Replies are matched by correlation id, so one requester can
+  have many questions in flight, and the reply queue is deleted on close and
+  carries `x-expires` so a killed process does not leave one behind.
+
+  The reply address travels as AMQP's own `reply-to` property rather than an
+  `x-acemq-*` header, so a service written against this library can answer a
+  caller that was not.
+
+  `RequestTimedOutException` says what a timeout does **not** mean: the request
+  may still be queued, being handled, or already done with the reply lost coming
+  back. Retrying is a decision about idempotency rather than a reflex.
+
+  Four counters worth graphing: `timedOut`, `unmatched`, `answered`,
+  `unanswerable`. `unmatched` rising alongside `timedOut` is the signature of a
+  timeout that is too short rather than anything broken.
+
+  The documentation leads with when *not* to use it: request/reply over a broker
+  is synchronous calling in asynchronous clothes, and where two services can
+  speak HTTP or gRPC they should.
+- `Message.replyTo()` and `Message.contentType()`, both defaulting to empty, so a
+  consumer can tell a request from a plain message.
+
 ## [0.2.6] - 2026-09-02
 
 A capability is a promise that *this library* can do the thing — not that the

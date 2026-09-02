@@ -141,7 +141,8 @@ final class InMemoryConnection implements TransportConnection {
                 message.headers(),
                 message.messageId(),
                 message.contentType(),
-                false);
+                false,
+                message.replyTo().orElse(null));
 
         AtomicBoolean settled = new AtomicBoolean();
         Acknowledger acknowledger = new Acknowledger() {
@@ -333,7 +334,8 @@ final class InMemoryConnection implements TransportConnection {
                     message.headers(),
                     message.messageId(),
                     message.contentType(),
-                    false);
+                    false,
+                    message.replyTo().orElse(null));
 
             AtomicBoolean settled = new AtomicBoolean();
             Acknowledger acknowledger = new Acknowledger() {
