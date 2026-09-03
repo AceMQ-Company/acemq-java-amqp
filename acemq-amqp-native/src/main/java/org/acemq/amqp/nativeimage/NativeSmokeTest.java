@@ -16,6 +16,7 @@
 package org.acemq.amqp.nativeimage;
 
 import java.io.FileInputStream;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.Collections;
 import java.util.UUID;
@@ -73,7 +74,17 @@ public final class NativeSmokeTest {
     /** Java 11 target across the library, so a plain class rather than a record. */
     public static final class Order {
 
+        /**
+         * Jackson sets this through the no-argument constructor and the setter, which is a
+         * control-flow path NullAway cannot see: to it, the constructor leaves a non-null
+         * field null. {@code NullAway.Init} is its documented answer for a field a framework
+         * initialises, and it says that rather than the alternatives — a placeholder default
+         * no code path relies on, or a {@code @Nullable} that would make every reader of
+         * {@link #getId()} handle a null this class never actually holds.
+         */
+        @SuppressWarnings("NullAway.Init")
         private String id;
+
         private double amount;
 
         public Order() {
@@ -114,7 +125,12 @@ public final class NativeSmokeTest {
         Codec json = Codecs.byName("json");
         check("Jackson over an application type", () -> {
             byte[] encoded = json.encode(new Order("o-1", 42.0));
-            require(new String(encoded).contains("\"id\":\"o-1\""), "unexpected JSON: " + new String(encoded));
+            // UTF-8 explicitly, not the platform default. JSON is UTF-8 by specification,
+            // and a native image's default charset is whatever the build or the container
+            // happened to have -- which is how a check like this passes on a laptop and
+            // fails in a minimal image with no locale set.
+            String decoded = new String(encoded, StandardCharsets.UTF_8);
+            require(decoded.contains("\"id\":\"o-1\""), "unexpected JSON: " + decoded);
             require("o-1".equals(json.decode(encoded, Order.class).getId()), "decode lost the id");
         });
 
