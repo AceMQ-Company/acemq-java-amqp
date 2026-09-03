@@ -62,11 +62,24 @@ import com.rabbitmq.client.MessageProperties;
  * {@code waitForConfirms} would be faster and would be measuring something else entirely,
  * namely the cost of not knowing whether the message arrived.
  */
+/*
+ * Three forks and ten iterations, not one and five.
+ *
+ * The gate enforces a 5% budget, and it can only do that if the measurement resolves better
+ * than 5%. One fork of five iterations of a network round-trip on a shared runner produced
+ * +/-7%, which cannot tell a breach from a clean run -- and reported one every night from
+ * 27 August. Forks matter more than iterations here: each one is a fresh JVM, so
+ * fork-to-fork spread includes the JIT and allocation luck that repeated iterations inside
+ * one JVM never sample, and it is that spread the interval needs to contain.
+ *
+ * Cost: two benchmarks, three forks, 5x2s warmup and 10x3s measurement each, so about four
+ * minutes plus JVM starts, against a job timeout of sixty.
+ */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
-@Fork(value = 1, warmups = 1)
-@Warmup(iterations = 3, time = 2)
-@Measurement(iterations = 5, time = 3)
+@Fork(value = 3, warmups = 1)
+@Warmup(iterations = 5, time = 2)
+@Measurement(iterations = 10, time = 3)
 @State(Scope.Benchmark)
 public class PublishOverheadBenchmark {
 

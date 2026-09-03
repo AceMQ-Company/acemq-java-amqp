@@ -32,6 +32,14 @@ jobs:
       - name: Spotless and enforcer
         run: mvn -B --no-transfer-progress validate
 
+      # The benchmark gate is Python and has no other test. It was wrong for
+      # eight nights and nothing said so, because the only thing exercising it
+      # was the nightly it was supposed to protect. Runs in a second, here rather
+      # than nightly, so a broken gate is caught on the pull request that breaks
+      # it.
+      - name: Test the benchmark gate
+        run: python3 etc/test-benchmark-checks.py
+
   build:
     name: build on JDK ${{ matrix.java }}
     needs: validate

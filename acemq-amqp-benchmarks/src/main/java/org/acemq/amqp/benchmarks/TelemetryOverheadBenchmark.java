@@ -59,11 +59,21 @@ import io.opentelemetry.sdk.trace.SdkTracerProvider;
  * microseconds, turning this into a benchmark of RabbitMQ. These numbers are engine overhead;
  * the separate budget against the raw client needs a real broker and is measured elsewhere.
  */
+/*
+ * Three forks, for the same reason as the publish benchmark: an interval that does not
+ * contain the fork-to-fork spread is not an interval. These are in-process and microsecond-
+ * scale, so each iteration gathers plenty of samples in a second and the cost is about three
+ * minutes for the four cases.
+ *
+ * Last night's run is the argument: publishWithoutTelemetry came out at 7.0 +/- 33.5 us/op
+ * from one fork -- an error bar five times the number it decorates, published as a figure
+ * about what instrumentation costs.
+ */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
-@Fork(value = 1, warmups = 1)
-@Warmup(iterations = 3, time = 1)
-@Measurement(iterations = 5, time = 2)
+@Fork(value = 3, warmups = 1)
+@Warmup(iterations = 5, time = 1)
+@Measurement(iterations = 10, time = 1)
 @State(Scope.Benchmark)
 public class TelemetryOverheadBenchmark {
 

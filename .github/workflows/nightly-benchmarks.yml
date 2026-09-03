@@ -4,13 +4,20 @@ name: nightly-benchmarks
 # result against the stored baseline. A run that produces a number nobody
 # compares is a number nobody reads, so the comparison is the point of the job
 # and the reason it can fail.
+#
+# It can also fail for the wrong reason, and did, every night from 27 August: a
+# 5% budget was enforced on the difference between two means whose confidence
+# intervals were +/-7%, and a baseline measured on a laptop was compared against
+# ubuntu-latest. Both are fixed -- the checks compare intervals, the benchmarks
+# run enough forks to have intervals worth comparing, and the baseline is per
+# environment and refuses to be read across one.
 on:
   schedule:
     - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       update-baseline:
-        description: "Commit this run as the new baseline"
+        description: "Commit this run as the baseline for this environment"
         required: false
         default: "false"
 
@@ -26,6 +33,8 @@ jobs:
       # regresses; without it that step fails and the regression goes unreported.
       issues: write
     timeout-minutes: 60
+    outputs:
+      baseline: ${{ steps.environment.outputs.baseline }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +45,17 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      # The baseline is named after what produced it. A number from this runner
+      # is comparable with another number from this runner and with nothing else,
+      # and a file name that says so is harder to misuse than a comment asking
+      # people not to.
+      - name: Name the baseline after this environment
+        id: environment
+        run: |
+          name="benchmarks/results/baseline-${{ runner.os }}-${{ runner.arch }}-jdk21.json"
+          echo "baseline=$name" >> "$GITHUB_OUTPUT"
+          echo "BASELINE=$name" >> "$GITHUB_ENV"
 
       - name: Build the benchmarks
         run: mvn -B --no-transfer-progress clean install -Pbenchmarks -DskipTests -DskipITs
@@ -49,20 +69,19 @@ jobs:
       # The budget is a ratio between two figures measured minutes apart on the
       # same runner against the same broker, so it survives the noise that makes
       # an absolute number from shared hardware meaningless. This is the check
-      # behind the claim in the README.
+      # behind the claim in the README. It fails only when the whole confidence
+      # interval is above the budget; a run too imprecise to decide says so and
+      # passes.
       - name: Enforce the overhead budget against the raw client
         run: python3 etc/check-overhead-budget.py benchmarks/results/current.json 5
 
-      - name: Compare against the baseline
-        # Hosted runners are noisy, so the threshold is deliberately looser than
-        # the five percent budget in doc 10: a tighter one on shared hardware
-        # produces false alarms, and an alert nobody trusts is an alert nobody
-        # reads. The budget itself is measured against the raw client in the same
-        # run, where machine noise largely cancels out.
-        run: |
-          python3 etc/compare-benchmarks.py \
-                  benchmarks/results/current.json \
-                  benchmarks/results/baseline.json 15
+      - name: Compare against the baseline for this environment
+        # Looser than the 5% budget on purpose: this compares across nights on
+        # shared hardware, where the budget's within-run cancellation does not
+        # apply. A benchmark regresses only when its whole interval is past the
+        # threshold, and a missing baseline for this environment is reported
+        # rather than treated as a pass or a failure.
+        run: python3 etc/compare-benchmarks.py benchmarks/results/current.json "$BASELINE" 15
 
       - name: Publish the result
         if: always()
@@ -82,12 +101,56 @@ jobs:
           gh issue create \
             --title "Benchmark regression on $(echo "$SHA" | cut -c1-7)" \
             --label "area:core" \
-            --body "The nightly benchmark run regressed against the stored baseline.
+            --body "A benchmark moved past its threshold by more than the measurement's own
+          uncertainty, or a benchmark went missing.
 
           Commit: $SHA
           Run: $RUN_URL
 
-          The comparison output in that run names which benchmarks moved and by how
-          much. If the change is expected, update benchmarks/results/baseline.json
-          in the same pull request that causes it, so the baseline and the reason
-          for it arrive together."
+          The comparison output in that run names which benchmark moved, by how much,
+          and with what interval. Both checks require the whole confidence interval to
+          be past the threshold before failing, so this is not a run that got unlucky.
+
+          If the change is expected, re-run this workflow with update-baseline: true,
+          which records the new baseline for this environment and says so in the commit."
+
+  # A separate job, and separate for one reason: it is the only thing here that
+  # needs contents: write. The benchmark job builds and runs code from the
+  # repository, and a nightly that both runs the repository's code and can push
+  # to its default branch is a wider blast radius than a baseline file is worth.
+  # This job runs no repository code -- it downloads an artifact and commits it.
+  #
+  # It also closes a loop that was open: the update-baseline input existed and
+  # nothing acted on it, so recording a baseline meant downloading an artifact by
+  # hand, which is why a laptop measurement from 26 August was still the baseline
+  # in September.
+  record-baseline:
+    needs: benchmark
+    if: github.event_name == 'workflow_dispatch' && inputs.update-baseline == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results
+          path: downloaded
+
+      - name: Commit it as the baseline for this environment
+        env:
+          BASELINE: ${{ needs.benchmark.outputs.baseline }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          mkdir -p "$(dirname "$BASELINE")"
+          cp downloaded/current.json "$BASELINE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$BASELINE"
+          git commit -m "Record the benchmark baseline for $(basename "$BASELINE" .json)
+
+          Measured by run $RUN_ID on $SHA. Comparable with runs from that
+          environment and with no other."
+          git push

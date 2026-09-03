@@ -56,10 +56,15 @@ AceMQ aims to be that layer:
 - **Observable from the start** — OpenTelemetry spans and Micrometer metrics are
   emitted by the core, with names fixed by the specification so every language
   port reports identically.
-- **And it does not cost you** — a confirmed publish through AceMQ measures
-  within noise of the same publish written by hand against the RabbitMQ client
-  (421 against 422 microseconds in the run recorded in `benchmarks/results`).
-  A nightly job re-measures it and fails if the gap exceeds five percent.
+- **And it does not cost you** — a confirmed publish through AceMQ has not been
+  shown to differ from the same publish written by hand against the RabbitMQ
+  client. Every pair measured so far says the same thing: 252 ± 17 against
+  236 ± 15 microseconds on a hosted runner, 421 ± 167 against 422 ± 147 on a
+  laptop. The intervals overlap in both, which supports *indistinguishable at
+  this precision* and does not support a figure. A nightly job re-measures the
+  pair and fails when the **whole interval** of the difference sits above five
+  percent — the interval, not the means, because on shared hardware the means
+  alone report a breach whatever the code does.
 
 ## Modules
 
