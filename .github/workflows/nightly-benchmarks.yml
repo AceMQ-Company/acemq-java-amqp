@@ -36,9 +36,9 @@ jobs:
     outputs:
       baseline: ${{ steps.environment.outputs.baseline }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           # JDK 21: the static-analysis profile is active here, so the benchmarks
           # measure the code as it is actually analysed and shipped.
@@ -85,7 +85,7 @@ jobs:
 
       - name: Publish the result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: benchmarks/results/current.json
@@ -131,9 +131,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: benchmark-results
           path: downloaded
