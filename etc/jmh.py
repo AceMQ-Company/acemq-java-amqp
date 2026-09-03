@@ -54,10 +54,23 @@ class Result:
 
 
 def load(path):
-    """Reads a JMH JSON file into {short benchmark name: Result}."""
+    """Reads a JMH JSON file into {short benchmark name: Result}.
+
+    A parameterised benchmark appears once per parameter combination under the same
+    name, so the key carries the parameters when there are any -- keying on the name
+    alone would silently keep whichever entry happened to be last, and a check that
+    quietly drops half its inputs is the failure this module exists after.
+    """
     with open(path) as handle:
         records = json.load(handle)
-    return {r["benchmark"].split(".")[-1]: Result(r["benchmark"].split(".")[-1], r) for r in records}
+    loaded = {}
+    for record in records:
+        name = record["benchmark"].split(".")[-1]
+        params = record.get("params") or {}
+        if params:
+            name += "[" + ",".join("{}={}".format(k, params[k]) for k in sorted(params)) + "]"
+        loaded[name] = Result(name, record)
+    return loaded
 
 
 def relative_change(current, reference):
