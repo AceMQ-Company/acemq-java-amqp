@@ -60,6 +60,19 @@ jobs:
           cache: maven
       - name: Build and test
         run: mvn -B --no-transfer-progress clean verify
+      # acemq-amqp-native sits behind the `native` profile, so no ordinary CI job
+      # compiles it -- and the static-analysis profile only activates on JDK 21.
+      # The intersection of those two facts is a module that NullAway checks
+      # nowhere except the nightly native workflow, which is how the same class of
+      # error reached a release tag once and main twice. Compiling it here costs
+      # seconds and moves the discovery to the pull request.
+      #
+      # Compile rather than verify: building the image is the nightly's job and
+      # needs GraalVM. This is about the analysis, not the binary.
+      - name: Compile the native module under static analysis
+        if: matrix.java == '21'
+        run: mvn -B --no-transfer-progress -Pnative -pl acemq-amqp-native -am -DskipTests compile
+
       - name: Verify published bytecode targets Java 11
         if: matrix.java == '17'
         run: |
