@@ -14,14 +14,30 @@ permissions:
 jobs:
   native:
     name: native image on GraalVM ${{ matrix.java }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         # The oldest and the newest supported. A break usually lands on one and
         # not the other, and knowing which narrows it immediately.
-        java: ["21", "25"]
+        #
+        # The runner is pinned per entry, and 21 is on 22.04 for a reason worth
+        # writing down. GraalVM Community for JDK 21 ended at 21.0.2 -- there is
+        # no later community build to move to -- and that release predates
+        # Ubuntu 24.04's toolchain. Linking it there fails at the last step with
+        #
+        #   undefined reference to `Java_jdk_internal_misc_ScopedMemoryAccess_closeScope0'
+        #
+        # after the image has compiled successfully, which reads like a code
+        # fault and is not one. 22.04 links it. When 22.04 is retired, the
+        # options are Oracle GraalVM (patched 21.0.x, free under the GFTC),
+        # Liberica NIK, or dropping JDK 21 from this matrix and saying so.
+        include:
+          - java: "21"
+            os: ubuntu-22.04
+          - java: "25"
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
