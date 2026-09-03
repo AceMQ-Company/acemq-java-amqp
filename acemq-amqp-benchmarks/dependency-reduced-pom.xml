@@ -4,7 +4,7 @@
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-benchmarks</artifactId>
   <name>AceMQ AMQP Benchmarks</name>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>0.2.8-SNAPSHOT</version>
   <description>JMH benchmarks. In the reactor rather than a separate repository so they
     measure the current commit: a benchmark that consumes a published snapshot attributes
     today's regression to yesterday's code. Built only under -Pbenchmarks.</description>
@@ -57,7 +57,7 @@
     <dependency>
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
-      <version>3.27.0</version>
+      <version>3.27.7</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
