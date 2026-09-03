@@ -58,13 +58,8 @@ AceMQ aims to be that layer:
   port reports identically.
 - **And it does not cost you** — a confirmed publish through AceMQ has not been
   shown to differ from the same publish written by hand against the RabbitMQ
-  client. Every pair measured so far says the same thing: 252 ± 17 against
-  236 ± 15 microseconds on a hosted runner, 421 ± 167 against 422 ± 147 on a
-  laptop. The intervals overlap in both, which supports *indistinguishable at
-  this precision* and does not support a figure. A nightly job re-measures the
-  pair and fails when the **whole interval** of the difference sits above five
-  percent — the interval, not the means, because on shared hardware the means
-  alone report a breach whatever the code does.
+  client. A nightly benchmark re-measures the pair against a real broker and
+  fails on a regression.
 
 ## Modules
 
