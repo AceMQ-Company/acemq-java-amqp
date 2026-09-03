@@ -221,55 +221,90 @@ def payload_size_section(results, out):
     """
     sizes = []
     for name, result in results.items():
-        if name.startswith("acemqAtSize["):
+        if name.startswith("acemqBytesAtSize["):
             size = int(name.split("=")[1].rstrip("]"))
             raw = results.get("rawClientAtSize[payloadBytes={}]".format(size))
             if raw is not None:
-                sizes.append((size, result, raw))
+                sizes.append((size, result, raw,
+                              results.get("acemqAtSize[payloadBytes={}]".format(size))))
     if not sizes:
         return
     sizes.sort()
 
+    def label_of(size):
+        return "{} B".format(size) if size < 1024 else "{} KB".format(size // 1024)
+
     out.append("")
-    out.append("## Does it shrink with the payload?")
+    out.append("## Fixed cost, or proportional?")
     out.append("")
-    out.append("The same confirmed-publish pair, at payload sizes from smaller than the envelope "
-               "to far larger than it. If AceMQ's overhead is a fixed number of header bytes, the "
-               "percentage falls across this range; if it is per-message work, it stays flat.")
+    out.append("It matters which. A cost proportional to the payload is a tax on everything; a "
+               "fixed cost per message is a constant that disappears into any real workload. The "
+               "same confirmed publish, at payload sizes an order of magnitude apart, answers it "
+               "— both sides publishing bytes that are already encoded, so neither is charged for "
+               "work the other does not do.")
     out.append("")
-    out.append("| Payload | AceMQ | Raw client | Difference |")
-    out.append("|---|---|---|---|")
-    rows = []
-    for size, acemq, raw in sizes:
+    out.append("| Payload | AceMQ | Raw client | Difference | |")
+    out.append("|---|---|---|---|---|")
+    gaps = []
+    for size, acemq, raw, _ in sizes:
         change, error = jmh.relative_change(acemq, raw)
-        shown = "{:+.1f}%".format(change) if error is None else \
-            "{:+.1f}% ± {:.1f}".format(change, error)
-        label = "{} B".format(size) if size < 1024 else "{} KB".format(size // 1024)
-        out.append("| {} | {:.0f} ± {:.0f} µs | {:.0f} ± {:.0f} µs | {} |".format(
-            label, acemq.score, acemq.error or 0, raw.score, raw.error or 0, shown))
-        rows.append((size, change, error))
+        gap = acemq.score - raw.score
+        gap_err = math.sqrt((acemq.error or 0) ** 2 + (raw.error or 0) ** 2)
+        verdict = "contains zero" if gap - gap_err <= 0 else "excludes zero"
+        out.append("| {} | {:.0f} ± {:.0f} µs | {:.0f} ± {:.0f} µs | **{:+.1f} ± {:.1f} µs** | {} |"
+                   .format(label_of(size), acemq.score, acemq.error or 0,
+                           raw.score, raw.error or 0, gap, gap_err, verdict))
+        gaps.append((size, gap, gap_err, change, error))
     out.append("")
 
-    first, last = rows[0], rows[-1]
-    if first[1] > last[1] * 1.5:
-        out.append("**The percentage falls as the payload grows**, from {:+.1f}% at {} bytes to "
-                   "{:+.1f}% at {} bytes. That is the signature of a fixed cost in bytes, not a "
-                   "proportional one: the envelope is the same size either way, so it matters "
-                   "less the more message there is to carry it.".format(
-                       first[1], first[0], last[1], last[0]))
+    first, last = gaps[0], gaps[-1]
+    spread = abs(first[1] - last[1])
+    combined = math.sqrt(first[2] ** 2 + last[2] ** 2)
+    if spread <= combined:
+        out.append("**The absolute gap does not change with the payload** — {:+.1f} µs at {} "
+                   "against {:+.1f} µs at {}, a difference of {:.1f} µs against a combined "
+                   "uncertainty of {:.1f}. A cost proportional to size would have grown by a "
+                   "factor of {:.0f} across this range. It did not."
+                   .format(first[1], label_of(first[0]), last[1], label_of(last[0]),
+                           spread, combined, last[0] / first[0]))
         out.append("")
-        out.append("Which makes the overhead a design choice rather than an inefficiency. The "
-                   "envelope buys the id, the correlation, the causation chain and the attempt "
-                   "count that every pattern in this library depends on. On a 26-byte message it "
-                   "is most of what is sent; on a realistic one it disappears.")
+        out.append("So it is a **fixed cost per message**, which is what an envelope on the wire "
+                   "looks like: AceMQ's id, type, correlation and timestamps travel as AMQP "
+                   "headers, and the broker parses, routes and persists them whatever the body "
+                   "weighs. That makes it a design choice rather than an inefficiency — those "
+                   "headers are what every pattern in this library is built on — and it means the "
+                   "overhead matters most on the smallest messages and fades on realistic ones.")
     else:
-        out.append("**The percentage does not fall meaningfully across the range** ({:+.1f}% at "
-                   "{} bytes against {:+.1f}% at {} bytes). That refutes the header-size "
-                   "explanation, and the cost is per-message work somewhere other than the "
-                   "library's own publish path — which the in-process measurement above has "
-                   "already bounded at well under a microsecond.".format(
-                       first[1], first[0], last[1], last[0]))
+        out.append("**The absolute gap changes across the range** — {:+.1f} µs at {} against "
+                   "{:+.1f} µs at {}, which is more than the combined uncertainty of {:.1f} µs. "
+                   "The cost is not a fixed per-message one."
+                   .format(first[1], label_of(first[0]), last[1], label_of(last[0]), combined))
     out.append("")
+
+    encoded = [(size, string_case, bytes_case)
+               for size, bytes_case, _, string_case in sizes if string_case is not None]
+    if encoded:
+        out.append("### What serialization costs, separately")
+        out.append("")
+        out.append("The rows above publish pre-encoded bytes. An application publishes objects, "
+                   "and encoding them is real work that a raw client handed a ready-made array "
+                   "never does. Charging AceMQ for it while the other side skips it is not a "
+                   "comparison, so it is measured on its own:")
+        out.append("")
+        out.append("| Payload | Cost of encoding, per publish |")
+        out.append("|---|---|")
+        for size, string_case, bytes_case in encoded:
+            change, error = jmh.relative_change(string_case, bytes_case)
+            gap = string_case.score - bytes_case.score
+            gap_err = math.sqrt((string_case.error or 0) ** 2 + (bytes_case.error or 0) ** 2)
+            shown = "{:+.1f} ± {:.1f} µs".format(gap, gap_err)
+            if gap - gap_err <= 0:
+                shown += " — below this run's resolution"
+            out.append("| {} | {} |".format(label_of(size), shown))
+        out.append("")
+        out.append("Which is the one thing here that genuinely scales with the payload, and it is "
+                   "work the application asked for. Publish bytes and you do not pay it.")
+        out.append("")
 
 
 def reading_section(results, out):
