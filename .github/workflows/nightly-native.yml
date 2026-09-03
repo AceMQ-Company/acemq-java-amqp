@@ -22,21 +22,31 @@ jobs:
         # The oldest and the newest supported. A break usually lands on one and
         # not the other, and knowing which narrows it immediately.
         #
-        # The runner is pinned per entry, and 21 is on 22.04 for a reason worth
-        # writing down. GraalVM Community for JDK 21 ended at 21.0.2 -- there is
-        # no later community build to move to -- and that release predates
-        # Ubuntu 24.04's toolchain. Linking it there fails at the last step with
+        # The distribution is pinned per entry, and 21 is Oracle GraalVM rather
+        # than community for a reason worth writing down.
+        #
+        # GraalVM Community for JDK 21 ended at 21.0.2. That build cannot link a
+        # native image: after compiling the whole thing it fails with
         #
         #   undefined reference to `Java_jdk_internal_misc_ScopedMemoryAccess_closeScope0'
         #
-        # after the image has compiled successfully, which reads like a code
-        # fault and is not one. 22.04 links it. When 22.04 is retired, the
-        # options are Oracle GraalVM (patched 21.0.x, free under the GFTC),
-        # Liberica NIK, or dropping JDK 21 from this matrix and saying so.
+        # which reads like a fault in this repository and is not one -- the
+        # symbol is missing from 21.0.2's own static libraries. It was tested on
+        # ubuntu-22.04 as well as 24.04 in case the host toolchain was to blame;
+        # it is not, the result is identical on both.
+        #
+        # There is no later community build to move to, so the choice is Oracle
+        # GraalVM (patched 21.0.x, free for production use under the GraalVM Free
+        # Terms and Conditions), Liberica NIK, or dropping JDK 21 from this
+        # matrix. Oracle's is used here because it keeps the coverage; it is a
+        # build-time toolchain for a smoke test that is never distributed, so the
+        # licence reaches nothing we ship.
         include:
           - java: "21"
-            os: ubuntu-22.04
+            distribution: graalvm
+            os: ubuntu-latest
           - java: "25"
+            distribution: graalvm-community
             os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +54,7 @@ jobs:
       - uses: graalvm/setup-graalvm@v1
         with:
           java-version: ${{ matrix.java }}
-          distribution: graalvm-community
+          distribution: ${{ matrix.distribution }}
           cache: maven
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
