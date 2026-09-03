@@ -102,6 +102,7 @@ NAV='<nav class="top">
   <a href="security.html">Security</a>
   <a href="testing.html">Testing</a>
   <a href="native-image.html">Native</a>
+  <a href="benchmarks.html">Benchmarks</a>
   <a class="tutorials" href="tutorials.html">Tutorials</a>
   <a class="api" href="apidocs/index.html">API reference</a>
   <a class="enterprise" href="https://acemq.com">Enterprise support</a>

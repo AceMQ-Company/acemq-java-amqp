@@ -38,6 +38,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading the nightly benchmark run's artifact, which is where the numbers
+      # on the benchmarks page come from.
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +59,28 @@ jobs:
         # -DskipTests: this job documents the code, it does not verify it. CI
         # already ran the full suite on this commit.
         run: mvn -B --no-transfer-progress -DskipTests -Djacoco.skip=true javadoc:aggregate
+
+      # The benchmarks page is generated from the most recent successful nightly
+      # run, never written by hand -- a number typed into a document is correct
+      # on the day it is typed, which is how the README came to quote 421 against
+      # 422 microseconds from a laptop run with 40% error bars.
+      #
+      # A missing artifact is not a failure. The generator then writes a page
+      # saying no run has been recorded, which is the only true thing available
+      # and better than a page of stale numbers.
+      - name: Render the benchmarks page from the latest nightly
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          run_id=$(gh run list --workflow nightly-benchmarks.yml --status success \
+                     --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [ -n "$run_id" ]; then
+            gh run download "$run_id" --name benchmark-results --dir /tmp/benchmarks || true
+            python3 etc/render-benchmarks-page.py /tmp/benchmarks/current.json \
+                    --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
+          else
+            python3 etc/render-benchmarks-page.py /tmp/benchmarks/none.json
+          fi
 
       - name: Render the pages
         run: bash .github/scripts/build-docs-site.sh
