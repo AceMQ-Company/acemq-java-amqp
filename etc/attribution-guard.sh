@@ -58,7 +58,11 @@ SELF_EXCLUDES=(
   --exclude=install-git-hooks.sh --exclude=commit-msg --exclude=pre-push
   --exclude=CONTRIBUTING.md --exclude=.attribution-guard-ignore
 )
-tree_hits="$(grep -rIlE "$PATTERN" . \
+# -i, like the commit scans above. Without it this scan was case-sensitive while
+# the message scans were not, so "Generated with ..." in a file passed while the
+# identical text in a commit message was caught. The words being forbidden are
+# ordinary English that tools capitalise however they like.
+tree_hits="$(grep -rIilE "$PATTERN" . \
   --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target \
   --exclude-dir=build --exclude-dir=vendor --exclude-dir=site \
   --exclude-dir=.githooks \
