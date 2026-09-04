@@ -82,7 +82,17 @@
     <!-- dependency versions -->
     <slf4j.version>2.0.16</slf4j.version>
     <rabbitmq.amqp.client.version>5.33.1</rabbitmq.amqp.client.version>
-    <micrometer.version>1.14.2</micrometer.version>
+    <!-- 1.15.x rather than 1.14.x because of CVE-2026-40984 (GHSA-g3pr-3p32-fp23),
+         a denial of service in Micrometer's HTTP server instrumentation. The 1.14
+         line has no patched release at all; the fixes are 1.15.12 and 1.16.6, so
+         this is a line move rather than a patch bump.
+
+         This library instruments AMQP publish and consume, not an HTTP server, so
+         the vulnerable code is not reachable through it; and micrometer-core is
+         optional here, so an application supplies its own version and that one
+         wins. Neither is a reason to compile against a version carrying a known
+         advisory. -->
+    <micrometer.version>1.15.12</micrometer.version>
     <opentelemetry.version>1.45.0</opentelemetry.version>
     <jackson.version>2.18.9</jackson.version>
     <avro.version>1.12.0</avro.version>
