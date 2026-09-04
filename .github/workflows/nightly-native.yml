@@ -73,15 +73,78 @@ jobs:
         # binary and report a pass for code that was never compiled.
         run: mvn -B --no-transfer-progress -Pnative -pl acemq-amqp-native clean verify
 
-  notify:
+  # Decides whether this run is worth a message, and what it should say.
+  #
+  # Failure-only notification had a gap that cost somebody a day: you are told
+  # when it breaks and never told when it is fixed, so after a red morning the
+  # silence is indistinguishable from a job that is still broken. This adds the
+  # other edge -- a green run that follows a failure announces the recovery --
+  # while keeping the original point, which is that a nightly saying "still fine"
+  # every morning is a channel people mute.
+  #
+  # So: red every time it breaks, green once when it comes back, silence in
+  # between.
+  outcome:
     needs: native
-    # Only on a break. A nightly that says "still fine" every morning is a
-    # channel people mute, and a muted channel is worse than no channel.
-    if: always() && needs.native.result == 'failure'
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading this workflow's own previous conclusion.
+      actions: read
+    outputs:
+      notify: ${{ steps.decide.outputs.notify }}
+      status: ${{ steps.decide.outputs.status }}
+      title: ${{ steps.decide.outputs.title }}
+      message: ${{ steps.decide.outputs.message }}
+      icon: ${{ steps.decide.outputs.icon }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.native.result }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$RESULT" = "failure" ]; then
+            {
+              echo "notify=true"
+              echo "status=failure"
+              echo "title=AceMQ for Java native image FAILED"
+              echo "message=GraalVM 21 and 25. See the run for which one broke and on which check."
+              echo "icon="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Green. Worth saying only if the run before it was not.
+          previous=$(gh run list --repo "$REPO" --workflow nightly-native.yml \
+                       --branch main --status completed --limit 10 \
+                       --json databaseId,conclusion \
+                       --jq "[.[] | select(.databaseId != ${RUN_ID})][0].conclusion" || echo "")
+          echo "previous completed run concluded: ${previous:-unknown}"
+
+          if [ "$previous" = "success" ] || [ -z "$previous" ]; then
+            echo "notify=false" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "notify=true"
+              echo "status=success"
+              echo "title=AceMQ for Java native image is green again"
+              echo "message=GraalVM 21 and 25 both build and run the smoke test. The previous run was ${previous}."
+              echo "icon=:sparkles:"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  notify:
+    needs: outcome
+    if: always() && needs.outcome.outputs.notify == 'true'
     uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
     with:
-      status: ${{ needs.native.result }}
-      title: AceMQ for Java native image FAILED
-      message: >-
-        GraalVM 21 and 25. See the run for which one broke and on which check.
+      status: ${{ needs.outcome.outputs.status }}
+      title: ${{ needs.outcome.outputs.title }}
+      message: ${{ needs.outcome.outputs.message }}
+      icon: ${{ needs.outcome.outputs.icon }}
     secrets: inherit
