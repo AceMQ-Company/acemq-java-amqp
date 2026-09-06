@@ -1,9 +1,11 @@
 # acemq-java-amqp
 
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
+[![release](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/release.yml/badge.svg)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/release.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.10-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/packages)
-[![docs](https://img.shields.io/badge/docs-acemq--company.github.io-blue)](https://acemq-company.github.io/acemq-java-amqp/)
+[![version](https://img.shields.io/badge/version-0.2.10-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/releases)
+[![artifacts](https://img.shields.io/badge/artifacts-acemq.org%2Fmaven-blue)](https://acemq.org/maven/)
+[![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-11%2B-orange)](#requirements)
 [![brokers](https://img.shields.io/badge/broker-RabbitMQ-lightgrey)](#requirements)
