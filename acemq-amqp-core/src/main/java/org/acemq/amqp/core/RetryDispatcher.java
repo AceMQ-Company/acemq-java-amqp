@@ -34,11 +34,20 @@ import org.slf4j.LoggerFactory;
 /**
  * Decides what happens to a delivery that failed, and carries it out.
  *
- * <p>Three outcomes exist. A message with attempts left is republished into a retry rung with
- * its attempt counter incremented. A message that has run out of attempts, or grown too old,
- * is republished to the dead-letter queue with the reason attached. A message that could not
- * even be decoded goes to the parking lot instead, because a payload that fails to parse will
- * fail identically on every future attempt and retrying it only wastes capacity.
+ * <p>Three outcomes exist. A message with attempts left is republished with its attempt counter
+ * incremented — into a retry rung when the wait is long enough for the broker to be worth it,
+ * and otherwise back onto the source queue after waiting here. A message that has run out of
+ * attempts, or grown too old, is republished to the dead-letter queue with the reason attached.
+ * A message that could not even be decoded goes to the parking lot instead, because a payload
+ * that fails to parse will fail identically on every future attempt and retrying it only wastes
+ * capacity.
+ *
+ * <p>Republished rather than requeued, in every one of those cases. A requeue returns the bytes
+ * the broker was given, so the attempt header would still read what the publisher wrote however
+ * many times the message had come round, and the count would live only in this process's
+ * memory — which is the one place it is lost when the process that has been failing restarts.
+ * The cost is that a retried message goes to the back of the queue rather than the front; for a
+ * message that has already failed once, that is the better trade.
  *
  * <p>In every case the original delivery is then acknowledged. That looks surprising for a
  * failure, but it is what makes the mechanism reliable: the message has already been safely
@@ -80,9 +89,9 @@ final class RetryDispatcher {
         }
 
         Duration age = envelope.age();
-        Optional<Duration> delay = policy.nextDelay(envelope.attempt(), age);
+        Optional<RetryPolicy.Wait> next = policy.nextWait(envelope.attempt(), age);
 
-        if (!delay.isPresent()) {
+        if (!next.isPresent()) {
             String reason = envelope.attempt() >= policy.maxAttempts()
                     ? "exhausted " + policy.maxAttempts() + " attempts"
                     : "exceeded the maximum message age of " + policy.maxMessageAge();
@@ -90,25 +99,85 @@ final class RetryDispatcher {
             return Outcome.DEAD_LETTERED;
         }
 
-        Duration wait = delay.get();
+        RetryPolicy.Wait wait = next.get();
+        if (wait.isInBroker() && retryInBroker(delivery, envelope, wait.delay())) {
+            return Outcome.RETRIED;
+        }
+        return retryHere(delivery, envelope, wait.delay());
+    }
+
+    /**
+     * Puts the message on a rung queue and lets the broker return it, reporting whether the rung
+     * took it.
+     *
+     * <p>The rung's {@code x-message-ttl} is the delay and its dead-letter target is the source
+     * queue, so the wait costs this process nothing: no delivery held, no prefetch slot spent,
+     * and — the reason it exists at all — nothing lost when this process restarts halfway
+     * through. A consumer sleeping on a five-minute backoff that dies at minute one does not
+     * resume at minute one; the broker redelivers the unacknowledged message immediately, and
+     * the policy that said five minutes delivers in none.
+     *
+     * <p>{@code false} means the rung is not there, and the caller should fall back to waiting
+     * here. Degraded rather than fatal: the message is still deliverable, and waiting for it
+     * here is what this library did before there were rungs.
+     */
+    private boolean retryInBroker(InboundDelivery delivery, Envelope envelope, Duration wait) {
         Optional<String> rung = topology.rungFor(wait);
         if (!rung.isPresent()) {
-            // A policy with attempts but no schedule cannot happen through the public API,
-            // but failing loudly beats silently dropping the message if it ever does.
-            deadLetter(delivery, envelope, "no retry queue exists for a delay of " + wait);
-            return Outcome.DEAD_LETTERED;
+            // Loud, because a topology declared without its rungs otherwise looks like it works
+            // right up until a long backoff quietly becomes a held prefetch slot.
+            log.error(
+                    "no rung exists on {} for a wait of {}, so {} will wait in this consumer instead",
+                    topology.sourceQueue(),
+                    wait,
+                    envelope.id());
+            return false;
         }
 
-        Envelope next = envelope.nextAttempt();
-        publish(rung.get(), delivery, next, null);
-        telemetry.messageRetried(topology.sourceQueue(), next, wait);
+        Envelope advanced = envelope.nextAttempt();
+        publish(rung.get(), delivery, advanced, null);
+        telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
         log.debug(
                 "retrying {} attempt {} of {} after {} via {}",
                 envelope.id(),
-                next.attempt(),
+                advanced.attempt(),
                 policy.maxAttempts(),
                 wait,
                 rung.get());
+        return true;
+    }
+
+    /**
+     * Waits out a short delay here and puts the message back on its own queue, one attempt
+     * further on.
+     *
+     * <p>Waiting here holds the delivery, and so holds one of this consumer's prefetch slots.
+     * For a wait of a few seconds that is the cheaper of the two costs, and it is why the policy
+     * has a threshold at all: below it, a queue nobody asked for is the more expensive answer,
+     * and the seconds a restart loses are only seconds.
+     */
+    private Outcome retryHere(InboundDelivery delivery, Envelope envelope, Duration wait) {
+        if (!wait.isZero() && !wait.isNegative()) {
+            try {
+                Thread.sleep(wait.toMillis());
+            } catch (InterruptedException e) {
+                // Shutting down. The flag goes back so whatever is stopping this consumer still
+                // sees it, and the message is republished anyway rather than left unsettled: it
+                // is due sooner than intended, which beats coming back on attempt one after a
+                // redelivery that forgot every attempt before it.
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        Envelope advanced = envelope.nextAttempt();
+        publish(topology.sourceQueue(), delivery, advanced, null);
+        telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
+        log.debug(
+                "retrying {} attempt {} of {} after waiting {} in this consumer",
+                envelope.id(),
+                advanced.attempt(),
+                policy.maxAttempts(),
+                wait);
         return Outcome.RETRIED;
     }
 
@@ -181,7 +250,7 @@ final class RetryDispatcher {
     /** What the dispatcher did with a failed delivery. */
     enum Outcome {
 
-        /** Republished into a retry rung; it will come back when the delay expires. */
+        /** Republished one attempt further on; it will come back when the delay is up. */
         RETRIED,
 
         /** Republished to the dead-letter queue; it will not come back on its own. */

@@ -215,6 +215,18 @@ class ReplayTest {
         }
 
         @Test
+        @DisplayName("keeps the attempt counter when asked to")
+        void attemptsCanBeKept() throws Exception {
+            seedDead("one");
+
+            mq.replay("orders.new").keepingAttempts().replayAll();
+
+            // For an audit, or for a queue read by something that counts attempts itself and
+            // would be misled by a counter this tool rewrote.
+            assertThat(firstEnvelopeOn("orders.new").attempt()).isEqualTo(5);
+        }
+
+        @Test
         @DisplayName("records where the message came from and when")
         void recordsProvenance() throws Exception {
             seedDead("one");

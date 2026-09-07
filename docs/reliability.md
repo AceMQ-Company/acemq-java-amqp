@@ -2,33 +2,72 @@
 
 What happens when things fail, which is the reason this library exists.
 
-## Retries, without a sleeping thread
+## Retries, and where the waiting happens
 
 ```java
 mq.consume("orders.new", Order.class,
         ConsumerOptions.prefetch(20).withRetry(
-                RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofMinutes(5))),
+                RetryPolicy.exponential(5, Duration.ofSeconds(10), Duration.ofMinutes(5))),
         message -> payments.charge(message.payload()));
 ```
 
-The delay happens **in the broker**, not in your process. The policy generates a
-ladder of queues with time-to-live and a dead-letter target pointing home:
+`exponential` doubles: this one waits 10s, 20s, 40s and 80s. Twenty percent
+jitter is applied to each, in both directions, so a downstream outage that fails
+a thousand messages at once does not retry all thousand on the same tick.
+`RetryPolicy.fixed` applies none, because "every thirty seconds" is an exact
+statement.
+
+**A short wait is spent in the consumer, a long one in the broker.** The line
+between them is thirty seconds by default. Below it, the consumer holds the
+delivery and one prefetch slot for the duration; above it, the message is
+published into a rung queue whose `x-message-ttl` is the wait and whose
+dead-letter target is the queue it came from, and the broker returns it when the
+time is up.
+
+So the policy above produces a ladder with two rungs, not four:
 
 ```
-orders.new.retry.1s     ttl 1s   -> orders.new
-orders.new.retry.5s     ttl 5s   -> orders.new
-orders.new.retry.25s    ttl 25s  -> orders.new
-orders.new.dlq                   (attempts exhausted)
-orders.new.parked                (could not be decoded)
+orders.new.retry.40s    ttl 40s   -> orders.new
+orders.new.retry.80s    ttl 80s   -> orders.new
+orders.new.dlq                    (attempts exhausted, or too old)
+orders.new.parked                 (could not be decoded)
 ```
 
-A message needing a five-second wait is published into the five-second rung,
-expires, and is routed back. No consumer is involved and no thread waits — which
-is why a retry storm does not exhaust your thread pool, and why retries survive a
-restart of your service.
+The 10s and 20s waits get no queue at all. That is the point of having a
+threshold rather than one rule: a schedule that runs in a few seconds costs the
+broker nothing, and the seconds a restart loses are only seconds. Above the
+threshold the arithmetic changes — a consumer sleeping on a five-minute backoff
+that restarts at minute one does not resume at minute one, because the broker
+redelivers the unacknowledged message immediately and a five-minute policy
+delivers in none. That is a correctness bug rather than a throughput one, and it
+is what the rung queues are for. Nothing consumes a rung; the time-to-live is the
+only thing that ever takes a message out of one.
+
+Move the line, or turn the broker half off entirely:
+
+```java
+policy.waitInBrokerFrom(Duration.ofMinutes(1));  // rungs only past a minute
+policy.waitInBrokerFrom(Duration.ZERO);          // never; every wait is local
+```
+
+Zero is the setting for a service that is not allowed to declare queues on its
+broker. It is the wrong setting for a policy whose delays are measured in
+minutes.
+
+Jitter is never applied to a wait the broker holds. A rung's time-to-live is
+fixed when the queue is declared, so a jittered delay would name a queue that
+does not exist — and the spread comes free up there anyway, because each
+message's time-to-live starts when it arrives on the rung rather than when the
+batch failed.
 
 Attempt count travels on the message (`envelope.attempt()`), never in a counter
-on your side.
+on your side. A retry is **republished** with that count advanced, whichever of
+the two held the wait: a requeue would return the bytes the broker was given, so
+the count would read what the publisher wrote however many times the message had
+come round.
+
+The threshold is thirty seconds in the Go, .NET, Python and Ruby libraries too,
+so the same policy needs the same rungs whichever of them declares the topology.
 
 ## Dead letters and the parking lot
 
@@ -53,6 +92,7 @@ replay.replay(50);             // move a bounded batch back
 replay.replayAll();
 
 replay.parked().replayAll();   // the undecodable ones, after deploying the fix
+replay.keepingAttempts().replayAll();   // put back exactly what was there
 ```
 
 Messages go back to the **queue** they failed in, not through the exchange that
@@ -60,8 +100,11 @@ first routed them — republishing through the exchange would deliver to every
 bound queue and hand duplicate work to consumers that never failed.
 
 The body is returned byte for byte. The attempt counter resets so the message
-gets the whole ladder again instead of arriving exhausted, and provenance is
-recorded on the envelope:
+gets the whole ladder again instead of arriving exhausted — a message
+dead-lettered on the last attempt of a five-attempt policy would otherwise be
+dead-lettered again before any handler saw it. `keepingAttempts()` turns that
+off, for an audit or for a queue read by something that counts attempts itself.
+Provenance is recorded on the envelope either way:
 
 ```java
 message.envelope().replayedFrom();   // "orders.new.dlq"

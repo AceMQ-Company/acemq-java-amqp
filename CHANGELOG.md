@@ -8,7 +8,48 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **A threshold between waiting here and waiting there.**
+  `RetryPolicy.brokerWaitThreshold()` is thirty seconds by default, and
+  `waitInBrokerFrom(...)` moves it — zero meaning never, for a service that is
+  not allowed to declare queues on its broker. A wait shorter than the threshold
+  is spent in the consumer; a wait at or above it is published into a rung queue
+  as before. `nextWait(...)` reports both halves of that answer, because they
+  cannot be worked out separately, and `brokerRungs()` is the list of delays that
+  actually need a queue.
+
+  Thirty seconds is where the two costs cross. Below it a held prefetch slot is
+  cheaper than a queue nobody asked for, and the seconds a restart loses are only
+  seconds. Above it a consumer that restarts mid-wait loses the wait entirely,
+  because the broker redelivers the unacknowledged message at once — which is a
+  correctness bug rather than a throughput one.
+
+  The same threshold and the same default are in the Go, .NET, Python and Ruby
+  libraries, so the same policy needs the same rungs whichever one declares the
+  topology.
+- `Replay.keepingAttempts()`, for putting a message back exactly as it was. The
+  default still resets the attempt counter, because a message dead-lettered on
+  the last attempt of a five-attempt policy would otherwise be dead-lettered
+  again before any handler saw it.
+
+### Changed
+- **`RetryPolicy.exponential(...)` now doubles rather than multiplying by five,
+  and jitters by twenty percent rather than ten.** `exponential(5, 1s, 1m)` was
+  1s, 5s, 25s, 60s and is now 1s, 2s, 4s, 8s. The numbers a policy produces are
+  part of the cross-language contract: the same message can be retried by a
+  consumer written in any of the five languages, and a message that waited one
+  second under one library and five under another has no schedule at all. The
+  four-argument overload still takes an explicit multiplier for anyone who wants
+  the old growth.
+- A retry ladder is now built from the delays at or above the threshold only, so
+  a schedule that runs in a few seconds declares no rung queues at all. Rungs are
+  also deduplicated by queue *name* as well as by delay: two delays that render
+  to the same name are one queue, and declaring it twice with different
+  time-to-live values is a `PRECONDITION_FAILED` rather than a second rung.
+- Jitter is no longer applied to a wait the broker will hold. A rung's
+  time-to-live is fixed when the queue is declared, so a jittered delay named a
+  queue that did not exist; and the spread is already there up at that scale,
+  because each message's time-to-live starts when it arrives on the rung.
 
 ## [0.2.10] - 2026-09-02
 

@@ -42,9 +42,27 @@ import org.junit.jupiter.api.Timeout;
  * <p>Delays here are milliseconds rather than seconds. The mechanism is identical; only the
  * numbers change, which is what makes it possible to assert on retry behaviour in a suite that
  * finishes in seconds rather than minutes.
+ *
+ * <p>Which means the threshold has to be moved as well, and moving it deliberately is the
+ * point. A millisecond delay is far below the default thirty seconds, so every policy written
+ * here would otherwise wait in the consumer and no rung would ever be declared. Tests that are
+ * about the broker holding the wait say {@link #inBroker} and get rungs; tests that are about
+ * the consumer holding it leave the threshold where it is.
  */
 @DisplayName("the retry ladder")
 class RetryLadderTest {
+
+    /**
+     * A threshold low enough that a millisecond ladder reaches the broker.
+     *
+     * <p>Nothing a real policy should do. It exists so that the second-scale behaviour a real
+     * policy has can be asserted on in a suite that finishes in seconds.
+     */
+    private static final Duration IN_BROKER_FROM = Duration.ofMillis(10);
+
+    private static RetryPolicy inBroker(RetryPolicy policy) {
+        return policy.waitInBrokerFrom(IN_BROKER_FROM);
+    }
 
     private AceMq mq;
 
@@ -155,7 +173,7 @@ class RetryLadderTest {
     void waits_the_configured_delay_before_trying_again() {
         connect("retry-timing");
         List<Long> times = new CopyOnWriteArrayList<>();
-        RetryPolicy policy = RetryPolicy.fixed(3, Duration.ofMillis(300)).withJitter(0);
+        RetryPolicy policy = inBroker(RetryPolicy.fixed(3, Duration.ofMillis(300)).withJitter(0));
 
         try (MessageConsumer consumer = mq.consume(
                 "orders.new", String.class, ConsumerOptions.prefetch(1).withRetry(policy), message -> {
@@ -166,9 +184,9 @@ class RetryLadderTest {
             mq.publisher("orders", "order.placed").send("payload");
             await().atMost(Duration.ofSeconds(15)).until(() -> times.size() == 3);
 
-            // The gap must reflect the configured delay. A handler that slept would produce
+            // The gap must reflect the configured delay. Waiting in the consumer would produce
             // the same gap, so the accompanying evidence is that prefetch stayed free: see
-            // does_not_block_other_messages_while_one_is_waiting.
+            // does_not_block_other_messages_while_one_is_waiting_in_the_broker.
             long firstGap = times.get(1) - times.get(0);
             assertThat(firstGap).isGreaterThanOrEqualTo(250L);
         }
@@ -176,11 +194,11 @@ class RetryLadderTest {
 
     @Test
     @Timeout(30)
-    void does_not_block_other_messages_while_one_is_waiting() {
+    void does_not_block_other_messages_while_one_is_waiting_in_the_broker() {
         connect("retry-nonblocking");
         AtomicInteger failures = new AtomicInteger();
         AtomicInteger successes = new AtomicInteger();
-        RetryPolicy policy = RetryPolicy.fixed(3, Duration.ofMillis(500)).withJitter(0);
+        RetryPolicy policy = inBroker(RetryPolicy.fixed(3, Duration.ofMillis(500)).withJitter(0));
 
         try (MessageConsumer consumer = mq.consume(
                 "orders.new", String.class, ConsumerOptions.prefetch(1).withRetry(policy), message -> {
@@ -284,8 +302,8 @@ class RetryLadderTest {
         connect("retry-queues");
         // Ten attempts, but the exponential schedule reaches its ceiling quickly, so the
         // distinct delays are 50ms, 100ms and 200ms.
-        RetryPolicy policy = RetryPolicy.exponential(10, Duration.ofMillis(50), 2.0, Duration.ofMillis(200))
-                .withJitter(0);
+        RetryPolicy policy = inBroker(RetryPolicy.exponential(10, Duration.ofMillis(50), 2.0, Duration.ofMillis(200))
+                .withJitter(0));
 
         try (MessageConsumer consumer = mq.consume("orders.new", String.class,
                 ConsumerOptions.prefetch(1).withRetry(policy), message -> {
@@ -301,6 +319,58 @@ class RetryLadderTest {
 
             // No rung was created for the seven attempts that all share the 200ms ceiling.
             assertThat(publishesSuccessfully("orders.new.retry.400ms")).isFalse();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void creates_no_retry_queue_at_all_for_a_wait_the_consumer_can_hold() {
+        connect("retry-no-rungs");
+        // The same schedule at the default threshold. Fifty milliseconds is nowhere near thirty
+        // seconds, so the consumer holds every one of these waits itself and the broker is
+        // spared three queues it would never have been asked for.
+        RetryPolicy policy = RetryPolicy.exponential(10, Duration.ofMillis(50), 2.0, Duration.ofMillis(200))
+                .withJitter(0);
+
+        try (MessageConsumer consumer = mq.consume("orders.new", String.class,
+                ConsumerOptions.prefetch(1).withRetry(policy), message -> {
+                })) {
+
+            assertThat(policy.brokerRungs()).isEmpty();
+            assertThat(publishesSuccessfully("orders.new.retry.50ms")).isFalse();
+            assertThat(publishesSuccessfully("orders.new.retry.100ms")).isFalse();
+            assertThat(publishesSuccessfully("orders.new.retry.200ms")).isFalse();
+
+            // The dead-letter queue and the parking lot are not rungs and are declared whatever
+            // the threshold is: a message still has to be able to run out of attempts.
+            assertThat(publishesSuccessfully("orders.new.dlq")).isTrue();
+            assertThat(publishesSuccessfully("orders.new.parked")).isTrue();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void waits_a_short_delay_in_the_consumer_and_still_advances_the_attempt() {
+        connect("retry-in-consumer");
+        List<Integer> attemptNumbers = new CopyOnWriteArrayList<>();
+        // Below the default threshold, so nothing goes near a rung. The attempt counter must
+        // advance anyway: it belongs to the message, not to the mechanism that held the wait.
+        RetryPolicy policy = RetryPolicy.fixed(3, Duration.ofMillis(100));
+
+        try (MessageConsumer consumer = mq.consume(
+                "orders.new", String.class, ConsumerOptions.prefetch(1).withRetry(policy), message -> {
+                    attemptNumbers.add(message.attempt());
+                    throw new IllegalStateException("downstream is unreachable");
+                })) {
+
+            mq.publisher("orders", "order.placed").send("payload");
+
+            await().atMost(Duration.ofSeconds(10)).until(() -> attemptNumbers.size() >= 3);
+            await().atMost(Duration.ofSeconds(10)).until(() -> consumer.deadLettered() == 1);
+
+            assertThat(attemptNumbers).containsExactly(1, 2, 3);
+            assertThat(consumer.retried()).isEqualTo(2);
+            assertThat(publishesSuccessfully("orders.new.retry.100ms")).isFalse();
         }
     }
 

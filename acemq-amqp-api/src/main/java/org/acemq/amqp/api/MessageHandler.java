@@ -31,8 +31,11 @@ package org.acemq.amqp.api;
  * <p>Handlers that want to state the outcome directly should implement
  * {@link AckAwareHandler} instead.
  *
- * <p>A handler must never sleep in order to retry. Retries are scheduled by the broker so
- * that a waiting message does not hold a delivery slot.
+ * <p>A handler must never sleep in order to retry. Throw, and let {@link RetryPolicy} decide:
+ * a short wait is held by the engine, which knows the attempt count and can put the message
+ * back with it advanced, and a long one is handed to the broker so that a waiting message does
+ * not hold a delivery slot at all. A sleep inside the handler does neither, and loses the
+ * attempt count when the process restarts.
  *
  * @param <T> decoded payload type
  */

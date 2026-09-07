@@ -54,7 +54,7 @@ mq.consume("orders.new", Order.class, message -> {
 The last one is the real problem. **The retry state is in a local variable**, so
 it exists only as long as the process does.
 
-## Step 3 — Put the waiting in the broker
+## Step 3 — Put the long waiting in the broker
 
 ```java
 import org.acemq.amqp.api.RetryPolicy;
@@ -62,8 +62,8 @@ import org.acemq.amqp.core.ConsumerOptions;
 
 RetryPolicy policy = RetryPolicy.exponential(
         4,                          // attempts, including the first
-        Duration.ofSeconds(1),      // first delay
-        Duration.ofMinutes(1));     // ceiling
+        Duration.ofSeconds(20),     // first delay
+        Duration.ofMinutes(5));     // ceiling
 
 mq.consume("orders.new", Order.class,
         ConsumerOptions.prefetch(10).withRetry(policy),
@@ -73,36 +73,61 @@ mq.consume("orders.new", Order.class,
         });
 ```
 
-Nothing sleeps. When the handler throws, the message is published to a **delay
-queue** whose only job is to hold it for one second and then route it back. The
-consumer thread is free immediately.
+`exponential` doubles, so this waits 20s, 40s and 80s.
 
-AceMQ declares those queues for you. After the first failure you will have:
+Where each of those waits happens depends on how long it is. **Thirty seconds is
+the line.** Twenty seconds is below it, so the consumer holds the message itself
+for twenty seconds and puts it back. Forty and eighty are above it, so the
+message is published to a **delay queue** whose only job is to hold it and then
+route it back, and the consumer thread is free immediately.
+
+AceMQ declares the queues it needs for you. After the first failure you will
+have:
 
 ```
 orders.new                 your queue
-orders.new.retry.1s        a rung: TTL 1s, dead-letters back to orders.new
-orders.new.retry.5s        a rung
-orders.new.retry.25s       a rung
+orders.new.retry.40s       a rung: TTL 40s, dead-letters back to orders.new
+orders.new.retry.80s       a rung
 orders.new.dlq             attempts exhausted
 orders.new.parked          could not even be decoded
 ```
 
+There is no `orders.new.retry.20s`, and that is deliberate. Twenty seconds of a
+held prefetch slot is cheaper than asking somebody's broker for a queue, and
+twenty seconds lost to a restart is twenty seconds. Forty is where that stops
+being true: a consumer that dies mid-wait does not resume mid-wait, because the
+broker redelivers the unacknowledged message at once — so a long backoff held
+locally is not a long backoff at all.
+
 **One rung per distinct delay, not one queue per message.** The delay is a
 property of the queue, so a thousand waiting messages cost one queue.
 
-The attempt count travels in the message headers, so it survives a restart, a
-redeploy, and a different consumer picking it up. That is the thing the local
-variable could not do.
+The attempt count travels in the message headers whichever way the wait was
+held, so it survives a restart, a redeploy, and a different consumer picking it
+up. That is the thing the local variable could not do.
+
+### Moving the line
+
+```java
+policy.waitInBrokerFrom(Duration.ofMinutes(1));  // rungs only past a minute
+policy.waitInBrokerFrom(Duration.ZERO);          // never; every wait is local
+```
+
+Zero is for a service that is not permitted to declare queues on its broker. It
+is the wrong answer for a policy whose delays are measured in minutes.
 
 ### Why the ceiling matters
 
-`exponential(4, 1s, 1m)` gives 1s, 5s, 25s — and the ceiling stops it before
+`exponential(4, 20s, 5m)` gives 20s, 40s, 80s — and the ceiling stops it before
 delays grow past anything useful. Without one, attempt 10 of an exponential
 backoff is several hours away, which is the same as never but harder to diagnose.
 
-Add `.withJitter(0.2)` when many consumers fail together: without it they all
-retry at the same instant and hit the recovering service simultaneously.
+Twenty percent jitter is already applied, in both directions, so consumers that
+fail together do not all retry at the same instant and hit the recovering service
+simultaneously. `withJitter` changes the amount; `RetryPolicy.fixed` starts with
+none, because a fixed delay is an exact request. Jitter is never applied to a
+wait the broker holds: a rung's TTL is fixed when the queue is declared, so a
+moved delay would name a queue that does not exist.
 
 ## Step 4 — Say which failures are worth retrying
 
@@ -230,7 +255,9 @@ dead: o-1 after 3 attempts -- exhausted 3 attempts: IllegalStateException: the i
 ```
 
 Note the gaps between the attempts, and note that nothing slept in a handler to
-produce them.
+produce them. Above the threshold nothing in your process waits at all; below it
+the library holds the delivery rather than your handler, so a wait is still a
+wait the retry accounting knows about.
 
 ## What to watch in production
 

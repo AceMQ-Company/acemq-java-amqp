@@ -72,7 +72,9 @@ is not a guarantee.
 
 ## Failure
 
-Throw, and the retry ladder takes over — see [Reliability](reliability.html):
+Throw, and the retry policy takes over — see [Reliability](reliability.html).
+Short waits are held in the consumer; waits of thirty seconds or more are handed
+to a rung queue in the broker:
 
 ```java
 mq.consume("orders.new", Order.class,

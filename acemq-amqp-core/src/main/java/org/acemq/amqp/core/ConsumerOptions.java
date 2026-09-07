@@ -77,12 +77,16 @@ public final class ConsumerOptions {
     }
 
     /**
-     * Retries failures on a schedule, using queues in the broker rather than a sleeping
-     * handler.
+     * Retries failures on a schedule, never in a sleeping handler.
      *
-     * <p>Turning this on makes the consumer declare a retry rung per distinct delay, a
-     * dead-letter queue and a parking lot, all derived from the policy. A failed message is
-     * republished into the appropriate rung and comes back when its time-to-live expires; once
+     * <p>Turning this on makes the consumer declare a dead-letter queue, a parking lot, and one
+     * retry rung per distinct delay the policy wants the <em>broker</em> to hold — see
+     * {@link RetryPolicy#brokerWaitThreshold()}. A schedule that runs in a few seconds needs no
+     * rungs at all, and gets none.
+     *
+     * <p>A failed message is republished either way, with its attempt counter advanced. Above
+     * the threshold it goes into the rung and comes back when the time-to-live expires; below
+     * it the engine holds the delivery for the wait and puts it back on the source queue. Once
      * the attempts or the age limit are used up it lands in the dead-letter queue with the
      * reason attached.
      *

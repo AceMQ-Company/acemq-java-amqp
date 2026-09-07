@@ -53,8 +53,12 @@ AceMQ aims to be that layer:
   `Pipeline` are things you configure, not blog posts you re-implement.
 - **Portable core, honest edges** — broker-specific features are reachable, never
   silently emulated. A missing capability fails at startup and says so.
-- **Retries live in the broker** — a generated tier ladder, so throughput and
-  ordering stay analyzable and no consumer thread ever sleeps.
+- **Long retries live in the broker** — a wait of thirty seconds or more is held
+  by a generated ladder of time-to-live queues rather than by your consumer, so a
+  restart cannot shorten it and a retry storm cannot stall the queue. Shorter
+  waits are held locally, where a queue nobody asked for costs more than the
+  prefetch slot does; the threshold is configurable and the same in every AceMQ
+  language.
 - **Observable from the start** — OpenTelemetry spans and Micrometer metrics are
   emitted by the core, with names fixed by the specification so every language
   port reports identically.

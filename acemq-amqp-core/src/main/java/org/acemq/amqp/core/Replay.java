@@ -54,7 +54,11 @@ import org.slf4j.LoggerFactory;
  * <h2>What it does to a message</h2>
  *
  * <p>The body is untouched. The attempt counter is reset, so a replayed message gets the full
- * retry ladder again rather than being dead-lettered immediately by the count that put it here.
+ * retry ladder again rather than being dead-lettered immediately by the count that put it here:
+ * a message dead-lettered on the last attempt of a five-attempt policy would otherwise be
+ * dead-lettered again before any handler saw it, and the operator who had just fixed the bug
+ * would have moved two thousand messages from one queue to the same queue.
+ * {@link #keepingAttempts()} turns that off for the cases that want exactly what was there.
  * Three headers are added: where it came from, when it was replayed, and how many times it has
  * been replayed before — the last one because a message on its fifth trip through a dead-letter
  * queue is telling you something that a fresh-looking message would not.
@@ -90,11 +94,17 @@ public final class Replay {
     private final TransportConnection connection;
     private final String sourceQueue;
     private final String fromQueue;
+    private final boolean keepAttempts;
 
     Replay(TransportConnection connection, String sourceQueue, String fromQueue) {
+        this(connection, sourceQueue, fromQueue, false);
+    }
+
+    private Replay(TransportConnection connection, String sourceQueue, String fromQueue, boolean keepAttempts) {
         this.connection = connection;
         this.sourceQueue = sourceQueue;
         this.fromQueue = fromQueue;
+        this.keepAttempts = keepAttempts;
     }
 
     /**
@@ -108,7 +118,23 @@ public final class Replay {
      * @return a replay reading the parking lot instead
      */
     public Replay parked() {
-        return new Replay(connection, sourceQueue, sourceQueue + ".parked");
+        return new Replay(connection, sourceQueue, sourceQueue + ".parked", keepAttempts);
+    }
+
+    /**
+     * Returns a replay that leaves each message's attempt counter exactly as it was.
+     *
+     * <p>Off by default, and the default is the one almost everybody wants: a replayed message
+     * goes back on attempt one, because a message dead-lettered on its last attempt would
+     * otherwise be dead-lettered again before any handler saw it.
+     *
+     * <p>Turn it on to put back exactly what was there — for an audit, or for a queue read by
+     * something that counts attempts itself and would be misled by a counter this tool rewrote.
+     *
+     * @return a replay that preserves the attempt counter
+     */
+    public Replay keepingAttempts() {
+        return new Replay(connection, sourceQueue, fromQueue, true);
     }
 
     /**
@@ -245,7 +271,9 @@ public final class Replay {
         // back -- a replay that cannot survive one bad moment is not much of a replay. One
         // rather than zero because an envelope's first attempt is numbered one, and a zero here
         // fails validation the moment a consumer reads it.
-        headers.put(AceHeaders.ATTEMPT, 1);
+        if (!keepAttempts) {
+            headers.put(AceHeaders.ATTEMPT, 1);
+        }
 
         headers.put(AceHeaders.REPLAYED_FROM, fromQueue);
         headers.put(AceHeaders.REPLAYED_AT, Instant.now().toEpochMilli());
@@ -275,6 +303,6 @@ public final class Replay {
 
     @Override
     public String toString() {
-        return "Replay{from=" + fromQueue + ", to=" + sourceQueue + "}";
+        return "Replay{from=" + fromQueue + ", to=" + sourceQueue + (keepAttempts ? ", keeping attempts}" : "}");
     }
 }

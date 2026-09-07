@@ -31,28 +31,39 @@ import org.acemq.amqp.transport.TransportConnection;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Builds the queues that make a retry happen inside the broker rather than inside a handler.
+ * Builds the queues that make a long retry happen inside the broker rather than inside a
+ * handler.
  *
- * <p>The mechanism is a ladder. Each distinct delay in the policy gets its own queue with a
- * message time-to-live and a dead-letter target pointing back at the source queue. A message
- * that needs to wait five seconds is published into the five-second rung, sits there doing
- * nothing, expires, and is dead-lettered home. No consumer is involved and no thread waits.
+ * <p>The mechanism is a ladder. Each distinct <em>long</em> delay in the policy gets its own
+ * queue with a message time-to-live and a dead-letter target pointing back at the source queue.
+ * A message that needs to wait a minute is published into the one-minute rung, sits there doing
+ * nothing, expires, and is dead-lettered home. No consumer is involved and no thread waits for
+ * it here.
  *
- * <p>For a queue named {@code orders.new} with an exponential policy, this produces:
+ * <p>Only the long delays. A wait below {@link RetryPolicy#brokerWaitThreshold()} is spent in
+ * the consumer instead and gets no queue at all, which is why a schedule that runs in a few
+ * seconds costs the broker nothing. For a queue named {@code orders.new} with
+ * {@code exponential(6, ofSeconds(10), ofMinutes(5))} and the default thirty-second threshold,
+ * whose schedule is 10s, 20s, 40s, 80s and 160s:
  *
  * <pre>
- * orders.new.retry.1s     ttl 1s   -&gt; orders.new
- * orders.new.retry.5s     ttl 5s   -&gt; orders.new
- * orders.new.retry.25s    ttl 25s  -&gt; orders.new
- * orders.new.dlq                   (attempts exhausted, or too old)
- * orders.new.parked                (could not even be decoded)
+ * orders.new.retry.40s    ttl 40s   -&gt; orders.new
+ * orders.new.retry.80s    ttl 80s   -&gt; orders.new
+ * orders.new.retry.160s   ttl 160s  -&gt; orders.new
+ * orders.new.dlq                    (attempts exhausted, or too old)
+ * orders.new.parked                 (could not even be decoded)
  * </pre>
  *
- * <p>Two details are easy to get wrong and are worth stating. Rungs are keyed by delay rather
+ * <p>The ten- and twenty-second waits get no rung; the consumer holds those itself.
+ *
+ * <p>Three details are easy to get wrong and are worth stating. Rungs are keyed by delay rather
  * than by attempt number, so a policy that reaches its ceiling stops creating new queues
- * instead of adding an identical one per remaining attempt. And messages are only ever
- * <em>published</em> into a rung — nothing consumes one, because a consumer would defeat the
- * entire purpose by taking the message before its time-to-live expired.
+ * instead of adding an identical one per remaining attempt. They are then keyed by name as
+ * well, because two delays can render to the same name and a second queue by that name with a
+ * different time-to-live is not a second rung but a {@code PRECONDITION_FAILED} at declaration
+ * time. And messages are only ever <em>published</em> into a rung — nothing consumes one,
+ * because a consumer would defeat the entire purpose by taking the message before its
+ * time-to-live expired.
  */
 final class RetryTopology {
 
@@ -84,17 +95,54 @@ final class RetryTopology {
     /**
      * Works out the topology a policy needs, without touching the broker.
      *
+     * <p>Rungs come from {@link RetryPolicy#brokerRungs()} rather than from the whole schedule,
+     * so the short waits the consumer holds itself do not each leave a queue behind on somebody
+     * else's broker.
+     *
      * @param sourceQueue the queue being consumed
      * @param policy the retry schedule
      * @return the queues required
      */
     static RetryTopology forQueue(String sourceQueue, RetryPolicy policy) {
         Map<Duration, String> rungs = new LinkedHashMap<>();
-        Set<Duration> distinct = new LinkedHashSet<>(policy.schedule());
-        for (Duration delay : distinct) {
-            rungs.put(delay, sourceQueue + ".retry." + describe(delay));
+        Set<String> names = new LinkedHashSet<>();
+        for (Duration delay : policy.brokerRungs()) {
+            // Keyed by name as well as by delay. Two delays can render to the same name, and a
+            // second queue by that name with a different time-to-live is not a second rung — it
+            // is a PRECONDITION_FAILED the moment the second consumer declares it.
+            String name = sourceQueue + ".retry." + describe(delay);
+            if (names.add(name)) {
+                rungs.put(delay, name);
+            }
         }
         return new RetryTopology(sourceQueue, policy, rungs, sourceQueue + ".dlq", sourceQueue + ".parked");
+    }
+
+    /**
+     * The argument table a rung queue must be declared with.
+     *
+     * <p>A contract rather than a preference, and pinned by a test for that reason. Two services
+     * consuming the same queue declare the same rung by name, so if one of them declares it with
+     * different arguments the second is refused with {@code PRECONDITION_FAILED} and cannot
+     * consume at all.
+     *
+     * <p>{@code x-message-ttl} and never a per-message expiration. RabbitMQ expires messages only
+     * from the head of a queue, so one queue holding per-message time-to-live values releases
+     * nothing while a message with a long one sits at the front: a thirty-second wait queued
+     * behind a ten-minute wait becomes a ten-minute wait, and the delays that come out bear no
+     * relation to the ones that went in. One queue per distinct delay is more queues and is the
+     * only arrangement that delivers the schedule it was given.
+     *
+     * @param sourceQueue the queue expired messages go back to
+     * @param delay the rung's wait
+     * @return the arguments, in a stable order
+     */
+    static Map<String, Object> rungArguments(String sourceQueue, Duration delay) {
+        Map<String, Object> arguments = new LinkedHashMap<>();
+        arguments.put("x-message-ttl", delay.toMillis());
+        arguments.put("x-dead-letter-exchange", RETRY_EXCHANGE);
+        arguments.put("x-dead-letter-routing-key", sourceQueue);
+        return arguments;
     }
 
     /**
@@ -111,13 +159,8 @@ final class RetryTopology {
 
         // Each rung expires its messages back to the source queue. A rung is never consumed;
         // the time-to-live is the only thing that ever removes a message from it.
-        rungs.forEach((delay, queueName) -> {
-            Map<String, Object> arguments = new LinkedHashMap<>();
-            arguments.put("x-message-ttl", delay.toMillis());
-            arguments.put("x-dead-letter-exchange", RETRY_EXCHANGE);
-            arguments.put("x-dead-letter-routing-key", sourceQueue);
-            connection.declareQueue(queueName, QueueType.CLASSIC, true, arguments);
-        });
+        rungs.forEach((delay, queueName) -> connection.declareQueue(queueName, QueueType.CLASSIC, true,
+                rungArguments(sourceQueue, delay)));
 
         // One binding brings every expired message back to the queue it came from.
         if (!rungs.isEmpty()) {
@@ -134,14 +177,21 @@ final class RetryTopology {
     /**
      * Picks the rung a delay belongs in.
      *
-     * <p>The requested delay is rounded to the nearest rung that is not shorter than it, so a
-     * handler asking for three seconds waits five rather than one. Waiting slightly too long
-     * is harmless; retrying too early defeats the backoff.
+     * <p>Empty for anything below the policy's threshold, and that is an answer the caller acts
+     * on rather than a failure: waiting in the consumer is the other half of the design, not a
+     * fallback.
+     *
+     * <p>Above it, the requested delay is rounded to the nearest rung that is not shorter than
+     * it, so a caller asking for fifty seconds waits eighty rather than forty. Waiting slightly
+     * too long is harmless; retrying too early defeats the backoff.
      *
      * @param delay how long the message should wait
-     * @return the queue to publish it into, or empty when no rungs exist
+     * @return the queue to publish it into, or empty when the wait belongs in the consumer
      */
     java.util.Optional<String> rungFor(Duration delay) {
+        if (!policy.waitsInBroker(delay)) {
+            return java.util.Optional.empty();
+        }
         String best = null;
         Duration bestDelay = null;
         for (Map.Entry<Duration, String> rung : rungs.entrySet()) {
@@ -183,11 +233,24 @@ final class RetryTopology {
         return new ArrayList<>(rungs.values());
     }
 
+    /** @return each rung's delay and queue name, in schedule order */
+    Map<Duration, String> rungs() {
+        return rungs;
+    }
+
     /**
      * Renders a duration as a short, stable queue-name suffix.
      *
      * <p>Queue names end up in dashboards and alerts, so {@code orders.new.retry.5s} is worth
      * the small amount of code it takes to avoid {@code orders.new.retry.PT5S}.
+     *
+     * <p>Sub-second delays render in milliseconds — {@code retry.500ms} — where the Go, Python
+     * and Ruby libraries render {@code retry.0s}. The divergence is unreachable through the
+     * default thirty-second threshold, and it only appears for a policy that has deliberately
+     * lowered the threshold below a second, which is asking the broker to hold a message for
+     * less time than it takes to publish it. Milliseconds are kept because they are the answer
+     * that cannot collide: two different sub-second waits both named {@code retry.0s} would be
+     * one queue with two time-to-live values, and the second declaration of it is refused.
      */
     static String describe(Duration delay) {
         long millis = delay.toMillis();

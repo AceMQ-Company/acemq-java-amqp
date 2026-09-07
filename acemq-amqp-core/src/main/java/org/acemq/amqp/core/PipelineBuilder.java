@@ -120,8 +120,8 @@ public final class PipelineBuilder<T, C> {
     }
 
     /**
-     * Retries the most recently declared step on a schedule, using the broker's queues rather
-     * than a sleeping handler.
+     * Retries the most recently declared step on a schedule, never in a sleeping handler: the
+     * engine holds a short wait and the broker's queues hold a long one.
      *
      * @param policy the schedule
      * @return this builder
