@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.acemq.amqp.api.RetryPolicy;
+import org.acemq.amqp.api.Topology;
 import org.acemq.amqp.transport.QueueType;
 import org.acemq.amqp.transport.TransportConnection;
 import org.jspecify.annotations.Nullable;
@@ -70,8 +71,14 @@ final class RetryTopology {
     /** Exchange every rung dead-letters through on its way back to the source queue. */
     static final String RETRY_EXCHANGE = "acemq.retry";
 
-    /** Exchange used to reach the dead-letter and parking queues. */
-    static final String DEAD_LETTER_EXCHANGE = "acemq.dlx";
+    /**
+     * Exchange used to reach the dead-letter and parking queues.
+     *
+     * <p>Taken from {@link Topology} rather than spelled again here. The name is the thing two
+     * services have to agree on, and a second copy of a string is a second place for it to
+     * drift.
+     */
+    static final String DEAD_LETTER_EXCHANGE = Topology.DEAD_LETTER_EXCHANGE;
 
     private final String sourceQueue;
     private final RetryPolicy policy;
@@ -150,6 +157,15 @@ final class RetryTopology {
      *
      * <p>Safe to call repeatedly: declaring a queue that already exists with the same
      * arguments is how AMQP is meant to be used.
+     *
+     * <p>The source queue is <em>not</em> declared here, and that is deliberate. It belongs to
+     * whoever set the service up, who chose its type and its arguments; redeclaring it from a
+     * consumer would mean guessing both, and a guess of {@code classic} against a quorum queue
+     * is a {@code PRECONDITION_FAILED} that stops the consumer starting at all. It also means
+     * this method cannot put {@code x-dead-letter-exchange} on the source queue — the broker
+     * route that catches a message this library never sees. Ask for that where the queue is
+     * declared, with {@link Topology.Builder#queueWithDeadLetter}, which is where the Go,
+     * .NET, Python and Ruby libraries put it too.
      *
      * @param connection the broker connection
      */

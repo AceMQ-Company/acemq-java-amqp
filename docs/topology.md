@@ -10,6 +10,78 @@ Topology orders = Topology.define()
 mq.topology().apply(orders, ApplyMode.CREATE_ONLY);
 ```
 
+## Dead-lettering
+
+```java
+Topology orders = Topology.define()
+        .exchange("orders", "topic")
+        .queueWithDeadLetter("orders.new")
+        .bind("orders.new", "orders", "order.*")
+        .build();
+```
+
+That one call declares four things, because they are only correct together:
+
+| | |
+|---|---|
+| `orders.new` | with `x-dead-letter-exchange: acemq.dlx` and `x-dead-letter-routing-key: orders.new.dlq` |
+| `acemq.dlx` | a direct exchange, shared by every queue on the broker |
+| `orders.new.dlq` | bound to `acemq.dlx` on its own name — failed after the retries ran out |
+| `orders.new.parked` | bound the same way — could not even be decoded |
+
+The routing key matters as much as the exchange. A dead-lettered message keeps
+the routing key it arrived under, so without it a message published as
+`order.placed` reaches `acemq.dlx` under that key, matches no binding, and is
+dropped. That is the silent loss the method exists to prevent.
+
+Neither `.dlq` nor `.parked` dead-letters in turn. A dead-letter queue that
+dead-letters is a loop, and a loop is how a poison message becomes an outage.
+
+`classicQueueWithDeadLetter(name, arguments)` is the same thing for a queue that
+needs arguments of its own. Setting either dead-letter argument yourself and
+asking for dead-lettering as well is refused rather than overruled — pick one.
+
+### It is a backstop, not the whole story
+
+The library dead-letters failures itself, and keeps doing so. A handler that
+fails past its retry policy has its message republished to `orders.new.dlq` with
+the reason on the envelope, and only then acknowledged. That is how the reason
+survives: the broker's own `x-death` header records that a message died, never
+why.
+
+What these arguments add is the part the library never sees — a message expiring
+under the queue's own `x-message-ttl`, an overflow under `x-max-length`, a reject
+from some other consumer of the same queue. Without them those messages vanish.
+With them they land in the queue an operator is already watching. Both routes
+lead to the same place on purpose.
+
+### The same arguments in every language
+
+This is the argument table the Go, .NET, Python and Ruby libraries put on a
+source queue. It has to be identical: two services in different languages
+consuming `orders.new` both declare it, and AMQP compares the tables. One
+argument out of place answers the second service `PRECONDITION_FAILED`, and it
+consumes nothing at all.
+
+### Migrating an existing queue
+
+**A queue that already exists without these arguments cannot be redeclared with
+them.** Switching `queue(...)` to `queueWithDeadLetter(...)` for a queue that is
+already on the broker fails at start-up, on the day of the deployment. Three ways
+through:
+
+- **Drain and recreate.** Stop the consumers, let it empty, delete it, redeploy.
+  No coordination, costs the downtime draining takes.
+- **Migrate.** Declare `orders.new.v2` with the new arguments, move the messages,
+  swap the bindings, delete the old queue. No downtime, more steps.
+- **Declare it yourself.** Keep `queue(...)` and add the two arguments to
+  whatever provisions your topology, along with `{queue}.dlq` and
+  `{queue}.parked` bound to `acemq.dlx` on their own names. Right for an estate
+  where the topology is not the application's to create.
+
+`mq.topology().plan(...)` reports the difference as drift first, without touching
+anything. Run it before you decide.
+
 ## Why a plan rather than a declare
 
 Declaring a topology at start-up is what almost everyone does, and it has one

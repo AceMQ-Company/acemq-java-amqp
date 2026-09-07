@@ -16,6 +16,7 @@
 package org.acemq.amqp.api;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +32,21 @@ import java.util.Objects;
  * sequence of declare calls scattered through start-up code.
  */
 public final class Topology {
+
+    /**
+     * The exchange a queue's dead letters are reached through.
+     *
+     * <p>One exchange for the whole broker rather than one per queue, bound on each
+     * dead-letter queue's own name. It is the arrangement the Go, .NET, Python and Ruby
+     * libraries produce, so a broker shared between them already has it.
+     */
+    public static final String DEAD_LETTER_EXCHANGE = "acemq.dlx";
+
+    /** Where the broker sends a message this queue rejects or lets expire. */
+    public static final String DEAD_LETTER_EXCHANGE_ARGUMENT = "x-dead-letter-exchange";
+
+    /** What routing key it is sent under, which a direct exchange matches against its bindings. */
+    public static final String DEAD_LETTER_ROUTING_KEY_ARGUMENT = "x-dead-letter-routing-key";
 
     private final List<ExchangeSpec> exchanges;
     private final List<QueueSpec> queues;
@@ -184,6 +200,136 @@ public final class Topology {
         public Builder classicQueue(String name, Map<String, Object> arguments) {
             queues.add(new QueueSpec(name, false, true, arguments));
             return this;
+        }
+
+        /**
+         * A durable quorum queue that dead-letters, together with the two queues its dead
+         * letters end up in and the exchange they are reached through.
+         *
+         * <p>The queue is declared with {@code x-dead-letter-exchange} set to
+         * {@link #DEAD_LETTER_EXCHANGE} and {@code x-dead-letter-routing-key} set to
+         * {@code {name}.dlq}, and {@code {name}.dlq} and {@code {name}.parked} are declared and
+         * bound to that exchange on their own names. Several declarations as one call, because
+         * they are only correct together: a queue whose dead-letter exchange nothing declares,
+         * or one with no queue bound to it, throws messages away exactly as if dead-lettering
+         * had never been configured, and nothing reports it.
+         *
+         * <p><strong>The routing key matters as much as the exchange.</strong> A message the
+         * broker dead-letters keeps the routing key it arrived under, so without it a message
+         * published as {@code order.placed} would reach {@code acemq.dlx} under that key, match
+         * no binding, and be dropped — the silent loss this method exists to prevent.
+         *
+         * <p><strong>This is a backstop, not a replacement for what the consumer already
+         * does.</strong> A handler that fails is dead-lettered by this library itself:
+         * republished to {@code {name}.dlq} with the reason recorded on the envelope, and only
+         * then acknowledged, which is how the reason survives at all — the broker's own
+         * dead-lettering carries an {@code x-death} header and no idea why the message failed.
+         * Both paths stay. The broker-side route catches what the library never sees: a
+         * message expiring under the source queue's own {@code x-message-ttl}, an overflow
+         * under {@code x-max-length}, a reject from some other consumer of the same queue.
+         * Without these arguments those messages vanish; with them they land in the same queue
+         * an operator is already watching. Neither path is dead code.
+         *
+         * <p>Neither {@code {name}.dlq} nor {@code {name}.parked} dead-letters in turn. A
+         * dead-letter queue that dead-letters is a loop, and a loop is how a poison message
+         * becomes an outage.
+         *
+         * @param name queue name
+         * @return this builder
+         */
+        public Builder queueWithDeadLetter(String name) {
+            queues.add(new QueueSpec(name, true, true, deadLetterArguments(name, Collections.emptyMap())));
+            return withDeadLetterQueues(name);
+        }
+
+        /**
+         * A classic queue that dead-letters, with arguments of its own.
+         *
+         * <p>The same arrangement as {@link #queueWithDeadLetter(String)}, for a queue that
+         * needs a time-to-live, a length limit or any other argument alongside it.
+         *
+         * @param name queue name
+         * @param arguments broker-specific arguments, which must not set either dead-letter
+         *     argument
+         * @return this builder
+         * @throws IllegalArgumentException when the arguments already set
+         *     {@code x-dead-letter-exchange} or {@code x-dead-letter-routing-key}
+         */
+        public Builder classicQueueWithDeadLetter(String name, Map<String, Object> arguments) {
+            queues.add(new QueueSpec(name, false, true, deadLetterArguments(name, arguments)));
+            return withDeadLetterQueues(name);
+        }
+
+        /**
+         * Adds the two dead-letter arguments to a caller's own.
+         *
+         * <p>A caller who has already set either one is refused rather than overruled. Either
+         * answer would be a guess about which of two conflicting instructions was meant, and
+         * quietly replacing the one that was written down is the worse guess: a service that
+         * deliberately points a queue at its own dead-letter exchange would find its messages
+         * arriving somewhere else, with nothing to say why. A service that wants a different
+         * arrangement should use {@link #classicQueue} and pass the arguments itself.
+         */
+        private static Map<String, Object> deadLetterArguments(String name, Map<String, Object> arguments) {
+            Objects.requireNonNull(name, "queue name must not be null");
+            Map<String, Object> merged = new LinkedHashMap<>(arguments);
+            List<String> conflicting = new ArrayList<>();
+            if (merged.containsKey(DEAD_LETTER_EXCHANGE_ARGUMENT)) {
+                conflicting.add(DEAD_LETTER_EXCHANGE_ARGUMENT);
+            }
+            if (merged.containsKey(DEAD_LETTER_ROUTING_KEY_ARGUMENT)) {
+                conflicting.add(DEAD_LETTER_ROUTING_KEY_ARGUMENT);
+            }
+            if (!conflicting.isEmpty()) {
+                throw new IllegalArgumentException("queue '" + name + "' asks for dead-lettering and also sets "
+                        + String.join(" and ", conflicting) + "; pick one. Declare it with classicQueue(...) if"
+                        + " the arguments written here are the ones that were meant.");
+            }
+            merged.put(DEAD_LETTER_EXCHANGE_ARGUMENT, DEAD_LETTER_EXCHANGE);
+            merged.put(DEAD_LETTER_ROUTING_KEY_ARGUMENT, deadLetterQueue(name));
+            return merged;
+        }
+
+        /**
+         * The two queues a message ends up in when it cannot be handled, and the exchange that
+         * reaches them.
+         *
+         * <p>{@code .dlq} is for a message that was understood and could not be processed;
+         * {@code .parked} is for one that could not even be decoded. Two problems that are
+         * investigated differently, so mixing them means whoever drains the dead letters has to
+         * sort them by hand.
+         */
+        private Builder withDeadLetterQueues(String name) {
+            sharedExchange(DEAD_LETTER_EXCHANGE, "direct");
+            for (String target : Arrays.asList(deadLetterQueue(name), parkedQueue(name))) {
+                queues.add(new QueueSpec(target, false, true, Collections.emptyMap()));
+                bindings.add(new BindingSpec(target, DEAD_LETTER_EXCHANGE, target));
+            }
+            return this;
+        }
+
+        /**
+         * Adds an exchange this library owns, unless the topology already names it.
+         *
+         * <p>Several queues in one topology each need {@code acemq.dlx}, and declaring it once
+         * per queue is a plan somebody stops reading. A caller who has already named the same
+         * exchange keeps their own: theirs is the deliberate one.
+         */
+        private void sharedExchange(String name, String type) {
+            for (ExchangeSpec exchange : exchanges) {
+                if (exchange.name().equals(name)) {
+                    return;
+                }
+            }
+            exchange(name, type);
+        }
+
+        private static String deadLetterQueue(String name) {
+            return name + ".dlq";
+        }
+
+        private static String parkedQueue(String name) {
+            return name + ".parked";
         }
 
         /**

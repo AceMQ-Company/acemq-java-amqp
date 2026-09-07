@@ -6,7 +6,7 @@
 
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-parent</artifactId>
-  <version>0.2.8-SNAPSHOT</version>
+  <version>0.2.11-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>AceMQ AMQP Parent</name>
@@ -126,6 +126,8 @@
     <maven.shade.plugin.version>3.6.0</maven.shade.plugin.version>
     <jmh.version>1.37</jmh.version>
     <japicmp.plugin.version>0.23.1</japicmp.plugin.version>
+    <!-- The released version the binary-compatibility gate compares against. -->
+    <japicmp.baseline.version>0.2.10</japicmp.baseline.version>
     <errorprone.version>2.50.0</errorprone.version>
     <nullaway.version>0.14.0</nullaway.version>
     <jspecify.version>1.0.1</jspecify.version>
@@ -461,11 +463,28 @@
           <version>${japicmp.plugin.version}</version>
           <configuration>
             <skipXmlReport>true</skipXmlReport>
+            <!-- The last release, named rather than inferred. Left unset, japicmp
+                 resolved nothing and every module reported "Ignoring missing old
+                 artifact version" — a gate that passed because it compared the
+                 build against nothing at all. The artifacts live in the Git-hosted
+                 repository declared below, which is why that repository is a
+                 <repository> here and not only in the consumer instructions.
+                 Bumped by hand at each release, one line, in the same commit that
+                 opens the next snapshot. -->
+            <oldVersion>
+              <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>${project.artifactId}</artifactId>
+                <version>${japicmp.baseline.version}</version>
+                <type>jar</type>
+              </dependency>
+            </oldVersion>
             <parameter>
-              <!-- Nothing has been released yet, so there is no previous version
-                   to compare against. Wiring it now rather than later means the
-                   first release is also the moment the gate starts working,
-                   instead of the moment someone remembers to add it. -->
+              <!-- Kept true even now that a baseline exists, for the modules that
+                   baseline does not contain: a module added since the last release
+                   has no old artifact to resolve, and failing its build for that
+                   would make adding a module impossible. The modules that were
+                   released are compared for real. -->
               <ignoreMissingOldVersion>true</ignoreMissingOldVersion>
               <onlyModified>true</onlyModified>
               <!-- A binary-incompatible change on anything but a major version is
@@ -659,6 +678,22 @@
       </plugin>
     </plugins>
   </build>
+
+  <!-- Where released AceMQ artifacts are read from, which this build needs for one
+       reason only: the binary-compatibility gate resolves the previous release to
+       compare against. Nothing here depends on a released AceMQ artifact — the
+       reactor builds them all — so this repository is never consulted for anything
+       else, and a build with no network still works from the local repository. It
+       answers 301 to https://acemq.org/maven/, which Maven follows. -->
+  <repositories>
+    <repository>
+      <id>acemq</id>
+      <name>AceMQ releases</name>
+      <url>https://acemq-company.github.io/maven/</url>
+      <releases><enabled>true</enabled></releases>
+      <snapshots><enabled>false</enabled></snapshots>
+    </repository>
+  </repositories>
 
   <!-- Snapshots and pre-release builds go to GitHub Packages; tagged releases
        additionally go to Maven Central. See docs: GitHub Packages requires

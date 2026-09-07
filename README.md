@@ -48,7 +48,12 @@ path.
 AceMQ aims to be that layer:
 
 - **Correct by default** — confirms on, manual ack, bounded prefetch, dead-letter
-  wired, unless you opt out by name.
+  wired, unless you opt out by name. `Topology.define().queueWithDeadLetter(q)`
+  declares the queue, `q.dlq`, `q.parked` and the `acemq.dlx` that reaches them,
+  and points the queue at it — the same four things, with the same names and the
+  same arguments, that the Go, .NET, Python and Ruby libraries declare, so two
+  services in different languages can consume one queue.
+  **[Upgrading an existing queue to it is a breaking topology change.](CHANGELOG.md)**
 - **Patterns as types** — `RetryPolicy`, `Outbox`, `IdempotencyStore` and
   `Pipeline` are things you configure, not blog posts you re-implement.
 - **Portable core, honest edges** — broker-specific features are reachable, never

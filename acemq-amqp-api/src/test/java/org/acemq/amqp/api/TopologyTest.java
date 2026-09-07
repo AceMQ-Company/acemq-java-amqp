@@ -68,6 +68,96 @@ class TopologyTest {
     }
 
     @Test
+    void points_a_dead_lettering_queue_at_the_shared_exchange() {
+        // The argument table is the cross-language contract. Two services consuming the same
+        // queue declare it, and a difference of one argument answers the second one
+        // PRECONDITION_FAILED and leaves it unable to consume at all. Pinned by a test for
+        // exactly that reason, and the values are the ones Go, .NET, Python and Ruby produce.
+        Topology topology = Topology.define().queueWithDeadLetter("orders.new").build();
+
+        Topology.QueueSpec source = topology.queues().get(0);
+        assertThat(source.name()).isEqualTo("orders.new");
+        assertThat(source.arguments())
+                .containsEntry("x-dead-letter-exchange", "acemq.dlx")
+                .containsEntry("x-dead-letter-routing-key", "orders.new.dlq");
+    }
+
+    @Test
+    void declares_the_queues_the_dead_letters_land_in_and_binds_them() {
+        // A queue pointed at an exchange with nothing bound to it throws messages away exactly
+        // as if dead-lettering had never been configured, and nothing reports it. The three
+        // declarations and the two bindings are only correct together.
+        Topology topology = Topology.define().queueWithDeadLetter("orders.new").build();
+
+        assertThat(topology.queues()).extracting(Topology.QueueSpec::name)
+                .containsExactly("orders.new", "orders.new.dlq", "orders.new.parked");
+        assertThat(topology.exchanges()).extracting(Topology.ExchangeSpec::name).containsExactly("acemq.dlx");
+        assertThat(topology.exchanges().get(0).type()).isEqualTo("direct");
+        assertThat(topology.bindings()).extracting(Topology.BindingSpec::queue)
+                .containsExactly("orders.new.dlq", "orders.new.parked");
+        // Bound on its own name, which is what makes one shared exchange reach the right queue.
+        assertThat(topology.bindings().get(0).routingKey()).isEqualTo("orders.new.dlq");
+        assertThat(topology.bindings().get(1).routingKey()).isEqualTo("orders.new.parked");
+    }
+
+    @Test
+    void does_not_let_the_dead_letter_queues_dead_letter_in_turn() {
+        // A dead-letter queue that dead-letters is a loop, and a loop is how a poison message
+        // becomes an outage.
+        Topology topology = Topology.define().queueWithDeadLetter("orders.new").build();
+
+        assertThat(topology.queues().get(1).arguments()).isEmpty();
+        assertThat(topology.queues().get(2).arguments()).isEmpty();
+    }
+
+    @Test
+    void declares_the_shared_exchange_once_for_several_queues() {
+        Topology topology = Topology.define()
+                .queueWithDeadLetter("orders.new")
+                .queueWithDeadLetter("orders.shipped")
+                .build();
+
+        assertThat(topology.exchanges()).hasSize(1);
+        assertThat(topology.queues()).hasSize(6);
+    }
+
+    @Test
+    void keeps_a_caller_s_own_arguments_alongside_the_dead_letter_ones() {
+        Topology.QueueSpec queue = Topology.define()
+                .classicQueueWithDeadLetter("orders.new", Collections.singletonMap("x-message-ttl", 60_000))
+                .build()
+                .queues()
+                .get(0);
+
+        assertThat(queue.quorum()).isFalse();
+        assertThat(queue.arguments())
+                .containsEntry("x-message-ttl", 60_000)
+                .containsEntry("x-dead-letter-exchange", "acemq.dlx")
+                .containsEntry("x-dead-letter-routing-key", "orders.new.dlq");
+    }
+
+    @Test
+    void refuses_to_overrule_a_dead_letter_argument_the_caller_set() {
+        // Refused rather than resolved: either answer would be a guess about which of two
+        // conflicting instructions was meant, and silently replacing the one that was written
+        // down sends the messages somewhere the author did not ask for, with nothing to say so.
+        assertThatThrownBy(() -> Topology.define()
+                .classicQueueWithDeadLetter(
+                        "orders.new", Collections.singletonMap("x-dead-letter-exchange", "mine"))
+                .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("x-dead-letter-exchange")
+                .hasMessageContaining("pick one");
+
+        assertThatThrownBy(() -> Topology.define()
+                .classicQueueWithDeadLetter(
+                        "orders.new", Collections.singletonMap("x-dead-letter-routing-key", "elsewhere"))
+                .build())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("x-dead-letter-routing-key");
+    }
+
+    @Test
     void is_immutable_once_built() {
         Topology topology = Topology.define().queue("orders.new").build();
 

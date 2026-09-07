@@ -8,7 +8,66 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+> ### ⚠ Migrating: `queueWithDeadLetter` changes a queue's arguments
+>
+> `Topology.Builder.queueWithDeadLetter(...)` and
+> `classicQueueWithDeadLetter(...)` declare the source queue with
+> `x-dead-letter-exchange` and `x-dead-letter-routing-key` on it. **A queue that
+> already exists without those arguments cannot be redeclared with them.** AMQP
+> forbids changing a queue's arguments in place, so the declare is refused with
+> `PRECONDITION_FAILED` and, on AMQP 0-9-1, the refusal closes the channel.
+>
+> Nothing breaks by upgrading. These are new methods; `queue(...)` and
+> `classicQueue(...)` declare exactly what they declared before, and a service
+> that does not call the new ones sees no change. The break happens when you
+> **switch an existing queue over to them**, and it happens at start-up on the
+> day of the deployment.
+>
+> Before switching `orders.new` over, do one of these:
+>
+> - **Drain and recreate it.** Stop the consumers, let the queue empty, delete
+>   it, and let the new topology declare it. The only option that needs no
+>   coordination, and it costs whatever downtime draining takes.
+> - **Migrate it.** Declare `orders.new.v2` with the new arguments, move the
+>   messages across (`Replay`, or the shovel plugin), swap the bindings, delete
+>   the old queue. No downtime, more steps.
+> - **Declare it yourself and keep `queue(...)`.** Add the two arguments to your
+>   own provisioning — `x-dead-letter-exchange` is `acemq.dlx` and
+>   `x-dead-letter-routing-key` is `{queue}.dlq` — and declare `{queue}.dlq` and
+>   `{queue}.parked` bound to `acemq.dlx` on their own names. Correct for an
+>   estate where topology is provisioned outside the application.
+>
+> Run `mq.topology().plan(...)` first either way. It reports the difference as
+> drift, in the broker's own words, without touching anything.
+
 ### Added
+- **The source queue now says where its dead letters go.**
+  `Topology.Builder.queueWithDeadLetter(name)` and
+  `classicQueueWithDeadLetter(name, arguments)` declare a queue together with
+  `{name}.dlq`, `{name}.parked` and the `acemq.dlx` exchange that reaches them,
+  and — the part that was missing — put `x-dead-letter-exchange` and
+  `x-dead-letter-routing-key` on the source queue itself.
+
+  Java bound the two dead-letter queues correctly and never stamped the queue
+  they were for, which is the one argument table two services have to agree on.
+  A Python service declaring `orders` with those arguments and a Java service
+  declaring it without them cannot both consume it: the second one to start is
+  answered `PRECONDITION_FAILED` and consumes nothing. The values are the ones
+  Go, .NET, Python and Ruby already send, so this is Java catching up rather
+  than a fifth convention.
+
+  This is a backstop and not a replacement for the dead-lettering the consumer
+  already does. A handler that fails is still republished to `{queue}.dlq` with
+  the reason recorded on the envelope and then acknowledged, because the
+  broker's own `x-death` header records that a message died and not why. What
+  the broker route adds is everything the library never sees: a message expiring
+  under the queue's `x-message-ttl`, an overflow under `x-max-length`, a reject
+  from some other consumer of the same queue. Those used to vanish. Both paths
+  stay.
+
+  A caller who has already set either argument by hand is refused rather than
+  overruled. Silently replacing an instruction someone wrote down would send
+  their messages somewhere else with nothing to say so.
 - **A threshold between waiting here and waiting there.**
   `RetryPolicy.brokerWaitThreshold()` is thirty seconds by default, and
   `waitInBrokerFrom(...)` moves it — zero meaning never, for a service that is
@@ -33,6 +92,16 @@ While the version is `0.x` the public API may change in any release.
   again before any handler saw it.
 
 ### Changed
+- The binary-compatibility gate now compares against a version that exists. It
+  was configured with `ignoreMissingOldVersion` and no baseline, so japicmp
+  resolved nothing, reported "Ignoring missing old artifact version" for every
+  module, and passed — a gate that had never compared anything. It now names
+  `0.2.10`, resolved from the published repository, which is declared in the
+  build for that one purpose. `ignoreMissingOldVersion` stays on for modules
+  added since that release, which have no old artifact to compare against.
+- The project version was `0.2.8-SNAPSHOT` while `0.2.10` was released and
+  tagged, so the working tree claimed to be older than the last two releases.
+  It is now `0.2.11-SNAPSHOT`.
 - **`RetryPolicy.exponential(...)` now doubles rather than multiplying by five,
   and jitters by twenty percent rather than ten.** `exponential(5, 1s, 1m)` was
   1s, 5s, 25s, 60s and is now 1s, 2s, 4s, 8s. The numbers a policy produces are
