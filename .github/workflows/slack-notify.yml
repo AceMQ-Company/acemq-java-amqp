@@ -111,17 +111,27 @@ jobs:
             --arg run_url "$RUN_URL" \
             --arg status "$STATUS" \
             '{
-              text: ($icon + " " + $title),
+              # The fallback, and it is not only a fallback: this is what a push
+              # notification, an email digest and anything bridging Slack shows,
+              # and it carried the title alone. Whatever joined it to the message
+              # elsewhere produced "main is failingThe build on main did not
+              # pass" -- two sentences with nothing between them.
+              text: ($icon + " " + $title
+                     + (if $message == "" then "" else "\n" + $message end)),
               blocks: (
                 [
                   {
+                    # Title and detail in one block with an explicit line break,
+                    # rather than two sections. Separate blocks read correctly in
+                    # Slack itself and are free to be concatenated by anything
+                    # that flattens them.
                     type: "section",
-                    text: { type: "mrkdwn", text: ($icon + " *" + $title + "*") }
+                    text: { type: "mrkdwn",
+                            text: ($icon + " *" + $title + "*"
+                                   + (if $message == "" then ""
+                                      else "\n" + $message end)) }
                   }
                 ]
-                + (if $message == "" then [] else
-                    [{ type: "section", text: { type: "mrkdwn", text: $message } }]
-                  end)
                 + [
                   {
                     type: "context",
