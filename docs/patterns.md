@@ -4,7 +4,7 @@
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-patterns</artifactId>
-  <version>0.2.10</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 

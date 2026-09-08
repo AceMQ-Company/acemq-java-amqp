@@ -3,7 +3,7 @@
 [![ci](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/ci.yml)
 [![release](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/release.yml/badge.svg)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/release.yml)
 [![authorship guard](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml/badge.svg?branch=main)](https://github.com/AceMQ-Company/acemq-java-amqp/actions/workflows/attribution-guard.yml)
-[![version](https://img.shields.io/badge/version-0.2.10-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/releases)
+[![version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/AceMQ-Company/acemq-java-amqp/releases)
 [![artifacts](https://img.shields.io/badge/artifacts-acemq.org%2Fmaven-blue)](https://acemq.org/maven/)
 [![docs](https://img.shields.io/badge/docs-acemq.org-blue)](https://acemq.org/acemq-java-amqp/)
 [![license](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -18,7 +18,7 @@ broker-specific sits behind a transport SPI, which is what makes the second
 binding a module rather than a rewrite — but that module does not exist yet.
 `acemq-transport-amqp10` (Qpid Proton-J) arrives at milestone M3.
 
-> **Status: `0.2.10`, published.** The public API may still change while the
+> **Status: `0.3.0`, published.** The public API may still change while the
 > version is `0.x`. Everything documented here is proven against a real RabbitMQ
 > in continuous integration, on both 4.x and 3.13.
 >
@@ -197,12 +197,12 @@ credentials — add it alongside your other repositories:
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.2.10</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-transport-rabbitmq</artifactId>
-  <version>0.2.10</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
