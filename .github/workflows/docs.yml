@@ -77,25 +77,3 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-
-  notify:
-    needs: deploy
-    # Failures only. A message for every push to main would be noise nobody
-    # reads, and a channel people mute is worse than no channel. Success on
-    # workflow_dispatch used to be announced too, which stopped being useful once
-    # the release dispatches this job itself -- that turned every release into two
-    # messages saying the same thing.
-    if: always() && needs.deploy.result == 'failure'
-    uses: AceMQ-Company/acemq-java-amqp/.github/workflows/slack-notify.yml@main
-    with:
-      status: ${{ needs.deploy.result }}
-      title: >-
-        ${{ needs.deploy.result == 'success'
-            && 'AceMQ for Java documentation published'
-            || 'AceMQ for Java documentation build FAILED' }}
-      message: >-
-        ${{ needs.deploy.result == 'success'
-            && 'The guide and the API reference are live.'
-            || 'The site was not updated, so it still shows the previous version.' }}
-      url: https://acemq-company.github.io/acemq-java-amqp/
-    secrets: inherit
