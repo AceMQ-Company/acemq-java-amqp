@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 While the version is `0.x` the public API may change in any release.
 
+## [Unreleased]
+
+### Added
+- **The cross-language conformance suite.** The generator that writes
+  `envelope-fixtures.json` lived in the .NET repository and was run by hand
+  with `javac`; it now lives in this repository's test suite, runs on every
+  build, and fails the build when what it produces no longer matches what is
+  committed. Alongside it is a second fixture, `contract-fixtures.json`, which
+  pins the retry schedules, the jitter bounds, the consumer/broker threshold,
+  the queue naming, the rung argument table, the full declared topology and the
+  queue type defaults.
+
+  This is the answer to a bug that survived ten releases. `RetryPolicy.exponential`
+  multiplied by five and jittered by ten percent in Java while Go, .NET, Python
+  and Ruby doubled and jittered by twenty, so `exponential(5, 1s, 1m)` produced
+  `1s, 5s, 25s, 60s` here and `1s, 2s, 4s, 8s` everywhere else. Three further
+  divergences turned up the same week, all four found by a person reading five
+  codebases side by side. That does not scale. A schedule that changes now turns
+  this repository's build red on the commit that changed it.
+
+  Nothing in the published API moved. Both fixtures and the notes on how to
+  regenerate them are in `acemq-amqp-test/src/test/resources/fixtures/`.
+
 ## [0.3.0] - 2026-09-08
 
 > ### ⚠ Migrating: `queueWithDeadLetter` changes a queue's arguments

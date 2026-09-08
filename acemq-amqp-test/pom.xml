@@ -141,5 +141,15 @@
       <artifactId>opentelemetry-sdk-testing</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Reading the cross-language fixtures back, so that the conformance test is held to
+         the committed file rather than to the generator that wrote it. Declared rather than
+         inherited through a codec: a test that reads JSON should say so, and this one would
+         otherwise break the day a codec stops needing Jackson. Nothing in the engine parses
+         JSON, which is why this is test scope. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
