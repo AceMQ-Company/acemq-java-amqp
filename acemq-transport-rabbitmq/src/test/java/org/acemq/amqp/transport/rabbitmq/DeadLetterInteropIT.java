@@ -88,7 +88,7 @@ class DeadLetterInteropIT {
     }
 
     /**
-     * The argument table the other four libraries put on a source queue.
+     * The argument table every other AceMQ library puts on a source queue.
      *
      * <p>Written out literally rather than read from {@link Topology}, because a constant shared
      * with the code under test would agree with it by construction and prove nothing. These are
@@ -96,15 +96,17 @@ class DeadLetterInteropIT {
      */
     private static Map<String, Object> asAnotherLanguageDeclaresIt() {
         Map<String, Object> arguments = new LinkedHashMap<>();
+        arguments.put("x-queue-type", "quorum");
         arguments.put("x-dead-letter-exchange", "acemq.dlx");
         arguments.put("x-dead-letter-routing-key", SOURCE + ".dlq");
         return arguments;
     }
 
     private static Topology topology() {
-        // Classic rather than quorum, because the other four libraries default a source queue to
-        // classic and x-queue-type is compared as strictly as anything else.
-        return Topology.define().classicQueueWithDeadLetter(SOURCE, Collections.emptyMap()).build();
+        // Quorum, which is what every AceMQ library now declares a source queue as. This test read
+        // classic until the other four adopted Java's default; a test that pins a table nobody
+        // writes any more passes for ever and guards nothing.
+        return Topology.define().queueWithDeadLetter(SOURCE).build();
     }
 
     @Test
@@ -188,7 +190,7 @@ class DeadLetterInteropIT {
         // quietly stops printing the interesting part.
         assertThat(lines).contains(
                 "  acemq.dlx (direct, durable=true)",
-                "  interop.orders (classic, durable=true)",
+                "  interop.orders (quorum, durable=true)",
                 "      x-dead-letter-exchange = acemq.dlx",
                 "      x-dead-letter-routing-key = interop.orders.dlq",
                 "  interop.orders.dlq (classic, durable=true)",
