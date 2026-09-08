@@ -8,6 +8,46 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+> ### ⚠ Migrating: a retry policy no longer invents an age limit
+>
+> `RetryPolicy` used to set `maxMessageAge` to 365 days in every factory —
+> `exponential(...)`, `fixed(...)`, `none()` and the full constructor — and
+> `nextWait` compared against it unconditionally. **A message that reached a
+> year old was dead-lettered by a Java consumer and retried by the Go, .NET,
+> Python and Ruby ones**, which have always read an age limit of zero as no
+> limit at all. Zero is now the default here too, and means the same thing.
+>
+> If you were relying on the year, those messages are now retried until the
+> attempts run out instead of being dead-lettered. Say it out loud to get the
+> old behaviour back exactly:
+>
+> ```java
+> RetryPolicy.exponential(5, ofSeconds(1), ofHours(24))
+>         .giveUpAfter(Duration.ofDays(365));
+> ```
+>
+> `giveUpAfter(...)` is unchanged and is now the only way to get an age limit.
+> Its boundary is unchanged too: a message whose age is exactly the limit is
+> abandoned, which is what all five libraries already did.
+
+### Changed
+- **`RetryPolicy`: zero means no age limit, and zero is the default.** The
+  cross-language conformance suite found this on its first run — four libraries
+  reading zero as never, and Java alone carrying a 365-day limit that no caller
+  had asked for. A sentinel that stands in for "no limit" only works if nobody
+  compares against it, and Java did, so the sentinel had quietly become a
+  policy: an age at which to stop retrying, chosen by the library rather than
+  by the caller. `maxAttempts` already bounds the retrying; the age limit is
+  now off until `giveUpAfter(...)` turns it on. A negative limit reads as no
+  limit rather than as abandon-everything, for the same reason.
+
+  `contract-fixtures.json` moves with it. Each entry of `retrySchedules` now
+  carries `hasMaxMessageAge` alongside `maxMessageAgeMillis`, so a port cannot
+  mistake a zero for "abandon on first failure", and there is a new
+  `maxMessageAge` section spelling out the rule with a computed table either
+  side of the boundary — including the year-old message that used to be the
+  disagreement. The four ports need the new bytes.
+
 ### Added
 - **The cross-language conformance suite.** The generator that writes
   `envelope-fixtures.json` lived in the .NET repository and was run by hand

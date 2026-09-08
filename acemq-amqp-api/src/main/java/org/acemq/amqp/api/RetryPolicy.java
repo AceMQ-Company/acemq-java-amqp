@@ -52,11 +52,16 @@ import java.util.Optional;
  * <ul>
  *   <li>{@link #maxAttempts()} — how many deliveries in total, including the first;
  *   <li>{@link #maxMessageAge()} — how old the message may get, measured from its first
- *       publish rather than from the most recent failure.
+ *       publish rather than from the most recent failure, or zero for no limit at all.
  * </ul>
  *
  * <p>The age limit is what stops a message from circulating for days after an outage: five
- * attempts with an hour between them is six hours of retrying that almost nobody intends.
+ * attempts with an hour between them is six hours of retrying that almost nobody intends. It is
+ * off unless {@link #giveUpAfter(Duration)} turns it on, because a limit nobody asked for is a
+ * policy nobody asked for: {@link #maxAttempts()} already bounds the retrying, and a library
+ * that also invented an age at which to stop would be making a decision on the caller's behalf
+ * and dead-lettering messages for it. Zero means never, in this library and in the Go, .NET,
+ * Python and Ruby ones, so the same policy abandons the same message in all five.
  */
 public final class RetryPolicy {
 
@@ -74,8 +79,20 @@ public final class RetryPolicy {
      */
     public static final Duration DEFAULT_BROKER_WAIT_THRESHOLD = Duration.ofSeconds(30);
 
+    /**
+     * The age limit of a policy that has none: zero, meaning a message is never too old.
+     *
+     * <p>A sentinel that stands in for "no limit" has to be a value no caller would mean
+     * literally, and zero is the only one: an age limit of nothing would abandon every message
+     * on its first failure, which is {@link #none()} spelled the long way round. The alternative
+     * this replaced — a year — looked like a safety net and behaved like a decision, because a
+     * message that reached it was dead-lettered by a Java consumer and retried by the other four
+     * libraries.
+     */
+    private static final Duration NO_AGE_LIMIT = Duration.ZERO;
+
     private static final RetryPolicy NONE = new RetryPolicy(
-            1, Collections.emptyList(), Duration.ofDays(365), 0.0, DEFAULT_BROKER_WAIT_THRESHOLD);
+            1, Collections.emptyList(), NO_AGE_LIMIT, 0.0, DEFAULT_BROKER_WAIT_THRESHOLD);
 
     private final int maxAttempts;
     private final List<Duration> schedule;
@@ -157,7 +174,7 @@ public final class RetryPolicy {
         for (int i = 1; i < maxAttempts; i++) {
             schedule.add(delay);
         }
-        return new RetryPolicy(maxAttempts, schedule, Duration.ofDays(365), 0.0, DEFAULT_BROKER_WAIT_THRESHOLD);
+        return new RetryPolicy(maxAttempts, schedule, NO_AGE_LIMIT, 0.0, DEFAULT_BROKER_WAIT_THRESHOLD);
     }
 
     /**
@@ -214,13 +231,17 @@ public final class RetryPolicy {
         // outage that fails a thousand messages at once retries all thousand at the same
         // instant, and keeps doing so; jitter that only ever delays turns a thundering herd
         // into a slower thundering herd.
-        return new RetryPolicy(maxAttempts, schedule, Duration.ofDays(365), 0.20, DEFAULT_BROKER_WAIT_THRESHOLD);
+        return new RetryPolicy(maxAttempts, schedule, NO_AGE_LIMIT, 0.20, DEFAULT_BROKER_WAIT_THRESHOLD);
     }
 
     /**
      * Returns a copy that abandons messages older than the given age.
      *
-     * @param maxMessageAge age measured from first publish
+     * <p>This is the only way to get an age limit; no factory sets one. The limit is reached
+     * rather than passed, so a message whose age is exactly the limit is dead-lettered — the
+     * same boundary the other four libraries keep.
+     *
+     * @param maxMessageAge age measured from first publish, or zero for no limit
      * @return a policy with the age limit applied
      */
     public RetryPolicy giveUpAfter(Duration maxMessageAge) {
@@ -269,9 +290,21 @@ public final class RetryPolicy {
         return maxAttempts;
     }
 
-    /** @return how old a message may get before it is abandoned */
+    /** @return how old a message may get before it is abandoned; zero means never */
     public Duration maxMessageAge() {
         return maxMessageAge;
+    }
+
+    /**
+     * Whether this policy abandons a message for being old, as opposed to for running out of
+     * attempts.
+     *
+     * <p>Only a positive limit is one. Zero — the default — says no message is ever too old, and
+     * a negative duration says the same rather than abandoning everything, because a limit that
+     * has already elapsed before the message was published cannot have been meant literally.
+     */
+    private boolean hasAgeLimit() {
+        return maxMessageAge.compareTo(Duration.ZERO) > 0;
     }
 
     /** @return the fraction of each delay that is randomised */
@@ -365,7 +398,7 @@ public final class RetryPolicy {
         if (attempt >= maxAttempts) {
             return Optional.empty();
         }
-        if (messageAge != null && messageAge.compareTo(maxMessageAge) >= 0) {
+        if (hasAgeLimit() && messageAge != null && messageAge.compareTo(maxMessageAge) >= 0) {
             return Optional.empty();
         }
 

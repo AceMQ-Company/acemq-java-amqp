@@ -77,6 +77,16 @@ public final class ContractFixtures {
     /** Low enough that every delay above becomes a rung, so its name can be read off. */
     private static final Duration EVERYTHING_IN_THE_BROKER = Duration.ofMillis(1);
 
+    /**
+     * The age a message has to reach before "no age limit" means anything.
+     *
+     * <p>A year, because a year used to be the Java default: {@code exponential}, {@code fixed}
+     * and {@code none} set {@code Duration.ofDays(365)} and compared against it unconditionally,
+     * so a message exactly this old was dead-lettered here and retried by Go, .NET, Python and
+     * Ruby. The number is in the fixture so that the disagreement cannot come back quietly.
+     */
+    private static final Duration A_YEAR = Duration.ofDays(365);
+
     private ContractFixtures() {
         throw new AssertionError("ContractFixtures is a generator and must not be instantiated");
     }
@@ -96,6 +106,7 @@ public final class ContractFixtures {
         root.put("deadLetterExchange", Topology.DEAD_LETTER_EXCHANGE);
         root.put("retryExchange", RetryTopology.RETRY_EXCHANGE);
         root.put("retrySchedules", retrySchedules());
+        root.put("maxMessageAge", maxMessageAge());
         root.put("jitter", jitter());
         root.put("brokerWaitThreshold", brokerWaitThreshold());
         root.put("naming", naming());
@@ -140,6 +151,10 @@ public final class ContractFixtures {
         entry.put("how", how);
         entry.put("maxAttempts", (long) policy.maxAttempts());
         entry.put("maxMessageAgeMillis", policy.maxMessageAge().toMillis());
+        // Said twice on purpose. A reader who does not know the convention would take a zero for
+        // "abandon everything", which is the opposite of what it means, and a port that guessed
+        // wrong would dead-letter every message on its first failure.
+        entry.put("hasMaxMessageAge", policy.maxMessageAge().toMillis() > 0);
         entry.put("jitterFactor", policy.jitterFactor());
         entry.put("brokerWaitThresholdMillis", policy.brokerWaitThreshold().toMillis());
         entry.put("scheduleMillis", millis(policy.schedule()));
@@ -171,6 +186,11 @@ public final class ContractFixtures {
         if (limit.compareTo(Duration.ofMillis(1)) > 0) {
             ages.add(limit.minusMillis(1));
             ages.add(limit);
+        } else {
+            // No limit, so there is no boundary to sit either side of — but "no limit" is a
+            // claim worth a row of its own, and the age that proves it is the one that used to
+            // fail. Java abandoned a message this old and the other four retried it.
+            ages.add(A_YEAR);
         }
 
         for (int attempt : attempts) {
@@ -183,6 +203,57 @@ public final class ContractFixtures {
             }
         }
         return decisions;
+    }
+
+    // ---------------------------------------------------------------- the age limit
+
+    /**
+     * When a message is too old to retry, at two limits and either side of the boundary.
+     *
+     * <p>The section exists because this is where Java disagreed with everybody. Its factories
+     * set an age limit of a year that no caller had asked for and compared against it
+     * unconditionally, so a message exactly a year old was dead-lettered by a Java consumer and
+     * retried by the four ports, which read a limit of zero as no limit at all. Zero now means
+     * the same thing in all five, and the rows below are computed by asking the library rather
+     * than by writing down what it is believed to answer.
+     */
+    private static Map<String, Object> maxMessageAge() {
+        List<Duration> ages = Arrays.asList(
+                Duration.ZERO,
+                Duration.ofMillis(119_999),
+                Duration.ofMinutes(2),
+                Duration.ofMillis(120_001),
+                A_YEAR);
+
+        List<Object> cases = new ArrayList<>();
+        for (Duration limit : Arrays.asList(Duration.ZERO, Duration.ofMinutes(2))) {
+            // Five attempts and a one-second wait, so nothing here is ever decided by the
+            // attempt count: every row that stops is a row the age stopped.
+            RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofSeconds(1)).giveUpAfter(limit);
+            for (Duration age : ages) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("maxMessageAgeMillis", limit.toMillis());
+                row.put("messageAgeMillis", age.toMillis());
+                row.put("retries", policy.nextWait(1, age).isPresent());
+                cases.add(row);
+            }
+        }
+
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put("defaultMillis", RetryPolicy.fixed(5, Duration.ofSeconds(1)).maxMessageAge().toMillis());
+        section.put("zeroMeansNoLimit", true);
+        section.put(
+                "rule",
+                "maxMessageAgeMillis of 0 means no age limit, and 0 is what every factory produces: only"
+                        + " giveUpAfter sets a limit. A message is abandoned when its age reaches a non-zero"
+                        + " limit, not when it passes it, so an age exactly equal to the limit does not retry."
+                        + " An age that is not known counts as young enough");
+        section.put("unknownAgeRetries", RetryPolicy.fixed(5, Duration.ofSeconds(1))
+                .giveUpAfter(Duration.ofMinutes(2))
+                .nextWait(1, null)
+                .isPresent());
+        section.put("cases", cases);
+        return section;
     }
 
     // ---------------------------------------------------------------- jitter

@@ -184,12 +184,88 @@ class ContractConformanceTest {
                     .isTrue();
         }
 
+        @Test
+        @DisplayName("a policy that was never told to give up has no age limit at all")
+        void a_policy_without_give_up_after_has_no_age_limit() {
+            for (JsonNode entry : fixtures.get("retrySchedules")) {
+                boolean asked = entry.get("how").asText().contains("giveUpAfter");
+                assertThat(entry.get("hasMaxMessageAge").asBoolean())
+                        .as("%s has an age limit only if it asked for one", entry.get("name").asText())
+                        .isEqualTo(asked);
+                assertThat(entry.get("maxMessageAgeMillis").asLong() > 0)
+                        .as("the millis and the flag say the same thing about %s", entry.get("name").asText())
+                        .isEqualTo(asked);
+            }
+
+            // And the live library agrees, at the age that used to be the difference. A year was
+            // the old default, so this is the assertion the divergence would have failed.
+            RetryPolicy policy = RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofHours(24));
+            assertThat(policy.maxMessageAge()).isEqualTo(Duration.ZERO);
+            assertThat(policy.nextWait(1, Duration.ofDays(365)))
+                    .as("a message a year old is retried by a policy that names no limit")
+                    .isPresent();
+        }
+
         private List<Long> millis(RetryPolicy policy) {
             List<Long> values = new ArrayList<>();
             for (Duration delay : policy.schedule()) {
                 values.add(delay.toMillis());
             }
             return values;
+        }
+    }
+
+    @Nested
+    @DisplayName("when a message is too old")
+    class MaxMessageAge {
+
+        @Test
+        @DisplayName("every row follows the rule, recomputed rather than re-read")
+        void the_age_table_follows_its_own_rule() {
+            JsonNode section = fixtures.get("maxMessageAge");
+
+            assertThat(section.get("defaultMillis").asLong())
+                    .as("no factory invents an age limit; only giveUpAfter sets one")
+                    .isZero();
+            assertThat(section.get("zeroMeansNoLimit").asBoolean()).isTrue();
+            assertThat(section.get("unknownAgeRetries").asBoolean())
+                    .as("an age nobody knows counts as young enough")
+                    .isTrue();
+
+            int rows = 0;
+            boolean sawUnlimitedAndAncient = false;
+            for (JsonNode row : section.get("cases")) {
+                long limit = row.get("maxMessageAgeMillis").asLong();
+                long age = row.get("messageAgeMillis").asLong();
+                // Written out from the sentence in the fixture rather than by calling the
+                // library: zero is no limit, and a non-zero limit is reached rather than passed.
+                boolean expected = limit <= 0 || age < limit;
+                assertThat(row.get("retries").asBoolean())
+                        .as("a message %dms old against a limit of %dms", age, limit)
+                        .isEqualTo(expected);
+                sawUnlimitedAndAncient |= limit == 0 && age >= Duration.ofDays(365).toMillis()
+                        && row.get("retries").asBoolean();
+                rows++;
+            }
+            assertThat(rows).as("the table covers something").isGreaterThan(8);
+            assertThat(sawUnlimitedAndAncient)
+                    .as("the year-old message the old default abandoned is in the table, and it retries")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("the boundary is inclusive, and asking for zero asks for no limit")
+        void the_limit_is_reached_rather_than_passed() {
+            RetryPolicy limited = RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofHours(24))
+                    .giveUpAfter(Duration.ofMinutes(2));
+
+            assertThat(limited.nextWait(1, Duration.ofMillis(119_999))).isPresent();
+            assertThat(limited.nextWait(1, Duration.ofMinutes(2))).isEmpty();
+            assertThat(limited.nextWait(1, Duration.ofMillis(120_001))).isEmpty();
+
+            // Zero is not "give up immediately". It is the way back to no limit, which is what
+            // the other four libraries have always read it as.
+            assertThat(limited.giveUpAfter(Duration.ZERO).nextWait(1, Duration.ofDays(365))).isPresent();
         }
     }
 

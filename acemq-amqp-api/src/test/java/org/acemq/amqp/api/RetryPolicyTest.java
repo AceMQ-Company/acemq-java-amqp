@@ -212,6 +212,47 @@ class RetryPolicyTest {
         }
 
         @Test
+        void never_gives_up_on_age_unless_it_was_asked_to() {
+            // No factory invents an age limit. This used to be a year, set by every constructor,
+            // so a Java consumer dead-lettered a message the Go, .NET, Python and Ruby ones
+            // retried — a policy nobody had asked for, arriving from a sentinel.
+            for (RetryPolicy policy : new RetryPolicy[]{
+                    RetryPolicy.exponential(5, Duration.ofSeconds(1), Duration.ofHours(24)),
+                    RetryPolicy.exponential(5, Duration.ofSeconds(1), 3.0, Duration.ofHours(24)),
+                    RetryPolicy.fixed(5, Duration.ofSeconds(1)),
+                    RetryPolicy.none()}) {
+                assertThat(policy.maxMessageAge())
+                        .as("zero means no age limit, in all five libraries")
+                        .isEqualTo(Duration.ZERO);
+            }
+
+            assertThat(RetryPolicy.fixed(5, Duration.ofSeconds(1)).nextDelay(1, Duration.ofDays(365)))
+                    .as("a message a year old still has four attempts left and gets them")
+                    .isPresent();
+        }
+
+        @Test
+        void gives_up_exactly_at_the_limit_rather_than_past_it() {
+            RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofSeconds(1)).giveUpAfter(Duration.ofMinutes(2));
+
+            assertThat(policy.nextDelay(1, Duration.ofMillis(119_999))).isPresent();
+            // The boundary all five libraries agree on and the fixture pins: reached, not passed.
+            assertThat(policy.nextDelay(1, Duration.ofMinutes(2))).isEmpty();
+            assertThat(policy.nextDelay(1, Duration.ofMillis(120_001))).isEmpty();
+        }
+
+        @Test
+        void asking_to_give_up_after_nothing_asks_for_no_limit_at_all() {
+            // Rather than "abandon every message on its first failure", which is none() said the
+            // long way round and is not what a caller passing zero can mean.
+            RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofSeconds(1))
+                    .giveUpAfter(Duration.ofMinutes(2))
+                    .giveUpAfter(Duration.ZERO);
+
+            assertThat(policy.nextDelay(1, Duration.ofDays(365))).isPresent();
+        }
+
+        @Test
         void treats_an_unknown_age_as_young_enough() {
             RetryPolicy policy = RetryPolicy.exponential(3, Duration.ofSeconds(1), Duration.ofMinutes(1))
                     .giveUpAfter(Duration.ofSeconds(1));

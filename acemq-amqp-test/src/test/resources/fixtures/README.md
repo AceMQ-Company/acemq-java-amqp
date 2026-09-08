@@ -6,7 +6,7 @@ Go, .NET, Python and Ruby carry a copy and assert against it.
 | File | What it pins |
 | --- | --- |
 | `envelope-fixtures.json` | the headers an AceMQ publish puts on the wire |
-| `contract-fixtures.json` | retry schedules, jitter bounds, the consumer/broker threshold, queue naming, the rung argument table, the declared topology, and queue type defaults |
+| `contract-fixtures.json` | retry schedules, the age limit, jitter bounds, the consumer/broker threshold, queue naming, the rung argument table, the declared topology, and queue type defaults |
 
 They are **generated, never written**. Two implementations agreeing with the
 same prose is not interoperability; agreeing with the same bytes is. Every
@@ -20,6 +20,20 @@ and jittered by ten percent in Java while the other four libraries doubled and
 jittered by twenty, for ten releases. `exponential(5, 1s, 1m)` produced
 `1s, 5s, 25s, 60s` here and `1s, 2s, 4s, 8s` everywhere else. Nothing caught it,
 because each library tested its own arithmetic against its own expectations.
+
+It has already earned its keep a second time. On its first run it found that
+Java set an age limit of 365 days in every factory and compared against it,
+while Go, .NET, Python and Ruby read an age limit of zero as no limit and
+defaulted to zero — so a message exactly a year old was dead-lettered here and
+retried by the other four. Java now agrees: zero means never, and only
+`giveUpAfter(...)` sets a limit. How the file says it:
+
+- every entry of `retrySchedules` carries `maxMessageAgeMillis` **and**
+  `hasMaxMessageAge`, because a bare zero is exactly the kind of value a reader
+  can take for its opposite;
+- the `maxMessageAge` section states the rule and backs it with a computed
+  table either side of the boundary, at a limit of zero and a limit of two
+  minutes, including the year-old message that used to be the disagreement.
 
 ## Regenerating
 
