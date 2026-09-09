@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 While the version is `0.x` the public API may change in any release.
 
+## [Unreleased]
+
+### Fixed
+- **A fixed-schema `AvroCodec` refused legitimate messages whose first field
+  encodes to a zero byte.** The check that stops a fixed-schema codec silently
+  misreading Confluent-framed bytes was made on the bytes alone: five bytes or
+  more beginning with `0x00`, refused. But an Avro body begins with `0x00`
+  whenever its first field encodes to zero — an empty string, a `0`, a `false`,
+  the first branch of a union — so an ordinary record was rejected as poison,
+  with no way to read it at all. The content type now decides: told `avro/binary`
+  (or `application/avro`, or any `*+avro`) the body is decoded as written, told
+  `application/vnd.acemq.avro` it is still refused as the other framing, and the
+  leading-byte guess survives only for a message that arrived saying nothing
+  useful, where it is the sole signal there is. `AvroCodec` now overrides
+  `decode(byte[], Class, String)`, which the engine already called; the
+  two-argument form behaves as before. Python and Ruby agree.
+- **`ProtobufCodec` refused `application/vnd.google.protobuf`**, which is what
+  Google's own tooling and most schema registries write. A message the Go and
+  Ruby libraries read happily was a poison message to a Java consumer beside
+  them. The read set is now `application/x-protobuf`, `application/protobuf`,
+  `application/vnd.google.protobuf` and any `*+protobuf` suffix type. What the
+  codec writes is unchanged: `application/x-protobuf`.
+
 ## [0.4.0] - 2026-09-08
 
 > ### ⚠ Migrating: a retry policy no longer invents an age limit

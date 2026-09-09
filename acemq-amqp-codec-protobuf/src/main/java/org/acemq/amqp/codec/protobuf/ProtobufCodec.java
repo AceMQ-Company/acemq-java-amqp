@@ -15,6 +15,7 @@
  */
 package org.acemq.amqp.codec.protobuf;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -49,6 +50,19 @@ import com.google.protobuf.Parser;
 public final class ProtobufCodec implements Codec {
 
     private static final String CONTENT_TYPE = "application/x-protobuf";
+
+    /**
+     * Every content type this codec answers for, besides any {@code +protobuf} suffix type.
+     *
+     * <p>Wider than what {@link #contentType()} writes, and deliberately so. Only one of these can
+     * be written, but all of them mean the same bytes, and the one a message arrives with is
+     * decided by whichever tool wrote it: {@code application/vnd.google.protobuf} is what Google's
+     * own tooling and most registries use, and refusing it would mean a message the sibling
+     * libraries read happily is a poison message here. A wider read set costs nothing; a narrower
+     * one silently refuses a readable message.
+     */
+    private static final List<String> ACCEPTED_CONTENT_TYPES = List.of(CONTENT_TYPE, "application/protobuf",
+            "application/vnd.google.protobuf");
 
     private final Parser<? extends Message> parser;
     private final String typeName;
@@ -130,7 +144,7 @@ public final class ProtobufCodec implements Codec {
             return false;
         }
         String type = contentType.toLowerCase(Locale.ROOT);
-        return type.startsWith(CONTENT_TYPE) || type.startsWith("application/protobuf") || type.contains("+protobuf");
+        return ACCEPTED_CONTENT_TYPES.stream().anyMatch(type::startsWith) || type.contains("+protobuf");
     }
 
     @Override

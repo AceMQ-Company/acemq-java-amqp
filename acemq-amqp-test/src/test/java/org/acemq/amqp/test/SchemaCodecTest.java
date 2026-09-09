@@ -174,6 +174,51 @@ class SchemaCodecTest {
             assertThat(AvroCodec.of(schema(V1)).canDecode("application/vnd.acemq.avro")).isFalse();
             assertThat(AvroCodec.of(schema(V1)).canDecode("avro/binary")).isTrue();
         }
+
+        @Test
+        void reads_a_record_whose_first_field_encodes_to_a_zero_byte() {
+            // The false positive in the refusal above, and it is not a corner case. Avro writes
+            // a zero byte for an empty string, a 0, a false, or the first branch of a union, so
+            // a legitimate body begins with the same byte a registered message does. Refusing on
+            // that byte alone made this record -- an ordinary one -- unreadable.
+            Codec codec = AvroCodec.of(schema(V2));
+            byte[] encoded = codec.encode(order(schema(V2), "", 4200));
+
+            // Proof the collision is real rather than hypothetical: five bytes or more, leading
+            // zero, indistinguishable from Confluent framing by the bytes alone.
+            assertThat(encoded[0]).isZero();
+            assertThat(encoded.length).isGreaterThanOrEqualTo(5);
+
+            // The sender said what these bytes are, so there is nothing to guess about.
+            GenericRecord decoded = codec.decode(encoded, GenericRecord.class, "avro/binary");
+
+            assertThat(decoded.get("orderId")).hasToString("");
+            assertThat(decoded.get("total")).isEqualTo(4200);
+            assertThat(decoded.get("currency")).hasToString("EUR");
+        }
+
+        @Test
+        void believes_the_content_type_over_the_leading_byte_whichever_way_it_points() {
+            byte[] leadingZero = AvroCodec.of(schema(V2)).encode(order(schema(V2), "", 4200));
+            Codec codec = AvroCodec.of(schema(V2));
+
+            // Said to be registered framing: refused, because a fixed-schema codec reading it
+            // would shift every field and report nonsense as success.
+            assertThatThrownBy(() -> codec.decode(leadingZero, GenericRecord.class, "application/vnd.acemq.avro"))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("schema identifier");
+
+            // Nothing said at all: the leading byte is the only signal there is, so the guess
+            // stands as a last resort and the message is refused rather than misread.
+            assertThatThrownBy(() -> codec.decode(leadingZero, GenericRecord.class, null))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("schema identifier");
+
+            // Nothing useful said: same guess, same answer.
+            assertThatThrownBy(() -> codec.decode(leadingZero, GenericRecord.class, "application/octet-stream"))
+                    .isInstanceOf(AceMqException.class)
+                    .hasMessageContaining("schema identifier");
+        }
     }
 
     @Nested
@@ -423,6 +468,26 @@ class SchemaCodecTest {
 
             assertThat(codec.decode(codec.encode(when), Timestamp.class).getSeconds()).isEqualTo(1767326645);
             assertThat(codec.toString()).contains("Timestamp");
+        }
+
+        @Test
+        void reads_every_content_type_that_means_protobuf_and_writes_only_one() {
+            Codec codec = ProtobufCodec.of(StringValue.parser());
+
+            // Google's own tooling and most registries label protobuf
+            // application/vnd.google.protobuf. Refusing it made a message the Go and Ruby
+            // libraries read happily a poison message here, sitting on the same queue.
+            assertThat(codec.canDecode("application/vnd.google.protobuf")).isTrue();
+            assertThat(codec.canDecode("application/x-protobuf")).isTrue();
+            assertThat(codec.canDecode("application/protobuf")).isTrue();
+            assertThat(codec.canDecode("application/vnd.acme.order+protobuf")).isTrue();
+            assertThat(codec.canDecode("application/x-protobuf; charset=utf-8")).isTrue();
+            assertThat(codec.canDecode("APPLICATION/VND.GOOGLE.PROTOBUF")).isTrue();
+
+            assertThat(codec.canDecode("application/json")).isFalse();
+
+            // One of the accepted types is written, and it does not change.
+            assertThat(codec.contentType()).isEqualTo("application/x-protobuf");
         }
 
         @Test

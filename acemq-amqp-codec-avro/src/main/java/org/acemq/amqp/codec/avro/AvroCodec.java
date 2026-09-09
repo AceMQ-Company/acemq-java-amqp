@@ -63,6 +63,15 @@ import org.jspecify.annotations.Nullable;
  * reason not to. The framing is one zero byte, then four bytes of identifier, big-endian, then
  * the Avro body — the layout Confluent's clients use, so messages written here can be read by
  * them and the other way round.
+ *
+ * <p>The two framings are told apart by the content type, not by the bytes. A fixed-schema codec
+ * handed {@code avro/binary} decodes the body as it stands; handed
+ * {@code application/vnd.acemq.avro} it refuses, because reading the other framing would shift
+ * every field and report nonsense as success. Only a message that arrived saying nothing useful
+ * falls back to guessing from the first byte, and that guess is a last resort rather than a rule:
+ * an Avro body begins with a zero byte whenever its first field encodes to zero — an empty string,
+ * a {@code 0}, a {@code false}, the first branch of a union — so the byte alone cannot tell a
+ * framed message from an ordinary one.
  */
 public final class AvroCodec implements Codec {
 
@@ -180,6 +189,13 @@ public final class AvroCodec implements Codec {
 
     @Override
     public <T> T decode(byte[] body, Class<T> target) {
+        // A caller who reached decode directly said nothing about what the bytes are, so the
+        // guess below is all there is to go on.
+        return decode(body, target, null);
+    }
+
+    @Override
+    public <T> T decode(byte[] body, Class<T> target, @Nullable String contentType) {
         try {
             Schema writerSchema;
             int offset;
@@ -205,11 +221,25 @@ public final class AvroCodec implements Codec {
                 // first field: no exception, and a record whose every value is wrong. A caller
                 // that reached decode directly never went through canDecode, so the check has
                 // to exist here too.
-                if (body.length >= HEADER_BYTES && body[0] == MAGIC) {
+                //
+                // The content type is the signal, and it is asked first. A leading zero byte is
+                // not evidence of framing on its own: an Avro body starts with one whenever its
+                // first field encodes to zero -- an empty string, a 0, a false, the first branch
+                // of a union -- all ordinary values. Guessing from the byte alone refuses those
+                // real messages, so the guess is kept for the one case where there is nothing
+                // else: a sender that said nothing at all.
+                String type = contentType == null ? null : contentType.toLowerCase(Locale.ROOT);
+                if (type != null && type.startsWith(REGISTERED_CONTENT_TYPE)) {
                     throw new AceMqException("these bytes carry a schema identifier and this codec"
                             + " has a fixed schema, so reading them would silently produce the wrong"
                             + " values. Build the codec with registered(registry) to read messages"
                             + " written by a registered one.");
+                }
+                if (!saysFixedSchema(type) && body.length >= HEADER_BYTES && body[0] == MAGIC) {
+                    throw new AceMqException("these bytes look like they carry a schema identifier and"
+                            + " nothing said what they are, so a codec with a fixed schema will not"
+                            + " guess. Build the codec with registered(registry), or set the message's"
+                            + " content type to " + FIXED_CONTENT_TYPE + " if the schema really is fixed.");
                 }
                 writerSchema = requireFixedSchema();
                 offset = 0;
@@ -252,6 +282,21 @@ public final class AvroCodec implements Codec {
             return registry == null;
         }
         return type.contains("avro") && !type.contains("acemq.avro");
+    }
+
+    /**
+     * Whether a content type says, in so many words, that a body carries no framing in front of
+     * the Avro. Anything else -- absent, {@code application/octet-stream}, something unrelated --
+     * says nothing useful and leaves the guess to do the work.
+     */
+    private static boolean saysFixedSchema(@Nullable String lowercased) {
+        if (lowercased == null) {
+            return false;
+        }
+        return lowercased.startsWith(FIXED_CONTENT_TYPE)
+                || lowercased.startsWith("avro/")
+                || lowercased.startsWith("application/avro")
+                || lowercased.contains("+avro");
     }
 
     /**

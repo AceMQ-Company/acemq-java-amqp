@@ -90,6 +90,40 @@ Avro uses the Confluent wire framing — a zero byte, a four-byte big-endian sch
 id, then the body — so consumers written against other Confluent-compatible
 tooling can read it.
 
+### What each accepts on the read side
+
+A codec writes one content type and reads several. The write side is a choice; the
+read side is whatever the tool that wrote the message happened to say, and refusing
+a label that means exactly the same bytes turns a readable message into a poison
+one.
+
+| Codec | Writes | Also reads |
+|---|---|---|
+| `ProtobufCodec` | `application/x-protobuf` | `application/protobuf`, `application/vnd.google.protobuf`, any `*+protobuf` |
+| `AvroCodec.of(...)` | `avro/binary` | any `avro/*`, and `avro` types that are not the registered one |
+| `AvroCodec.registered(...)` | `application/vnd.acemq.avro` | that one only |
+
+`application/vnd.google.protobuf` is what Google's own tooling and most schema
+registries write, so a message labelled that way is ordinary rather than exotic.
+
+The two Avro framings are the exception, and they stay separate: a registered
+message begins with five bytes a fixed-schema codec would read as the start of the
+first field, which does not throw — it produces a record whose every value is
+wrong. Each accepts only its own framing.
+
+### Say what the bytes are
+
+A fixed-schema `AvroCodec` reads the content type before it looks at the bytes.
+Told `avro/binary`, it decodes the body as it stands. Told
+`application/vnd.acemq.avro`, it refuses, because that is the other framing.
+
+Only when nothing useful was said does it fall back to guessing from the first
+byte, and a leading zero is then read as Confluent framing. That guess is a last
+resort because it cannot be made accurate: an Avro body begins with a zero byte
+whenever its first field encodes to zero — an empty string, a `0`, a `false`, the
+first branch of a union — all ordinary values. Publishing with a content type set
+is what removes the ambiguity, and every publisher in this library sets one.
+
 ## The schema registry
 
 Avro's bytes and Protobuf's carry no account of what they are. A reader has to
