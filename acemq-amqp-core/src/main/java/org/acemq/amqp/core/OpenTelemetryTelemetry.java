@@ -230,11 +230,12 @@ final class OpenTelemetryTelemetry implements Telemetry {
     }
 
     @Override
-    public void retryRungMissing(String queue, Duration delay) {
+    public void retryRungMissing(String queue, String rung, Duration delay) {
         Span current = Span.current();
         if (current.isRecording()) {
             current.addEvent("retry.rung_missing", io.opentelemetry.api.common.Attributes.of(
                     AttributeKey.stringKey("messaging.destination.name"), queue,
+                    AttributeKey.stringKey(MetricNames.TAG_RUNG), rung,
                     AttributeKey.longKey("messaging.acemq.retry_delay_ms"), delay.toMillis()));
         }
     }

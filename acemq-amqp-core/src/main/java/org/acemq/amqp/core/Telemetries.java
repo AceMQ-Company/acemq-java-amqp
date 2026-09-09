@@ -244,10 +244,10 @@ public final class Telemetries {
         }
 
         @Override
-        public void retryRungMissing(String queue, Duration delay) {
+        public void retryRungMissing(String queue, String rung, Duration delay) {
             for (Telemetry delegate : delegates) {
                 try {
-                    delegate.retryRungMissing(queue, delay);
+                    delegate.retryRungMissing(queue, rung, delay);
                 } catch (RuntimeException e) {
                     log.debug("telemetry provider failed to record a missing rung", e);
                 }

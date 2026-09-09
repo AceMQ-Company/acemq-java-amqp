@@ -140,13 +140,16 @@ final class MicrometerTelemetry implements Telemetry {
     }
 
     @Override
-    public void retryRungMissing(String queue, Duration delay) {
-        // The delay is not a tag: it comes from a policy that can name any duration, and a tag
-        // whose values are durations is a tag with no bound on it.
+    public void retryRungMissing(String queue, String rung, Duration delay) {
+        // The rung is a tag and the delay is not. A policy names a fixed handful of rungs, so
+        // the first is bounded and is the one an operator acts on — it is the queue to declare.
+        // The delay is whatever arithmetic produced, and a tag whose values are durations has no
+        // bound on it at all.
         Counter.builder(MetricNames.RUNG_MISSING)
                 .description("retries that waited in the consumer because their rung queue is missing")
                 .tags(Tags.of(
                         MetricNames.TAG_QUEUE, queue,
+                        MetricNames.TAG_RUNG, rung,
                         MetricNames.TAG_TRANSPORT, transport))
                 .register(registry)
                 .increment();

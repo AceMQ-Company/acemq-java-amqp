@@ -87,10 +87,10 @@ every port reports the same series and one dashboard serves all of them.
 | `acemq.messages.retried.total` | |
 | `acemq.messages.dead.lettered.total` | `outcome`: `dead_lettered`, `parked` |
 | `acemq.messages.set.aside.failed` | `queue`, `target` — the copy never arrived |
-| `acemq.retry.rung.missing` | A long backoff waited in the consumer instead |
+| `acemq.retry.rung.missing` | `queue`, `rung` — a long backoff waited in the consumer instead |
 
 Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`,
-`target`.
+`target`, `rung`.
 
 ### `rejected` and `dead_lettered` are different events
 

@@ -228,6 +228,20 @@ final class RetryTopology {
         return java.util.Optional.ofNullable(best);
     }
 
+    /**
+     * The name a rung for this wait would have, whether or not one exists.
+     *
+     * <p>Wanted on the path where {@link #rungFor} found nothing: a counter saying a rung is
+     * missing is only actionable if it also says which queue to declare, and the name is
+     * derivable from the wait even when the queue is not there.
+     *
+     * @param delay the wait
+     * @return the rung queue's name
+     */
+    String rungNameFor(Duration delay) {
+        return sourceQueue + ".retry." + describe(delay);
+    }
+
     String sourceQueue() {
         return sourceQueue;
     }

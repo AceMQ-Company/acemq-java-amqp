@@ -68,7 +68,7 @@ public final class MetricNames {
 
     /**
      * Retries that had to wait in the consumer because the rung queue they belonged in is not on
-     * the broker, tagged with {@link #TAG_QUEUE}.
+     * the broker, tagged with {@link #TAG_QUEUE} and {@link #TAG_RUNG}.
      *
      * <p>Nothing breaks: the message is still retried and the wait still happens. What is lost
      * is the reason the rung exists — a consumer restarted mid-wait turns a five-minute backoff
@@ -122,6 +122,15 @@ public final class MetricNames {
      * parking lot. Bounded by the topology, so it is safe as a tag.
      */
     public static final String TAG_TARGET = "target";
+
+    /**
+     * The retry rung a wait belonged in, such as {@code orders.new.retry.40s}.
+     *
+     * <p>Bounded by the retry policy, which names a fixed handful of rungs, so it is safe as a
+     * tag. It is what makes {@link #RUNG_MISSING} actionable: the counter says a rung is not
+     * there and this says which one to declare.
+     */
+    public static final String TAG_RUNG = "rung";
 
     /**
      * What happened. One of {@code confirmed}, {@code unroutable}, {@code failed} for a

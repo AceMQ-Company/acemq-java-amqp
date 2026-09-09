@@ -95,10 +95,10 @@ and a Java service report the same series and a dashboard works for both.
 | `acemq.messages.retried.total` | |
 | `acemq.messages.dead.lettered.total` | Tagged `outcome`: `dead_lettered` (it went to `.dlq`), `parked` (nothing could decode it, so it went to `.parked`) |
 | `acemq.messages.set.aside.failed` | Tagged `queue` and `target`: the copy never arrived, usually a queue that was never declared |
-| `acemq.retry.rung.missing` | A backoff long enough for the broker waited in the consumer instead, because the rung queue is not there |
+| `acemq.retry.rung.missing` | Tagged `queue` and `rung`: a backoff long enough for the broker waited in the consumer instead, because that rung queue is not there. The `rung` tag is the queue to declare |
 
 Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`,
-`target`.
+`target`, `rung`.
 
 ### The four to alert on
 

@@ -30,8 +30,10 @@ While the version is `0.x` the public API may change in any release.
   counting is not a reason to change what happens to it. `MetricNames.TAG_TARGET`
   names the tag. Go, Python and Ruby raise the same counter in the same place,
   so one alert reads the same against all four.
-- **`acemq.retry.rung.missing`, tagged `queue`, counts a backoff that had to wait
-  in the consumer because its rung queue is not on the broker.** Nothing breaks —
+- **`acemq.retry.rung.missing`, tagged `queue` and `rung`, counts a backoff that
+  had to wait in the consumer because its rung queue is not on the broker.** The
+  `rung` tag — `MetricNames.TAG_RUNG` — is the queue to declare, which is what
+  makes the counter actionable rather than merely alarming. Nothing breaks —
   the message is still retried and the wait still happens — but the reason the
   rung exists is lost, because a consumer restarted mid-wait turns a five-minute
   backoff into no backoff at all. Java logged this and reported it nowhere; Go,

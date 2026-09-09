@@ -170,10 +170,17 @@ public interface Telemetry {
      * What is lost is the reason a rung exists, which is that a consumer restarted mid-wait
      * would otherwise turn a long backoff into no backoff at all.
      *
+     * <p>Java raises this when its own topology has no rung for the wait. Go, Python and Ruby
+     * raise it for that <em>and</em> for a rung the topology knows about that is not actually on
+     * the broker, which they find out by asking. Java derives its rungs from the policy and does
+     * not ask, so it does not see the second case; the counter means the same thing where both
+     * can see it.
+     *
      * @param queue source queue
+     * @param rung the rung queue that should have held the wait, which is the name to declare
      * @param delay how long the message was meant to wait in the broker
      */
-    default void retryRungMissing(String queue, Duration delay) {
+    default void retryRungMissing(String queue, String rung, Duration delay) {
         // no-op
     }
 

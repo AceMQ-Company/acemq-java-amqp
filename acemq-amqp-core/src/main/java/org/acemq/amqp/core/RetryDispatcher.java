@@ -126,12 +126,14 @@ final class RetryDispatcher {
         if (!rung.isPresent()) {
             // Loud, because a topology declared without its rungs otherwise looks like it works
             // right up until a long backoff quietly becomes a held prefetch slot.
+            String missing = topology.rungNameFor(wait);
             log.error(
-                    "no rung exists on {} for a wait of {}, so {} will wait in this consumer instead",
-                    topology.sourceQueue(),
-                    wait,
-                    envelope.id());
-            telemetry.retryRungMissing(topology.sourceQueue(), wait);
+                    "{} is not on the broker, so {} will wait {} in this consumer instead. Declare it, or let"
+                            + " the consumer declare it.",
+                    missing,
+                    envelope.id(),
+                    wait);
+            telemetry.retryRungMissing(topology.sourceQueue(), missing, wait);
             return false;
         }
 
