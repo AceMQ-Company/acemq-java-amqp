@@ -47,8 +47,35 @@ public final class MetricNames {
     /** Messages sent to a retry queue. */
     public static final String RETRIED_TOTAL = "acemq.messages.retried.total";
 
-    /** Messages sent to a dead-letter or parking queue. */
+    /** Messages sent to a dead-letter or parking queue, tagged with {@link #TAG_OUTCOME}. */
     public static final String DEAD_LETTERED_TOTAL = "acemq.messages.dead.lettered.total";
+
+    /**
+     * Messages that could not be moved to a dead-letter or parking queue, tagged with
+     * {@link #TAG_QUEUE} and {@link #TAG_TARGET}.
+     *
+     * <p>The counter that separates two failures which look identical from anywhere else. A
+     * message dead-lettered normally leaves the source queue and appears in the dead-letter
+     * queue; a message whose dead-letter queue was never declared leaves the source queue and
+     * appears nowhere, because the republish failed and the delivery went back to the broker
+     * with nothing to catch it. Queue depths show the same picture in both cases — one queue
+     * going down — and only this number says which of the two happened.
+     *
+     * <p>Worth an alert at any value above zero. It does not rise under load or during a
+     * deploy; it rises when a topology is wrong.
+     */
+    public static final String SET_ASIDE_FAILED = "acemq.messages.set.aside.failed";
+
+    /**
+     * Retries that had to wait in the consumer because the rung queue they belonged in is not on
+     * the broker, tagged with {@link #TAG_QUEUE}.
+     *
+     * <p>Nothing breaks: the message is still retried and the wait still happens. What is lost
+     * is the reason the rung exists — a consumer restarted mid-wait turns a five-minute backoff
+     * into no backoff at all — and the only other sign of it is a log line on a path nobody
+     * watches.
+     */
+    public static final String RUNG_MISSING = "acemq.retry.rung.missing";
 
     /** Round trip of a request/reply call, as the caller experienced it. */
     public static final String REQUEST_DURATION = "acemq.request.duration";
@@ -91,9 +118,15 @@ public final class MetricNames {
     public static final String TAG_MESSAGE_TYPE = "message.type";
 
     /**
+     * Where a message was being set aside to when that failed: the dead-letter queue or the
+     * parking lot. Bounded by the topology, so it is safe as a tag.
+     */
+    public static final String TAG_TARGET = "target";
+
+    /**
      * What happened. One of {@code confirmed}, {@code unroutable}, {@code failed} for a
-     * publish; {@code acked}, {@code retried}, {@code dead_lettered}, {@code rejected} for a
-     * delivery.
+     * publish; {@code acked}, {@code retried}, {@code dead_lettered}, {@code parked},
+     * {@code rejected} for a delivery.
      */
     public static final String TAG_OUTCOME = "outcome";
 
@@ -105,6 +138,19 @@ public final class MetricNames {
     public static final String OUTCOME_ACKED = "acked";
     public static final String OUTCOME_RETRIED = "retried";
     public static final String OUTCOME_DEAD_LETTERED = "dead_lettered";
+
+    /**
+     * A message set aside in the parking lot rather than the dead-letter queue.
+     *
+     * <p>Distinct from {@link #OUTCOME_DEAD_LETTERED} because the two mean different things to
+     * whoever is on call. Dead-lettered is "this failed as many times as the policy allows",
+     * which is usually a dependency being down and usually fixes itself. Parked is "nothing can
+     * read this message" — a payload that will not decode, which will not decode on any future
+     * attempt either — and it is a deploy or a schema problem that will not fix itself. Sharing
+     * one outcome value would put both on the same graph and make neither actionable.
+     */
+    public static final String OUTCOME_PARKED = "parked";
+
     public static final String OUTCOME_REJECTED = "rejected";
     public static final String OUTCOME_ANSWERED = "answered";
     public static final String OUTCOME_TIMED_OUT = "timed_out";

@@ -85,9 +85,12 @@ every port reports the same series and one dashboard serves all of them.
 | `acemq.consume.attempts` | Distribution of attempt numbers |
 | `acemq.consume.in.flight` | Handlers running now |
 | `acemq.messages.retried.total` | |
-| `acemq.messages.dead.lettered.total` | |
+| `acemq.messages.dead.lettered.total` | `outcome`: `dead_lettered`, `parked` |
+| `acemq.messages.set.aside.failed` | `queue`, `target` — the copy never arrived |
+| `acemq.retry.rung.missing` | A long backoff waited in the consumer instead |
 
-Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`.
+Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`,
+`target`.
 
 ### `rejected` and `dead_lettered` are different events
 
@@ -106,8 +109,39 @@ collapsed the two on every dashboard. It no longer does, so an alert or a
 dashboard panel matching `outcome="dead_lettered"` to catch fatal handler
 failures needs `outcome="rejected"` as well.
 
-`acemq.messages.dead.lettered.total` is unchanged and counts both, because it is
-about where the message went rather than why.
+`acemq.messages.dead.lettered.total` counts both, because it is about where the
+message went rather than why.
+
+### `parked` and `dead_lettered` are different events
+
+Where it went is the split `acemq.messages.dead.lettered.total` carries on its
+`outcome` tag, and there are two destinations:
+
+- **`dead_lettered`** — a handler ran and failed as many times as the policy
+  allows, or the message aged out. It goes to `{queue}.dlq`.
+- **`parked`** — nothing could decode the payload, so no handler ever ran. It
+  goes to `{queue}.parked`, because a payload that will not parse now will not
+  parse on any future attempt and retrying it only burns capacity.
+
+The two want different responses. Dead-lettered is usually a dependency that is
+down and will come back; parked is a deploy or a schema change and will not fix
+itself. Go, .NET, Python and Ruby all have the same word for it.
+
+An alert or a dashboard panel written against
+`acemq.messages.dead.lettered.total` with no `outcome` selector still sees both
+and is unaffected.
+
+### When the message cannot even be set aside
+
+`acemq.messages.set.aside.failed{queue,target}` counts the republish to
+`{queue}.dlq` or `{queue}.parked` failing — almost always a queue that was never
+declared. The message is settled back to the broker, which is the last thing
+between it and nothing.
+
+Worth an alert at any value above zero. It does not rise under load or during a
+deploy; it rises when a topology is wrong. Nothing else in the estate
+distinguishes it: a dead-letter queue that is missing and a dead-letter queue
+doing its job both look like one queue draining.
 
 ### Alert on these four
 

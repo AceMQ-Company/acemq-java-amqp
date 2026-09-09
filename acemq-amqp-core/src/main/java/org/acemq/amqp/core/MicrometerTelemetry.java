@@ -104,6 +104,49 @@ final class MicrometerTelemetry implements Telemetry {
                 .tags(Tags.of(
                         MetricNames.TAG_QUEUE, queue,
                         MetricNames.TAG_MESSAGE_TYPE, envelope.type(),
+                        MetricNames.TAG_TRANSPORT, transport,
+                        MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_DEAD_LETTERED))
+                .register(registry)
+                .increment();
+    }
+
+    @Override
+    public void messageParked(String queue, Envelope envelope, String reason) {
+        // The same counter as a dead-lettering, separated by the outcome tag rather than by a
+        // metric of its own: both are a message set aside, and an operator asking "how much is
+        // this queue giving up on" wants one number that can then be split.
+        Counter.builder(MetricNames.DEAD_LETTERED_TOTAL)
+                .description("messages sent to a dead-letter or parking queue")
+                .tags(Tags.of(
+                        MetricNames.TAG_QUEUE, queue,
+                        MetricNames.TAG_MESSAGE_TYPE, envelope.type(),
+                        MetricNames.TAG_TRANSPORT, transport,
+                        MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_PARKED))
+                .register(registry)
+                .increment();
+    }
+
+    @Override
+    public void setAsideFailed(String queue, String target, String reason) {
+        // The reason is not a tag, for the same cardinality reason as a dead-letter reason.
+        Counter.builder(MetricNames.SET_ASIDE_FAILED)
+                .description("messages that could not be moved to a dead-letter or parking queue")
+                .tags(Tags.of(
+                        MetricNames.TAG_QUEUE, queue,
+                        MetricNames.TAG_TARGET, target,
+                        MetricNames.TAG_TRANSPORT, transport))
+                .register(registry)
+                .increment();
+    }
+
+    @Override
+    public void retryRungMissing(String queue, Duration delay) {
+        // The delay is not a tag: it comes from a policy that can name any duration, and a tag
+        // whose values are durations is a tag with no bound on it.
+        Counter.builder(MetricNames.RUNG_MISSING)
+                .description("retries that waited in the consumer because their rung queue is missing")
+                .tags(Tags.of(
+                        MetricNames.TAG_QUEUE, queue,
                         MetricNames.TAG_TRANSPORT, transport))
                 .register(registry)
                 .increment();

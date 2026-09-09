@@ -208,6 +208,38 @@ final class OpenTelemetryTelemetry implements Telemetry {
     }
 
     @Override
+    public void messageParked(String queue, Envelope envelope, String reason) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            current.addEvent("message.parked", io.opentelemetry.api.common.Attributes.of(
+                    AttributeKey.stringKey("messaging.destination.name"), queue,
+                    AttributeKey.stringKey("messaging.acemq.reason"), reason == null ? "" : reason,
+                    ATTEMPT, (long) envelope.attempt()));
+        }
+    }
+
+    @Override
+    public void setAsideFailed(String queue, String target, String reason) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            current.addEvent("message.set_aside_failed", io.opentelemetry.api.common.Attributes.of(
+                    AttributeKey.stringKey("messaging.destination.name"), queue,
+                    AttributeKey.stringKey(MetricNames.TAG_TARGET), target,
+                    AttributeKey.stringKey("messaging.acemq.reason"), reason == null ? "" : reason));
+        }
+    }
+
+    @Override
+    public void retryRungMissing(String queue, Duration delay) {
+        Span current = Span.current();
+        if (current.isRecording()) {
+            current.addEvent("retry.rung_missing", io.opentelemetry.api.common.Attributes.of(
+                    AttributeKey.stringKey("messaging.destination.name"), queue,
+                    AttributeKey.longKey("messaging.acemq.retry_delay_ms"), delay.toMillis()));
+        }
+    }
+
+    @Override
     public Map<String, String> propagationHeaders() {
         Map<String, String> carrier = new HashMap<>();
         openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), carrier, SETTER);

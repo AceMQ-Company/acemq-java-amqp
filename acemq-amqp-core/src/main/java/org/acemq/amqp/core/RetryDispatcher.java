@@ -131,11 +131,12 @@ final class RetryDispatcher {
                     topology.sourceQueue(),
                     wait,
                     envelope.id());
+            telemetry.retryRungMissing(topology.sourceQueue(), wait);
             return false;
         }
 
         Envelope advanced = envelope.nextAttempt();
-        publish(rung.get(), delivery, advanced, null);
+        publish(rung.get(), delivery, advanced, null, false);
         telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
         log.debug(
                 "retrying {} attempt {} of {} after {} via {}",
@@ -170,7 +171,7 @@ final class RetryDispatcher {
         }
 
         Envelope advanced = envelope.nextAttempt();
-        publish(topology.sourceQueue(), delivery, advanced, null);
+        publish(topology.sourceQueue(), delivery, advanced, null, false);
         telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
         log.debug(
                 "retrying {} attempt {} of {} after waiting {} in this consumer",
@@ -188,8 +189,9 @@ final class RetryDispatcher {
      * @param failure why decoding failed
      */
     void park(InboundDelivery delivery, Throwable failure) {
+        String reason = "could not be decoded: " + describe(failure);
         Map<String, Object> headers = new LinkedHashMap<>(delivery.headers());
-        headers.put(AceHeaders.ERROR, "could not be decoded: " + describe(failure));
+        headers.put(AceHeaders.ERROR, reason);
 
         OutboundMessage message = OutboundMessage.body(delivery.body())
                 .exchange("")
@@ -199,7 +201,17 @@ final class RetryDispatcher {
                 .contentType(delivery.contentType())
                 .build();
 
-        connection.send(message);
+        send(message, topology.parkingLotQueue());
+        // The envelope is read from the headers rather than from the message, because the
+        // message is the thing that would not decode. Headers survive a payload that does not,
+        // so the type and the attempt count are still reportable.
+        telemetry.messageParked(
+                topology.sourceQueue(),
+                EnvelopeHeaders.fromHeaders(
+                        delivery.headers(),
+                        delivery.messageId(),
+                        delivery.routingKey().isEmpty() ? "message" : delivery.routingKey()),
+                reason);
         log.warn(
                 "parked an undecodable message from {} in {}: {}",
                 delivery.queue(),
@@ -207,8 +219,32 @@ final class RetryDispatcher {
                 describe(failure));
     }
 
+    /**
+     * Republishes to a queue that sets a message aside, counting a failure to get it there.
+     *
+     * <p>Counted and then rethrown, deliberately. Counting is not a reason to change what
+     * happens to the message: the caller settles the delivery only once the copy is safely
+     * elsewhere, and swallowing this would acknowledge a message that went nowhere. What the
+     * counter buys is the ability to tell the two apart from outside, because a dead-letter
+     * queue that was never declared and a dead-letter queue doing its job look identical in
+     * every other series — one queue draining, in both cases.
+     */
+    private void send(OutboundMessage message, String target) {
+        try {
+            connection.send(message);
+        } catch (RuntimeException e) {
+            telemetry.setAsideFailed(topology.sourceQueue(), target, describe(e));
+            log.error(
+                    "could not set aside a message from {} in {}; it is going back to the broker",
+                    topology.sourceQueue(),
+                    target,
+                    e);
+            throw e;
+        }
+    }
+
     private void deadLetter(InboundDelivery delivery, Envelope envelope, String reason) {
-        publish(topology.deadLetterQueue(), delivery, envelope, reason);
+        publish(topology.deadLetterQueue(), delivery, envelope, reason, true);
         telemetry.messageDeadLettered(topology.sourceQueue(), envelope, reason);
         log.warn(
                 "dead-lettered {} from {} after {} attempts: {}",
@@ -219,7 +255,7 @@ final class RetryDispatcher {
     }
 
     private void publish(
-            String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error) {
+            String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error, boolean setAside) {
         // The reason travels as an envelope field, so a consumer of the dead-letter queue can
         // read it back through the API rather than having to know the wire header name.
         Envelope outgoing = error == null ? envelope : envelope.toBuilder().error(error).build();
@@ -236,7 +272,11 @@ final class RetryDispatcher {
                 .contentType(delivery.contentType())
                 .build();
 
-        connection.send(message);
+        if (setAside) {
+            send(message, queue);
+        } else {
+            connection.send(message);
+        }
     }
 
     private static String describe(Throwable failure) {

@@ -222,6 +222,39 @@ public final class Telemetries {
         }
 
         @Override
+        public void messageParked(String queue, Envelope envelope, String reason) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.messageParked(queue, envelope, reason);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record a parked message", e);
+                }
+            }
+        }
+
+        @Override
+        public void setAsideFailed(String queue, String target, String reason) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.setAsideFailed(queue, target, reason);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record a failed set-aside", e);
+                }
+            }
+        }
+
+        @Override
+        public void retryRungMissing(String queue, Duration delay) {
+            for (Telemetry delegate : delegates) {
+                try {
+                    delegate.retryRungMissing(queue, delay);
+                } catch (RuntimeException e) {
+                    log.debug("telemetry provider failed to record a missing rung", e);
+                }
+            }
+        }
+
+        @Override
         public Map<String, String> propagationHeaders() {
             Map<String, String> headers = new LinkedHashMap<>();
             for (Telemetry delegate : delegates) {

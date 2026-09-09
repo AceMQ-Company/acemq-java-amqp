@@ -313,6 +313,46 @@ class TelemetryTest {
 
         @Test
         @Timeout(20)
+        void records_an_undecodable_message_as_parked_rather_than_dead_lettered() {
+            connect("telemetry-parked");
+            RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofMillis(50)).withJitter(0);
+
+            try (MessageConsumer consumer = mq.consume(
+                    "orders.new", Integer.class, ConsumerOptions.prefetch(1).withRetry(policy), message -> {
+                        throw new AssertionError("the handler must not run when decoding fails");
+                    })) {
+
+                mq.publisher("orders", "order.placed").send("not a number");
+                await().atMost(Duration.ofSeconds(15)).until(() -> consumer.rejected() == 1);
+
+                // Where it went: the parking lot, which is the same counter as a dead-lettering
+                // because both are a message set aside. Which of the two it was is the outcome
+                // tag, and it is the tag that matters on call: dead-lettered is usually a
+                // dependency that will come back, parked is a payload nothing will ever read and
+                // no number of retries will change. Go, .NET, Python and Ruby all have this word.
+                await().atMost(Duration.ofSeconds(5)).until(() -> registry.find(MetricNames.DEAD_LETTERED_TOTAL)
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_PARKED)
+                        .counter() != null);
+
+                assertThat(registry.find(MetricNames.DEAD_LETTERED_TOTAL)
+                        .tag(MetricNames.TAG_QUEUE, "orders.new")
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_PARKED)
+                        .counter()
+                        .count())
+                        .isEqualTo(1.0);
+                assertThat(registry.find(MetricNames.DEAD_LETTERED_TOTAL)
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_DEAD_LETTERED)
+                        .counter())
+                        .as("nothing exhausted anything; the payload simply could not be read")
+                        .isNull();
+                assertThat(registry.find(MetricNames.RETRIED_TOTAL).counter())
+                        .as("a payload that will not decode will not decode on the next attempt")
+                        .isNull();
+            }
+        }
+
+        @Test
+        @Timeout(20)
         void returns_the_in_flight_gauge_to_zero_once_handlers_finish() {
             connect("telemetry-inflight");
             AtomicInteger handled = new AtomicInteger();

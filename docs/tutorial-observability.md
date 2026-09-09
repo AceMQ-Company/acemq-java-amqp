@@ -93,9 +93,12 @@ and a Java service report the same series and a dashboard works for both.
 | `acemq.consume.attempts` | The distribution of attempt numbers |
 | `acemq.consume.in.flight` | Handlers running right now |
 | `acemq.messages.retried.total` | |
-| `acemq.messages.dead.lettered.total` | |
+| `acemq.messages.dead.lettered.total` | Tagged `outcome`: `dead_lettered` (it went to `.dlq`), `parked` (nothing could decode it, so it went to `.parked`) |
+| `acemq.messages.set.aside.failed` | Tagged `queue` and `target`: the copy never arrived, usually a queue that was never declared |
+| `acemq.retry.rung.missing` | A backoff long enough for the broker waited in the consumer instead, because the rung queue is not there |
 
-Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`.
+Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`,
+`target`.
 
 ### The four to alert on
 

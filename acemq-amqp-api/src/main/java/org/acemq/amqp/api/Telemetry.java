@@ -132,6 +132,52 @@ public interface Telemetry {
     }
 
     /**
+     * Records that a message was put in the parking lot because nothing could read it.
+     *
+     * <p>Separate from {@link #messageDeadLettered} because the two are different operational
+     * events, however similar the mechanics look. Dead-lettered says a handler failed as many
+     * times as the policy allows, which is usually a dependency that will come back. Parked says
+     * the payload could not be decoded at all, which no number of retries will change and which
+     * is somebody's deploy. Reported as {@link MetricNames#OUTCOME_PARKED}.
+     *
+     * @param queue source queue
+     * @param envelope envelope of the message, as far as it could be read
+     * @param reason why nothing could read it
+     */
+    default void messageParked(String queue, Envelope envelope, String reason) {
+        // no-op
+    }
+
+    /**
+     * Records that a message could not be moved to a dead-letter or parking queue.
+     *
+     * <p>Almost always a queue that was never declared. The message is settled to the broker
+     * instead, which is the last thing between it and nothing, and nothing else in the estate
+     * distinguishes this from an ordinary dead-lettering: both show one queue draining.
+     *
+     * @param queue source queue
+     * @param target the queue it could not be moved to
+     * @param reason why the republish failed
+     */
+    default void setAsideFailed(String queue, String target, String reason) {
+        // no-op
+    }
+
+    /**
+     * Records that a retry had to wait in the consumer because its rung queue is not there.
+     *
+     * <p>Degraded rather than broken: the message is still retried, and the wait still happens.
+     * What is lost is the reason a rung exists, which is that a consumer restarted mid-wait
+     * would otherwise turn a long backoff into no backoff at all.
+     *
+     * @param queue source queue
+     * @param delay how long the message was meant to wait in the broker
+     */
+    default void retryRungMissing(String queue, Duration delay) {
+        // no-op
+    }
+
+    /**
      * Called by the outbox relay when a record reaches the broker.
      *
      * <p>The lag is the number that matters and the one nothing else can see: a row committed

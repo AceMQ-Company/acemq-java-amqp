@@ -8,6 +8,38 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+- **`parked` is a metric outcome, so a message nothing can read no longer looks
+  like a dependency being down.** Java has always had a parking lot — a payload
+  that will not decode goes to `{queue}.parked` rather than round the retry
+  ladder — and has never had a word for it in `MetricNames`. It does now:
+  `MetricNames.OUTCOME_PARKED`, reported on
+  `acemq.messages.dead.lettered.total` alongside the `dead_lettered` that was
+  always there, and as a `message.parked` event on the span. The two want
+  different responses on call: dead-lettered is usually a dependency that will
+  come back, parked is a deploy or a schema change that will not fix itself.
+  A panel or an alert on `acemq.messages.dead.lettered.total` with no `outcome`
+  selector still counts both and is unaffected. Go, .NET, Python and Ruby all
+  have this word already.
+- **`acemq.messages.set.aside.failed`, tagged `queue` and `target`, counts the
+  republish to a dead-letter or parking queue failing.** Almost always a queue
+  that was never declared. Nothing else in the estate could tell that apart from
+  an ordinary dead-lettering — both look like one queue draining — and until now
+  the only sign of it in Java was an exception on a path nobody watches. The
+  message still goes back to the broker rather than being acknowledged, because
+  counting is not a reason to change what happens to it. `MetricNames.TAG_TARGET`
+  names the tag. Go, Python and Ruby raise the same counter in the same place,
+  so one alert reads the same against all four.
+- **`acemq.retry.rung.missing`, tagged `queue`, counts a backoff that had to wait
+  in the consumer because its rung queue is not on the broker.** Nothing breaks —
+  the message is still retried and the wait still happens — but the reason the
+  rung exists is lost, because a consumer restarted mid-wait turns a five-minute
+  backoff into no backoff at all. Java logged this and reported it nowhere; Go,
+  Python and Ruby have counted it for some time.
+- `Telemetry.messageParked`, `Telemetry.setAsideFailed` and
+  `Telemetry.retryRungMissing`, all default no-ops, so a sink written before they
+  existed keeps compiling and keeps working.
+
 ### Changed
 - **Replay provenance moved out of the reserved header namespace, which changes
   the bytes on the wire.** A replay wrote `x-acemq-replayed-from`,
