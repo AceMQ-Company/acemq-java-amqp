@@ -108,7 +108,7 @@
     <!-- Databases for the outbox tests. H2 answers "is the SQL correct?" in
          milliseconds; PostgreSQL in a container answers "does the claim hold
          under two relays?", which H2 cannot be trusted to reproduce. -->
-    <h2.version>2.3.232</h2.version>
+    <h2.version>2.4.240</h2.version>
     <postgresql.version>42.7.12</postgresql.version>
 
     <!-- plugin versions -->
