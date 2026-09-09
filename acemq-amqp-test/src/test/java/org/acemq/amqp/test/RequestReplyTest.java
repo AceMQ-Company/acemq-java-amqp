@@ -25,13 +25,18 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.core.Responder;
+import org.acemq.amqp.transport.ConnectionConfig;
+import org.acemq.amqp.transport.OutboundMessage;
+import org.acemq.amqp.transport.PulledMessage;
 import org.acemq.amqp.transport.QueueType;
+import org.acemq.amqp.transport.TransportConnection;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -253,6 +258,100 @@ class RequestReplyTest {
             // Failed rather than left hanging: a future nobody will ever complete is a thread
             // parked until its own timeout, if it had one.
             assertThat(pending).isCompletedExceptionally();
+        }
+    }
+
+    @Nested
+    @DisplayName("where the answer is addressed")
+    class ReplyAddress {
+
+        /**
+         * Publishes a request the way some other library would, naming the reply queue in only
+         * one of the two places, and returns the correlation id it used.
+         *
+         * <p>Raw rather than through a publisher, because a publisher writes both and the whole
+         * question here is what happens when only one of them arrives.
+         */
+        private String ask(TransportConnection raw, String replyQueue, boolean header, boolean property) {
+            String id = java.util.UUID.randomUUID().toString();
+            OutboundMessage.Builder request = OutboundMessage
+                    .body("{\"sku\":\"WIDGET\",\"quantity\":4}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    .exchange("")
+                    .routingKey("pricing")
+                    .messageId(id)
+                    .contentType("application/json")
+                    .header(AceHeaders.ID, id)
+                    .header(AceHeaders.TYPE, "Quote")
+                    .header(AceHeaders.CORRELATION, id);
+            if (header) {
+                request.header(AceHeaders.REPLY_TO, replyQueue);
+            }
+            if (property) {
+                request.replyTo(replyQueue);
+            }
+            assertThat(raw.send(request.build()).isConfirmed()).isTrue();
+            return id;
+        }
+
+        private void expectAnAnswerFor(String broker, boolean header, boolean property) {
+            connect(broker);
+            mq.declareQueue("replies", QueueType.CLASSIC, Collections.emptyMap());
+
+            try (TransportConnection raw = new InMemoryTransport()
+                    .connect(ConnectionConfig.url("memory://" + broker).build());
+                    Responder responder = mq.respond("pricing", Quote.class,
+                            quote -> new Price(quote.getSku(), quote.getQuantity() * 2.5))) {
+
+                String id = ask(raw, "replies", header, property);
+
+                await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 1);
+                assertThat(responder.unanswerable()).isZero();
+
+                PulledMessage reply = raw.receive("replies", Duration.ofSeconds(10))
+                        .orElseThrow(() -> new AssertionError("no answer arrived on the reply queue"));
+                assertThat(reply.delivery().headers()).containsEntry(AceHeaders.CORRELATION, id);
+                reply.acknowledger().accept();
+            }
+        }
+
+        @Test
+        @Timeout(30)
+        void a_request_carrying_only_the_native_property_is_answered() {
+            // What Java and .NET have always published, and what a service that never heard of
+            // AceMQ publishes. A responder that read only the header would leave it unanswered.
+            expectAnAnswerFor("rr-native-only", false, true);
+        }
+
+        @Test
+        @Timeout(30)
+        void a_request_carrying_only_the_header_is_answered() {
+            // What Go, Python and Ruby have always published. Until the header was read, a Java
+            // responder counted these as unanswerable and the caller waited out its timeout --
+            // the bug that made a Java requester and a Go responder unable to talk at all.
+            expectAnAnswerFor("rr-header-only", true, false);
+        }
+
+        @Test
+        @Timeout(30)
+        void a_request_this_library_publishes_names_the_queue_in_both_places() {
+            // The other half of "write both, read either". A new library has to be answerable
+            // by an old one as well as the other way round, and that only works if the pair is
+            // always written together and always agrees.
+            connect("rr-writes-both");
+            try (TransportConnection raw = new InMemoryTransport()
+                    .connect(ConnectionConfig.url("memory://rr-writes-both").build())) {
+                String replyQueue;
+                try (Requester requester = mq.requester()) {
+                    replyQueue = requester.replyQueue();
+                    requester.requestAsync("", "pricing", new Quote("WIDGET", 4), Price.class);
+
+                    PulledMessage request = raw.receive("pricing", Duration.ofSeconds(10))
+                            .orElseThrow(() -> new AssertionError("the request never arrived"));
+                    assertThat(request.delivery().replyTo()).hasValue(replyQueue);
+                    assertThat(request.delivery().headers()).containsEntry(AceHeaders.REPLY_TO, replyQueue);
+                    request.acknowledger().accept();
+                }
+            }
         }
     }
 

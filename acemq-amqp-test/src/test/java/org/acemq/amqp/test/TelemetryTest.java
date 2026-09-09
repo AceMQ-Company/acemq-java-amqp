@@ -253,6 +253,20 @@ class TelemetryTest {
                         .count())
                         .isEqualTo(1.0);
 
+                // The other half of the pair the test above pins: nobody decided anything here,
+                // the engine simply ran out of attempts, and that is what dead_lettered means.
+                assertThat(registry.find(MetricNames.CONSUME_TOTAL)
+                        .tag(MetricNames.TAG_QUEUE, "orders.new")
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_DEAD_LETTERED)
+                        .counter()
+                        .count())
+                        .isEqualTo(1.0);
+                assertThat(registry.find(MetricNames.CONSUME_TOTAL)
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_REJECTED)
+                        .counter())
+                        .as("no handler rejected anything; it kept asking for another go")
+                        .isNull();
+
                 // The attempt summary should have seen all three deliveries, peaking at three.
                 assertThat(registry.find(MetricNames.CONSUME_ATTEMPTS).summary().max())
                         .isEqualTo(3.0);
@@ -261,7 +275,7 @@ class TelemetryTest {
 
         @Test
         @Timeout(20)
-        void records_a_fatal_failure_as_dead_lettered_rather_than_retried() {
+        void records_a_fatal_failure_as_rejected_rather_than_retried() {
             connect("telemetry-fatal");
             RetryPolicy policy = RetryPolicy.fixed(5, Duration.ofMillis(50)).withJitter(0);
 
@@ -273,9 +287,27 @@ class TelemetryTest {
                 mq.publisher("orders", "order.placed").send("payload");
                 await().atMost(Duration.ofSeconds(15)).until(() -> consumer.deadLettered() == 1);
 
+                // Where it went: the dead-letter queue, exactly as before, and without going
+                // round the retry ladder first.
                 assertThat(registry.find(MetricNames.DEAD_LETTERED_TOTAL).counter().count())
                         .isEqualTo(1.0);
                 assertThat(registry.find(MetricNames.RETRIED_TOTAL).counter()).isNull();
+
+                // What it is called: rejected. A handler naming a message unprocessable is a
+                // decision somebody's code took, and dead_lettered is reserved for the engine
+                // running out of attempts. Collapsing the two loses the distinction on every
+                // dashboard, which is why Go, Python and Ruby keep them apart and Java now does.
+                assertThat(registry.find(MetricNames.CONSUME_TOTAL)
+                        .tag(MetricNames.TAG_QUEUE, "orders.new")
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_REJECTED)
+                        .counter()
+                        .count())
+                        .isEqualTo(1.0);
+                assertThat(registry.find(MetricNames.CONSUME_TOTAL)
+                        .tag(MetricNames.TAG_OUTCOME, MetricNames.OUTCOME_DEAD_LETTERED)
+                        .counter())
+                        .as("nothing exhausted anything, so no delivery is dead_lettered")
+                        .isNull();
             }
         }
 

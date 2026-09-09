@@ -19,7 +19,9 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
+import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,8 +34,11 @@ import org.slf4j.LoggerFactory;
  * }
  * }</pre>
  *
- * <p>The reply goes wherever the request asked, which is AMQP's own {@code reply-to} property, and
- * carries the request's correlation id back unchanged. Neither is the handler's problem.
+ * <p>The reply goes wherever the request asked, and carries the request's correlation id back
+ * unchanged. Neither is the handler's problem. A request names its reply queue twice — the
+ * {@code acemq-reply-to} header and AMQP's own {@code reply-to} property, always the same value —
+ * and this reads the header first and the property second, so a caller that wrote only one of
+ * them is still answered.
  */
 public final class Responder implements AutoCloseable {
 
@@ -46,7 +51,14 @@ public final class Responder implements AutoCloseable {
     <Q, A> Responder(
             AceMq mq, String queue, Class<Q> requestType, ConsumerOptions options, Function<Q, A> handler) {
         this.consumer = mq.consume(queue, requestType, options, message -> {
-            String replyTo = message.replyTo().orElse(null);
+            // Header first, native property second, and that order is the contract in all five
+            // libraries. A requester writes both, so either alone identifies an older or a
+            // foreign caller: Go, Python and Ruby have only ever written the header, Java and
+            // .NET only ever wrote the property. Reading both makes every pairing work, and
+            // preferring the header means a message that crossed a hop which rebuilt it -- a
+            // retry rung, a dead-letter, a shovel -- is still answerable, because the property
+            // does not survive that and the header does.
+            String replyTo = replyAddress(message);
             if (replyTo == null) {
                 // A request nobody can answer. Failing here would retry it forever and
                 // eventually dead-letter it; the honest thing is to handle it, count it, and
@@ -89,6 +101,24 @@ public final class Responder implements AutoCloseable {
     /** @return whether this responder is still serving */
     public boolean isRunning() {
         return consumer.isRunning();
+    }
+
+    /**
+     * Reads where the answer goes: the {@code acemq-reply-to} header, then AMQP's own
+     * {@code reply-to} property.
+     *
+     * @param message the request
+     * @return the reply queue, or {@code null} when the request named neither
+     */
+    private static @org.jspecify.annotations.Nullable String replyAddress(Message<?> message) {
+        Object header = message.envelope().headers().get(AceHeaders.REPLY_TO);
+        if (header != null) {
+            String named = header.toString();
+            if (!named.isEmpty()) {
+                return named;
+            }
+        }
+        return message.replyTo().orElse(null);
     }
 
     @Override

@@ -410,6 +410,13 @@ public final class DefaultPublisher<T> implements Publisher<T> {
     private OutboundMessage toMessage(Prepared prepared) {
         Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(prepared.envelope));
         headers.putAll(telemetry.propagationHeaders());
+        if (replyTo != null) {
+            // Both, always, and the same value in each. The AMQP property is what a service
+            // that never heard of AceMQ reads; the header is what the Go, Python and Ruby
+            // responders read. Writing one of the two is how a Java requester and a Go
+            // responder ended up unable to talk to each other.
+            headers.put(org.acemq.amqp.api.AceHeaders.REPLY_TO, replyTo);
+        }
 
         OutboundMessage.Builder outbound = OutboundMessage.body(prepared.body)
                 .exchange(exchange)

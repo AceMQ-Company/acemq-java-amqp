@@ -8,7 +8,61 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+- **Replay provenance moved out of the reserved header namespace, which changes
+  the bytes on the wire.** A replay wrote `x-acemq-replayed-from`,
+  `x-acemq-replayed-at` and `x-acemq-replay-count`; it now writes
+  `acemq-replayed-from`, `acemq-replayed-at` and `acemq-replay-count`, which is
+  what Go, Python and Ruby have always written. Java was the only library using
+  the reserved prefix for these, and it was the wrong namespace for them twice
+  over: `x-acemq-` is the engine's, and a header carrying it is stripped from a
+  message's headers on the way in, so the one question the provenance exists to
+  answer — *did this message come back off a dead-letter queue?* — could not be
+  asked of the headers a handler was handed. They are ordinary application
+  headers now and reach the handler as well as `Envelope.replayedFrom()`,
+  `replayedAt()` and `replayCount()`, which are unchanged. **Anything matching on
+  the old names — a shovel policy, a dashboard, a firehose consumer — needs the
+  new ones.** `envelope-fixtures.json` now carries a `replayed` case, which is
+  what would have caught this years earlier; the other four repositories need the
+  new copy. `AceHeaders.SHARED_PREFIX` names this namespace, and reading
+  `acemq-replayed-at` now accepts the ISO-8601 instant the Go, Python and Ruby
+  replays write as well as the epoch milliseconds Java writes.
+- **A handler's explicit rejection is now reported as `rejected` rather than
+  `dead_lettered`, which changes what a dashboard shows.** A handler throwing
+  `AceFatalException` and the engine exhausting a retry policy are different
+  events — one is a decision somebody's code took about this message, the other
+  is running out of room to try again — and reporting both as `dead_lettered`
+  lost the distinction everywhere it mattered. The `outcome` tag on
+  `acemq.consume.total` and the `messaging.acemq.outcome` attribute on the span
+  both say `rejected` for the first case now, and the span still carries an
+  `ERROR` status so nothing turns green on the way past. Where the message goes
+  is unchanged: both still land in the dead-letter queue, and
+  `acemq.messages.dead.lettered.total` and `MessageConsumer.deadLettered()` still
+  count both, because those are about the destination rather than the reason.
+  **An alert or a panel matching `outcome="dead_lettered"` to catch fatal handler
+  failures needs `outcome="rejected"` too.** Go, Python and Ruby already drew the
+  line here.
+
 ### Fixed
+- **A Java requester and a Go, Python or Ruby responder could not talk to each
+  other at all.** A request names the queue its answer goes to, and Java and .NET
+  named it in AMQP's own `reply-to` property while Go, Python and Ruby named it in
+  an `acemq-reply-to` header. Neither side read the other's, so a cross-language
+  request went unanswered until the caller timed out, and the responder counted it
+  as unanswerable — a request nobody could answer, which is exactly what it looked
+  like from the inside. No fixture covered request/reply, which is why nothing
+  caught it. A publisher told to expect a reply now writes **both**, always with
+  the same value, and a responder reads **the header first and the property
+  second** — the same order in all five libraries, so a new library and an old one
+  interoperate in both directions. The header is preferred because it survives a
+  hop that rebuilds the message, such as a retry rung or a shovel, where the
+  property does not.
+- **`JsonCodec` refused `text/json`.** A legacy alias, never correct to write and
+  written all the same by older .NET stacks and a good deal of PHP. Go, Python and
+  Ruby accept it, so a message they read happily was a poison message to a Java
+  consumer beside them. The read set is now `application/json*`, `text/json*` and
+  any `application/*+json`. The write side is unchanged and still
+  `application/json`.
 - **A span whose operation failed carried no outcome, while the counter for the
   same operation said `failed`.** `MicrometerTelemetry` has always defaulted a
   scope's `outcome` tag to `failed` when nothing named one, so the metric side

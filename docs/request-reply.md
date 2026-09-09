@@ -32,13 +32,23 @@ a timeout somebody always forgets.
 
 ## How it works
 
-The request carries AMQP's own **`reply-to`** property naming a queue, and a
+The request names its reply queue **twice** — AMQP's own **`reply-to`** property
+and an **`acemq-reply-to`** header, always the same value — and carries a
 **correlation id**. The responder publishes the answer to that queue with the
 same id, and the requester matches it to the caller waiting for it.
 
-`reply-to` is a real AMQP property rather than an `x-acemq-*` header, deliberately:
-a service written against this library can answer a caller that was not, and the
-other way round.
+A responder reads **the header first and the property second**. That order is the
+contract in all five libraries and it is not arbitrary. Go, Python and Ruby have
+only ever written the header; Java and .NET only ever wrote the property. Writing
+both and reading either is what lets a requester in one language be answered by a
+responder in another, in both directions and whichever of the two is older. The
+header is preferred because it survives a hop that rebuilds the message — a retry
+rung, a dead-letter, a shovel — where the property does not.
+
+Neither name is in the reserved `x-acemq-*` namespace, deliberately. The property
+is a real AMQP property, so a service that never heard of this library can answer
+a caller that uses it; the header is an ordinary application header, so it reaches
+a handler rather than being stripped on the way in.
 
 One reply queue serves every request from a `Requester`. Build one per connection
 — one per call creates and destroys a queue for every question you ask.

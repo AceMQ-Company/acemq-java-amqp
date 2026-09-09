@@ -243,7 +243,12 @@ final class OpenTelemetryTelemetry implements Telemetry {
             span.setAttribute(OUTCOME, outcome);
             if (MetricNames.OUTCOME_UNROUTABLE.equals(outcome)
                     || MetricNames.OUTCOME_FAILED.equals(outcome)
-                    || MetricNames.OUTCOME_DEAD_LETTERED.equals(outcome)) {
+                    || MetricNames.OUTCOME_DEAD_LETTERED.equals(outcome)
+                    // A handler that gave up on a message ends in the same place as one the
+                    // engine gave up on, and the span has to read as an error for both. Left
+                    // out, renaming that outcome from dead_lettered to rejected would have
+                    // quietly turned those spans green.
+                    || MetricNames.OUTCOME_REJECTED.equals(outcome)) {
                 span.setStatus(StatusCode.ERROR, outcome);
             }
         }

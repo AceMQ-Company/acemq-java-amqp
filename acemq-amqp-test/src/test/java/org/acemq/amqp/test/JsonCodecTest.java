@@ -187,6 +187,17 @@ class JsonCodecTest {
         }
 
         @Test
+        void reads_the_text_json_alias_that_older_stacks_write() {
+            // Never correct to write and written anyway, by older .NET stacks and by a good
+            // deal of PHP. Go, Python and Ruby accept it, and a read set that differs by
+            // language is a message one library reads and the one beside it dead-letters.
+            JsonCodec codec = new JsonCodec();
+
+            assertThat(codec.canDecode("text/json")).isTrue();
+            assertThat(codec.canDecode("TEXT/JSON; charset=utf-8")).isTrue();
+        }
+
+        @Test
         void reads_a_message_whose_sender_said_nothing() {
             // Usual from anything outside the JVM and from the management console. Refusing on
             // that basis would make the codec useless in the interoperating case it exists for.

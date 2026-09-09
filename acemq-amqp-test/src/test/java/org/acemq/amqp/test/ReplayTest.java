@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -30,7 +31,10 @@ import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.Replay;
+import org.acemq.amqp.transport.ConnectionConfig;
+import org.acemq.amqp.transport.PulledMessage;
 import org.acemq.amqp.transport.QueueType;
+import org.acemq.amqp.transport.TransportConnection;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,10 +53,12 @@ import org.junit.jupiter.api.Test;
 class ReplayTest {
 
     private AceMq mq;
+    private String broker;
 
     @BeforeEach
     void setUp() {
-        mq = AceMq.connect("memory://replay-" + UUID.randomUUID());
+        broker = "memory://replay-" + UUID.randomUUID();
+        mq = AceMq.connect(broker);
         mq.declareExchange("orders", "topic");
         mq.declareQueue("orders.new", QueueType.CLASSIC, Collections.emptyMap());
         mq.declareQueue("orders.new.dlq", QueueType.CLASSIC, Collections.emptyMap());
@@ -236,6 +242,47 @@ class ReplayTest {
             Envelope envelope = firstEnvelopeOn("orders.new");
             assertThat(envelope.replayedFrom()).contains("orders.new.dlq");
             assertThat(envelope.replayedAt()).isPresent();
+        }
+
+        @Test
+        @DisplayName("writes the provenance under the names the other four libraries read")
+        void provenanceUsesTheSharedNamespace() {
+            seedDead("one");
+
+            mq.replay("orders.new").replayAll();
+
+            try (TransportConnection raw = new InMemoryTransport().connect(ConnectionConfig.url(broker).build())) {
+                PulledMessage replayed = raw.receive("orders.new", java.time.Duration.ofSeconds(5))
+                        .orElseThrow(() -> new AssertionError("nothing was replayed onto orders.new"));
+                Map<String, Object> headers = replayed.delivery().headers();
+
+                // Not x-acemq-. That namespace is the engine's and is stripped on the way in,
+                // so a handler asking "did this come back off a dead-letter queue?" of the
+                // headers it was handed would find nothing there. Go, Python and Ruby have
+                // always written these three names; Java was the one out of step.
+                assertThat(headers).containsKeys(
+                        "acemq-replayed-from", "acemq-replayed-at", "acemq-replay-count");
+                assertThat(headers).doesNotContainKeys(
+                        "x-acemq-replayed-from", "x-acemq-replayed-at", "x-acemq-replay-count");
+                assertThat(headers.get("acemq-replayed-from")).isEqualTo("orders.new.dlq");
+                assertThat(headers.get("acemq-replay-count")).isEqualTo(1);
+
+                replayed.acknowledger().accept();
+            }
+        }
+
+        @Test
+        @DisplayName("a replayed message reaches the handler with its provenance still on it")
+        void provenanceSurvivesTheConsumer() throws Exception {
+            seedDead("one");
+
+            mq.replay("orders.new").replayAll();
+
+            // The reason the shared namespace matters rather than being a naming preference:
+            // these arrive as ordinary application headers, so a handler sees them whether or
+            // not it thinks to look at the envelope's fields.
+            Envelope envelope = firstEnvelopeOn("orders.new");
+            assertThat(envelope.headers()).containsEntry("acemq-replayed-from", "orders.new.dlq");
         }
 
         @Test

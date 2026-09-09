@@ -63,6 +63,9 @@ final class EnvelopeHeaders {
         envelope.causationId().ifPresent(value -> headers.put(AceHeaders.CAUSATION, value));
         envelope.origin().ifPresent(value -> headers.put(AceHeaders.ORIGIN, value));
         envelope.error().ifPresent(value -> headers.put(AceHeaders.ERROR, value));
+        // The replay three live in the shared namespace, so they are already in the map above if
+        // the envelope came off the wire. Written over the top rather than around, so the field
+        // and the header cannot say different things about the same message.
         envelope.replayedFrom().ifPresent(value -> headers.put(AceHeaders.REPLAYED_FROM, value));
         envelope.replayedAt().ifPresent(value -> headers.put(AceHeaders.REPLAYED_AT, value.toEpochMilli()));
         if (envelope.replayCount() > 0) {
@@ -126,7 +129,7 @@ final class EnvelopeHeaders {
             builder.replayedFrom(replayedFrom);
         }
 
-        Long replayedAt = epochMillis(source.get(AceHeaders.REPLAYED_AT));
+        Long replayedAt = instantMillis(source.get(AceHeaders.REPLAYED_AT));
         if (replayedAt != null) {
             builder.replayedAt(Instant.ofEpochMilli(replayedAt));
         }
@@ -190,6 +193,28 @@ final class EnvelopeHeaders {
         } catch (NumberFormatException e) {
             // A malformed counter must not stop the message being delivered; the engine
             // falls back to treating it as a first attempt.
+            return null;
+        }
+    }
+
+    /**
+     * Reads a replay timestamp, as epoch milliseconds or as an ISO-8601 instant.
+     *
+     * <p>Java writes the number and the Go, Python and Ruby replays write the text, and now that
+     * all four write it under the same name a Java consumer meets both. Refusing the text would
+     * mean a message replayed by another language arriving with {@code replayedAt} empty and no
+     * indication why — the one field an operator looks at to see when a message was put back.
+     */
+    private static @Nullable Long instantMillis(@Nullable Object value) {
+        Long millis = epochMillis(value);
+        if (millis != null || value == null) {
+            return millis;
+        }
+        try {
+            return Instant.parse(value.toString().trim()).toEpochMilli();
+        } catch (java.time.format.DateTimeParseException e) {
+            // Neither form. Dropping it loses an audit field; failing here would lose the
+            // message, which is the worse of the two.
             return null;
         }
     }

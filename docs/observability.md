@@ -89,6 +89,26 @@ every port reports the same series and one dashboard serves all of them.
 
 Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`.
 
+### `rejected` and `dead_lettered` are different events
+
+Both end in the dead-letter queue, and only the word keeps them apart:
+
+- **`rejected`** — a handler gave up on this message by name, by throwing
+  `AceFatalException`. A decision somebody's code took. The retry ladder is
+  skipped entirely.
+- **`dead_lettered`** — the engine gave up: the attempts ran out, or the message
+  aged past the policy's limit. Nobody decided anything.
+
+The distinction is the useful one. A rise in `rejected` points at a producer
+sending something a consumer will never accept; a rise in `dead_lettered` points
+at a dependency that is down. Java used to report both as `dead_lettered`, which
+collapsed the two on every dashboard. It no longer does, so an alert or a
+dashboard panel matching `outcome="dead_lettered"` to catch fatal handler
+failures needs `outcome="rejected"` as well.
+
+`acemq.messages.dead.lettered.total` is unchanged and counts both, because it is
+about where the message went rather than why.
+
 ### Alert on these four
 
 **`acemq.publish.total{outcome="unroutable"} > 0`** — the broker accepted the

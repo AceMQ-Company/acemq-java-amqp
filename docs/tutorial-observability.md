@@ -89,7 +89,7 @@ and a Java service report the same series and a dashboard works for both.
 | `acemq.publish.duration` | How long a confirm took. **The publisher-side latency that matters** |
 | `acemq.publish.total` | Tagged `outcome`: `confirmed`, `unroutable`, `failed` |
 | `acemq.consume.duration` | Handler time |
-| `acemq.consume.total` | Tagged `outcome`: `acked`, `retried`, `dead_lettered`, `rejected` |
+| `acemq.consume.total` | Tagged `outcome`: `acked`, `retried`, `rejected` (a handler gave up), `dead_lettered` (the engine ran out of attempts) |
 | `acemq.consume.attempts` | The distribution of attempt numbers |
 | `acemq.consume.in.flight` | Handlers running right now |
 | `acemq.messages.retried.total` | |

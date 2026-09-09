@@ -23,9 +23,12 @@ package org.acemq.amqp.api;
  * use AceMQ at all can still read them. They are frozen at specification version 1:
  * renaming one is a breaking change for every language port simultaneously.
  *
- * <p>Trace context deliberately does not carry the {@code x-acemq-} prefix, because
- * {@code traceparent} and {@code tracestate} are W3C names that other tools already know how
- * to read.
+ * <p>Two groups of names here deliberately do not carry the {@code x-acemq-} prefix. Trace
+ * context does not, because {@code traceparent} and {@code tracestate} are W3C names that other
+ * tools already know how to read. The {@link #SHARED_PREFIX} names do not, because they are
+ * written by a pattern rather than by the engine and have to reach the handler: a header in the
+ * reserved namespace is stripped on consume, which for these would mean writing them and finding
+ * them gone.
  */
 public final class AceHeaders {
 
@@ -43,6 +46,21 @@ public final class AceHeaders {
      * a pattern needs to survive the round trip.
      */
     public static final String PREFIX = "x-acemq-";
+
+    /**
+     * The namespace AceMQ defines but does not reserve.
+     *
+     * <p>A header here is one AceMQ writes and reads, but it is an ordinary application header
+     * on the wire: {@link #isAceHeader} does not match it, {@code Envelope.Builder.header}
+     * accepts it, and it survives to the handler like any other. That is the whole point. A
+     * responder has to read the reply address out of the message it was handed, and a handler
+     * has to be able to see that the message it is looking at came back off a dead-letter queue.
+     * Put either in the reserved namespace and the engine eats it on the way in.
+     *
+     * <p>Go, Python and Ruby use exactly these strings for exactly these headers. Java used to
+     * put the replay three in the reserved namespace, and was alone in doing so.
+     */
+    public static final String SHARED_PREFIX = "acemq-";
 
     /** Unique message identifier, and the default idempotency key. */
     public static final String ID = PREFIX + "id";
@@ -74,11 +92,23 @@ public final class AceHeaders {
     /** Why a message was dead-lettered. Present only on messages in a dead-letter queue. */
     public static final String ERROR = PREFIX + "error";
 
-    /** Queue a message was replayed from, set by the replay API for auditing. */
-    public static final String REPLAYED_FROM = PREFIX + "replayed-from";
+    /**
+     * Queue a request's reply should be sent to.
+     *
+     * <p>Written alongside AMQP's own {@code reply-to} property rather than instead of it, and
+     * read in preference to it. The property is the older of the two and the one a non-AceMQ
+     * service understands; the header is what Go, Python and Ruby have always written, and the
+     * only one of the pair that survives a broker hop that rebuilds the message. Writing both
+     * and reading either is what lets a requester in one language be answered by a responder in
+     * another, in both directions and whichever of them is older.
+     */
+    public static final String REPLY_TO = SHARED_PREFIX + "reply-to";
 
-    /** When the message was last replayed, as an ISO-8601 instant. */
-    public static final String REPLAYED_AT = PREFIX + "replayed-at";
+    /** Queue a message was replayed from, set by the replay API for auditing. */
+    public static final String REPLAYED_FROM = SHARED_PREFIX + "replayed-from";
+
+    /** When the message was last replayed. */
+    public static final String REPLAYED_AT = SHARED_PREFIX + "replayed-at";
 
     /**
      * How many times the message has been replayed.
@@ -87,7 +117,7 @@ public final class AceHeaders {
      * its fifth trip through a dead-letter queue is saying something that a fresh-looking
      * attempt counter would hide.
      */
-    public static final String REPLAY_COUNT = PREFIX + "replay-count";
+    public static final String REPLAY_COUNT = SHARED_PREFIX + "replay-count";
 
     /** W3C trace context. Not prefixed, so non-AceMQ tooling recognises it. */
     public static final String TRACEPARENT = "traceparent";

@@ -94,6 +94,24 @@ final class EnvelopeFixtures {
                     .build();
             mq.publisher("fx", "fx.rich", String.class).send("{\"id\":\"o-2\"}", rich);
             emit(out, "populated", raw, false);
+
+            // The replay three, which no case covered until now -- which is exactly how Java
+            // came to be the only library writing them under the reserved prefix while Go,
+            // Python and Ruby wrote them under the shared one, for long enough that nobody
+            // could say when it started. They are ordinary application headers on the wire, so
+            // a port that treats them as opaque round-trips them correctly without knowing
+            // what they mean.
+            Envelope replayed = Envelope.of("order.placed")
+                    .id("99999999-8888-7777-6666-555555555555")
+                    .correlationId("corr-2")
+                    .origin("orders@host-7")
+                    .firstSeen(Instant.parse("2026-01-02T03:04:05.678Z"))
+                    .replayedFrom("orders.new.dlq")
+                    .replayedAt(Instant.parse("2026-02-03T04:05:06.789Z"))
+                    .replayCount(2)
+                    .build();
+            mq.publisher("fx", "fx.replayed", String.class).send("{\"id\":\"o-3\"}", replayed);
+            emit(out, "replayed", raw, false);
         }
 
         out.append("\n  ]\n}\n");

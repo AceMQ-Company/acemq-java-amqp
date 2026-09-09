@@ -115,6 +115,16 @@ message.envelope().replayCount();    // 5 means this has been round five times
 `replayCount` is worth reading in a handler. A message on its fifth trip through
 the dead-letter queue is telling you something a reset attempt counter hides.
 
+On the wire those three are `acemq-replayed-from`, `acemq-replayed-at` and
+`acemq-replay-count`. **Not** `x-acemq-*`: that namespace is the engine's and is
+stripped from a message's headers on the way in, so a header there would be
+invisible to a handler that went looking for it and to any non-AceMQ tool reading
+the queue. These are ordinary application headers, and they are the same three
+names Go, Python and Ruby write. Java used to write them under the reserved
+prefix and was the only library that did. Correcting that changed the bytes on
+the wire, so anything matching on the old names — a shovel policy, a dashboard, a
+firehose consumer — needs the new ones.
+
 Replay is at-least-once: each message is published to the source queue and only
 then acknowledged in the dead-letter queue, so a crash between the two replays it
 again. Acknowledging first would lose it, which is the wrong way round for a tool

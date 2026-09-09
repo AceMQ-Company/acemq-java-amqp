@@ -294,7 +294,12 @@ final class DefaultConsumer<T> implements MessageConsumer {
             rejected.incrementAndGet();
             releaseClaim(messageId);
             scope.failed(e);
-            scope.outcome(MetricNames.OUTCOME_DEAD_LETTERED);
+            // Reported as rejected, not dead-lettered, though it lands in the dead-letter queue
+            // either way. The two are different events and a dashboard that cannot tell them
+            // apart is missing the more useful one: this is a decision somebody's code took
+            // about this message, where dead_lettered is the engine running out of attempts.
+            // Go, Python and Ruby have always drawn the line here.
+            scope.outcome(MetricNames.OUTCOME_REJECTED);
             log.warn("handler rejected {} as unprocessable: {}", message, e.getMessage());
             if (retries != null) {
                 retries.onFailure(delivery, message.envelope(), e, true);

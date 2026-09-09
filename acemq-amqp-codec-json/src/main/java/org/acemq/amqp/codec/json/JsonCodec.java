@@ -115,7 +115,14 @@ public final class JsonCodec implements Codec {
             return true;
         }
         String type = contentType.toLowerCase(Locale.ROOT);
-        return type.startsWith(CONTENT_TYPE) || type.startsWith("application/") && type.contains("+json");
+        // text/json is a legacy alias -- never correct to write, and written all the same by
+        // older .NET stacks and a good deal of PHP. Go, Python and Ruby accept it; refusing it
+        // here made a message every other library in the family reads a poison message to a
+        // Java consumer sitting beside them. For a read set the union is the safe direction:
+        // the worst case is decoding something that was JSON anyway.
+        return type.startsWith(CONTENT_TYPE)
+                || type.startsWith("text/json")
+                || type.startsWith("application/") && type.contains("+json");
     }
 
     @Override

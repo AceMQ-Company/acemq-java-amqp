@@ -99,12 +99,18 @@ one.
 
 | Codec | Writes | Also reads |
 |---|---|---|
+| `JsonCodec` | `application/json` | `text/json`, any `application/*+json` |
 | `ProtobufCodec` | `application/x-protobuf` | `application/protobuf`, `application/vnd.google.protobuf`, any `*+protobuf` |
 | `AvroCodec.of(...)` | `avro/binary` | any `avro/*`, and `avro` types that are not the registered one |
 | `AvroCodec.registered(...)` | `application/vnd.acemq.avro` | that one only |
 
 `application/vnd.google.protobuf` is what Google's own tooling and most schema
 registries write, so a message labelled that way is ordinary rather than exotic.
+
+`text/json` is a legacy alias that is never correct to write and is written all
+the same, by older .NET stacks and a good deal of PHP. Go, Python and Ruby accept
+it, so Java does too — a read set that differs by language means a message one
+library reads and the library beside it dead-letters. The write side is unchanged.
 
 The two Avro framings are the exception, and they stay separate: a registered
 message begins with five bytes a fixed-schema codec would read as the start of the
