@@ -17,7 +17,6 @@ package org.acemq.amqp.transport.rabbitmq;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
 
 import java.time.Duration;
 import java.util.Collections;
@@ -79,11 +78,13 @@ class RequestReplyIT {
             assertThat(price).isEqualTo("WIDGET:42");
             assertThat(requester.timedOut()).isZero();
 
-            // Awaited rather than asserted outright: the responder increments this after the
-            // reply is published, and the caller can be back from request(...) before that
-            // line runs. Locally it always won the race; on CI it did not, which is exactly
-            // the kind of assertion that turns into an intermittent failure nobody trusts.
-            await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 1);
+            // Asserted outright, over a real broker and a real wire. This used to be awaited,
+            // because the responder incremented after publishing and the caller could be back
+            // from request(...) before that line ran -- a race that lost on CI often enough to
+            // need a wait. The increment now happens before the publish, so a caller holding
+            // its answer is holding a count that already includes it, and waiting here would
+            // only hide a regression in that guarantee.
+            assertThat(responder.answered()).isEqualTo(1);
         }
     }
 

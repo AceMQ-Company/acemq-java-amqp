@@ -79,11 +79,36 @@ the timeout belongs to the caller. `orTimeout` is the usual way to add one.
 |---|---|
 | `requester.timedOut()` | Callers that gave up |
 | `requester.unmatched()` | Replies that arrived with nobody waiting — almost always the timeout being too short |
-| `responder.answered()` | Requests answered |
+| `responder.answered()` | Requests answered, counted before the reply left |
 | `responder.unanswerable()` | Requests that arrived with no `reply-to`. Anything above zero means a caller is using `publish` where it means `request` |
 
 `unmatched()` rising while `timedOut()` rises is the signature of a responder
 that is slower than callers expect. Nothing is broken; the timeout is wrong.
+
+## What the counters promise
+
+A responder reports two numbers, and both are safe to read the instant a round
+trip returns:
+
+```java
+responder.answered()      // requests answered, counted before the reply left
+responder.unanswerable()  // requests that named nowhere to reply
+```
+
+`answered()` is incremented **before** the reply is published, so a caller
+holding its answer can rely on the count already including it. The other order
+looks more natural and is wrong: it leaves a window where the reply is in the
+caller's hands and the responder still says nothing has been answered, which is a
+monitoring dashboard reporting an idle service that is demonstrably working. A
+publish that fails takes its increment back, so this counts replies that were
+sent rather than replies that were attempted.
+
+The counters exist before the responder subscribes, so a request the broker hands
+over during start-up — what a queue with a backlog looks like from in here — is
+counted like any other. Neither number needs a wait before it can be trusted, and
+code that sleeps before reading one is working around a defect that is fixed.
+
+All five libraries promise this, and they promise it identically.
 
 ## Concurrency
 

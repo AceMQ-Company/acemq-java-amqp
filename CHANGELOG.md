@@ -6,6 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 While the version is `0.x` the public API may change in any release.
 
+## [Unreleased]
+
+### Fixed
+- **`Responder.answered()` is incremented before the reply is published, so a
+  caller holding its answer can rely on the count already including it.** It used
+  to be incremented after the send returned, which left a window in which the
+  reply was in the caller's hands and the responder still reported that nothing
+  had been answered — a monitoring dashboard showing an idle service that was
+  demonstrably working, and a number no test could assert without first sleeping.
+  It was found the honest way: an example had to sleep before reading the counter,
+  and both its READMEs explained why, which is a library defect living in
+  documentation. A publish that fails now hands its increment back, so this counts
+  replies that were sent rather than replies that were attempted, and the fix does
+  not trade one wrong number for another. .NET resolved this first and deliberately
+  did not follow Java; Java was the last of the five carrying it, and all five now
+  promise the same ordering. `unanswerable()` never had the problem — it is counted
+  before the delivery is acknowledged, which is the only thing anyone can see — and
+  neither did the start-up window .NET had to close, because Java's counters are
+  initialised where they are declared and so are in place before the constructor
+  calls `mq.consume(...)`.
+
 ## [0.5.0] - 2026-09-09
 
 ### Added

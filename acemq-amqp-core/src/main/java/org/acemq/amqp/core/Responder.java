@@ -45,6 +45,13 @@ public final class Responder implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(Responder.class);
 
     private final MessageConsumer consumer;
+
+    // Initialised where they are declared, which puts them in place before the constructor body
+    // runs and so before mq.consume(...) is called. That matters: a broker may hand the first
+    // request over from inside the subscribe -- what a queue with a backlog looks like from in
+    // here -- and the handler reads these fields on that very delivery. .NET had to lift its
+    // counters out of the responder to get the same guarantee, because there they were reached
+    // through a reference the subscribe had not returned yet.
     private final AtomicLong answered = new AtomicLong();
     private final AtomicLong unanswerable = new AtomicLong();
 
@@ -77,22 +84,52 @@ public final class Responder implements AutoCloseable {
             // The empty exchange: reply-to names a queue directly. The correlation id is the
             // caller's, carried back unchanged -- it is the only thing tying the answer to the
             // question.
-            mq.<A>publisher("", replyTo)
-                    .send(answer, Envelope.of(answer == null ? "Reply" : answer.getClass().getSimpleName())
-                            .correlationId(message.envelope().correlationId())
-                            .build());
+            Envelope reply = Envelope.of(answer == null ? "Reply" : answer.getClass().getSimpleName())
+                    .correlationId(message.envelope().correlationId())
+                    .build();
+
+            // Counted before the reply goes out, and that order is the contract. The reply and
+            // the counter are two things one caller can see, and publishing first leaves a
+            // window in which a caller already holding its answer reads answered() as zero -- a
+            // dashboard reporting an idle service that is demonstrably working. Incrementing
+            // first puts the counter ahead of the reply in every interleaving there is, which is
+            // the only ordering a reader can rely on. .NET fixed this first and deliberately did
+            // not follow Java here; this is Java catching up, and all five libraries now promise
+            // the same thing. A publish that throws hands its increment back on the way out, so
+            // the failure incrementing early would otherwise introduce -- a send that never
+            // happened counted as an answer -- does not exist either.
             answered.incrementAndGet();
+            try {
+                mq.<A>publisher("", replyTo).send(answer, reply);
+            } catch (RuntimeException | Error failed) {
+                answered.decrementAndGet();
+                throw failed;
+            }
         });
     }
 
-    /** @return how many requests were answered */
+    /**
+     * How many requests were answered, counted before each reply left.
+     *
+     * <p>A caller holding a reply can rely on this having counted it: the increment happens
+     * before the publish, so there is no interleaving in which the answer is visible and the
+     * number is not. A publish that fails takes its increment back, so this counts replies that
+     * were sent rather than replies that were attempted. Neither number needs a wait before it
+     * can be trusted, and code that sleeps before reading one is working around a defect that is
+     * fixed.
+     *
+     * @return how many requests were answered
+     */
     public long answered() {
         return answered.get();
     }
 
     /**
-     * @return how many arrived with no reply-to. Anything above zero means a caller is publishing
-     *     where it means to request
+     * How many arrived with no reply-to, counted before the delivery is acknowledged.
+     *
+     * <p>Anything above zero means a caller is publishing where it means to request.
+     *
+     * @return how many could not be answered
      */
     public long unanswerable() {
         return unanswerable.get();

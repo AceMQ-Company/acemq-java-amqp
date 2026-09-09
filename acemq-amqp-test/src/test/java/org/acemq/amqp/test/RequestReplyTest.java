@@ -24,8 +24,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.acemq.amqp.api.AceHeaders;
+import org.acemq.amqp.api.PublishContext;
+import org.acemq.amqp.api.PublishInterceptor;
+import org.acemq.amqp.api.PublishResult;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
@@ -146,6 +153,43 @@ class RequestReplyTest {
         InMemoryTransport.reset();
     }
 
+    /**
+     * Publishes a request the way some other library would, naming the reply queue in only the
+     * places asked for, and returns the correlation id it used.
+     *
+     * <p>Raw rather than through a publisher, because a publisher writes both places and names a
+     * queue that exists; the tests using this want neither of those to be true.
+     */
+    private String ask(TransportConnection raw, String replyQueue, boolean header, boolean property) {
+        String id = java.util.UUID.randomUUID().toString();
+        OutboundMessage.Builder request = OutboundMessage
+                .body("{\"sku\":\"WIDGET\",\"quantity\":4}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .exchange("")
+                .routingKey("pricing")
+                .messageId(id)
+                .contentType("application/json")
+                .header(AceHeaders.ID, id)
+                .header(AceHeaders.TYPE, "Quote")
+                .header(AceHeaders.CORRELATION, id);
+        if (header) {
+            request.header(AceHeaders.REPLY_TO, replyQueue);
+        }
+        if (property) {
+            request.replyTo(replyQueue);
+        }
+        assertThat(raw.send(request.build()).isConfirmed()).isTrue();
+        return id;
+    }
+
+    /** A publish interceptor that changes nothing, for the two below that only want to watch. */
+    private abstract static class Watching implements PublishInterceptor {
+
+        @Override
+        public PublishContext beforePublish(PublishContext context) {
+            return context;
+        }
+    }
+
     @Nested
     @DisplayName("the round trip")
     class RoundTrip {
@@ -162,8 +206,11 @@ class RequestReplyTest {
                         Duration.ofSeconds(10));
 
                 assertThat(price).isEqualTo(new Price("WIDGET", 10.0));
-                // The responder counts after publishing, so the caller can return first.
-                await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 1);
+                // Read straight out, with nothing waited for: the answer is counted before the
+                // reply is published, so a caller holding its answer is holding a count that
+                // already includes it. See the counters section below for why that ordering is
+                // the contract rather than an accident.
+                assertThat(responder.answered()).isEqualTo(1);
             }
         }
 
@@ -202,6 +249,97 @@ class RequestReplyTest {
             // Gone, not merely empty. A reply queue outliving its owner holds answers
             // nobody will ever read.
             assertThatThrownBy(() -> mq.messageCount(replyQueue)).isInstanceOf(RuntimeException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("what the counters promise")
+    class Counters {
+
+        @Test
+        @Timeout(30)
+        void the_answer_is_counted_before_the_reply_can_be_seen() {
+            connect("rr-counted-first");
+
+            // The ordering driven rather than waited for. afterConfirm runs inside the
+            // responder's own publish, at the first instant the reply exists: the broker has
+            // taken it and send() has not returned. Everything that can ever see that reply --
+            // the requester's consumer, the caller it hands the answer to, an operator reading
+            // a dashboard -- happens after this moment, so what answered() reads here is the
+            // smallest value any of them can observe. Reading zero here is a responder telling
+            // a caller who is already holding the answer that nothing has been answered, and no
+            // sleep anywhere makes that untrue.
+            AtomicReference<Responder> serving = new AtomicReference<>();
+            AtomicLong countedWhenTheReplyExisted = new AtomicLong(-1);
+
+            try (Responder responder = mq.respond("pricing", Quote.class,
+                    quote -> new Price(quote.getSku(), quote.getQuantity() * 2.5));
+                    Requester requester = mq.requester()) {
+
+                serving.set(responder);
+                String replies = requester.replyQueue();
+                mq.intercept(new Watching() {
+                    @Override
+                    public void afterConfirm(PublishContext context, PublishResult result) {
+                        if (replies.equals(context.routingKey())) {
+                            countedWhenTheReplyExisted.compareAndSet(-1, serving.get().answered());
+                        }
+                    }
+                });
+
+                Price price = requester.request("", "pricing", new Quote("WIDGET", 4), Price.class,
+                        Duration.ofSeconds(10));
+
+                assertThat(price).isEqualTo(new Price("WIDGET", 10.0));
+                assertThat(countedWhenTheReplyExisted)
+                        .as("answered(), read from inside the responder's own publish with the reply"
+                                + " already at the broker")
+                        .hasValue(1);
+            }
+        }
+
+        @Test
+        @Timeout(30)
+        void a_reply_that_could_not_be_published_is_not_counted() {
+            connect("rr-reply-fails");
+
+            // The other half of counting first: a send that throws hands its increment back, so
+            // this counts replies that were sent rather than replies that were attempted. The
+            // reply queue here was never declared -- what a requester that died and took its
+            // queue with it looks like from the responder -- so the publish is unroutable.
+            CountDownLatch replyFailed = new CountDownLatch(1);
+            mq.intercept(new Watching() {
+                @Override
+                public void onError(PublishContext context, Throwable failure) {
+                    if ("gone".equals(context.routingKey())) {
+                        replyFailed.countDown();
+                    }
+                }
+            });
+
+            try (TransportConnection raw = new InMemoryTransport()
+                    .connect(ConnectionConfig.url("memory://rr-reply-fails").build());
+                    Responder responder = mq.respond("pricing", Quote.class,
+                            quote -> new Price(quote.getSku(), 1))) {
+
+                ask(raw, "gone", true, true);
+
+                // Waited for first, so the assertion below cannot pass merely by arriving early:
+                // by the time this returns the increment has certainly happened, and what is
+                // being tested is that it comes back off again.
+                assertThat(awaited(replyFailed)).as("the reply publish never failed").isTrue();
+                await().atMost(Duration.ofSeconds(10)).until(() -> responder.answered() == 0);
+                assertThat(responder.unanswerable()).isZero();
+            }
+        }
+
+        private boolean awaited(CountDownLatch latch) {
+            try {
+                return latch.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
         }
     }
 
@@ -264,34 +402,6 @@ class RequestReplyTest {
     @Nested
     @DisplayName("where the answer is addressed")
     class ReplyAddress {
-
-        /**
-         * Publishes a request the way some other library would, naming the reply queue in only
-         * one of the two places, and returns the correlation id it used.
-         *
-         * <p>Raw rather than through a publisher, because a publisher writes both and the whole
-         * question here is what happens when only one of them arrives.
-         */
-        private String ask(TransportConnection raw, String replyQueue, boolean header, boolean property) {
-            String id = java.util.UUID.randomUUID().toString();
-            OutboundMessage.Builder request = OutboundMessage
-                    .body("{\"sku\":\"WIDGET\",\"quantity\":4}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
-                    .exchange("")
-                    .routingKey("pricing")
-                    .messageId(id)
-                    .contentType("application/json")
-                    .header(AceHeaders.ID, id)
-                    .header(AceHeaders.TYPE, "Quote")
-                    .header(AceHeaders.CORRELATION, id);
-            if (header) {
-                request.header(AceHeaders.REPLY_TO, replyQueue);
-            }
-            if (property) {
-                request.replyTo(replyQueue);
-            }
-            assertThat(raw.send(request.build()).isConfirmed()).isTrue();
-            return id;
-        }
 
         private void expectAnAnswerFor(String broker, boolean header, boolean property) {
             connect(broker);
