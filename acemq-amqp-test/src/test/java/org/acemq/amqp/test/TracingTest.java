@@ -24,7 +24,10 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.acemq.amqp.api.AceHeaders;
+import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.MetricNames;
 import org.acemq.amqp.api.RetryPolicy;
+import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
@@ -187,6 +190,56 @@ class TracingTest {
         // no explanation.
         assertThat(processSpans.get(0).getStatus().getStatusCode())
                 .isEqualTo(io.opentelemetry.api.trace.StatusCode.ERROR);
+    }
+
+    @Test
+    @Timeout(20)
+    void a_scope_that_failed_carries_the_outcome_its_counter_carries() {
+        // The counter for the same operation is always tagged with an outcome: the meter
+        // scope defaults it to "failed" when nothing said otherwise. The span used to be
+        // left with no outcome attribute at all, so the two disagreed -- a dashboard
+        // counted the failure and a trace backend queried for
+        // messaging.acemq.outcome = "failed" found none of the spans that caused it.
+        Telemetry telemetry = OpenTelemetrySupport.telemetry(sdk, "in-memory");
+
+        Telemetry.Scope scope = telemetry.requestStarted("pricing", Envelope.of("Quote").build());
+        scope.failed(new IllegalStateException("the responder is down"));
+        scope.close();
+
+        SpanData span = spanNamed("pricing request");
+        assertThat(attribute(span, "messaging.acemq.outcome"))
+                .isEqualTo(MetricNames.OUTCOME_FAILED);
+        assertThat(span.getStatus().getStatusCode())
+                .isEqualTo(io.opentelemetry.api.trace.StatusCode.ERROR);
+        // The exception is still there. The outcome is in addition to it, not instead.
+        assertThat(span.getEvents()).extracting(event -> event.getName()).contains("exception");
+    }
+
+    @Test
+    @Timeout(20)
+    void an_outcome_already_named_survives_a_later_failure() {
+        // timed_out says more than "it threw", and the requester names it before unwinding.
+        Telemetry telemetry = OpenTelemetrySupport.telemetry(sdk, "in-memory");
+
+        Telemetry.Scope scope = telemetry.requestStarted("pricing", Envelope.of("Quote").build());
+        scope.outcome(MetricNames.OUTCOME_TIMED_OUT);
+        scope.failed(new IllegalStateException("and then it threw"));
+        scope.close();
+
+        assertThat(attribute(spanNamed("pricing request"), "messaging.acemq.outcome"))
+                .isEqualTo(MetricNames.OUTCOME_TIMED_OUT);
+    }
+
+    @Test
+    @Timeout(20)
+    void a_scope_closed_without_saying_how_it_went_is_read_as_a_failure() {
+        // The same reading the meter scope has always taken of the same silence.
+        Telemetry telemetry = OpenTelemetrySupport.telemetry(sdk, "in-memory");
+
+        telemetry.requestStarted("pricing", Envelope.of("Quote").build()).close();
+
+        assertThat(attribute(spanNamed("pricing request"), "messaging.acemq.outcome"))
+                .isEqualTo(MetricNames.OUTCOME_FAILED);
     }
 
     private SpanData spanNamed(String name) {

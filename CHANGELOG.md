@@ -9,6 +9,18 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Fixed
+- **A span whose operation failed carried no outcome, while the counter for the
+  same operation said `failed`.** `MicrometerTelemetry` has always defaulted a
+  scope's `outcome` tag to `failed` when nothing named one, so the metric side
+  of a thrown publish or a failed request was tagged. The OpenTelemetry side
+  recorded the exception and an `ERROR` status and set no
+  `messaging.acemq.outcome` at all — the one attribute a trace backend is
+  queried on. A dashboard therefore showed failures that no trace search could
+  find. `Telemetry.Scope.failed` now sets `messaging.acemq.outcome=failed` when
+  no outcome has been named, and a scope closed without saying how it went is
+  read the same way the meter scope has always read that silence. An outcome
+  already named wins: a request that timed out and then unwound still reports
+  `timed_out`, which says more than "it threw".
 - **A fixed-schema `AvroCodec` refused legitimate messages whose first field
   encodes to a zero byte.** The check that stops a fixed-schema codec silently
   misreading Confluent-framed bytes was made on the bytes alone: five bytes or

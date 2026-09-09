@@ -214,11 +214,22 @@ final class OpenTelemetryTelemetry implements Telemetry {
         return carrier;
     }
 
-    /** Ends a span and closes the scope that made it current. */
+    /**
+     * Ends a span and closes the scope that made it current.
+     *
+     * <p>Every span this closes carries {@code messaging.acemq.outcome}, whatever happened,
+     * because the counter for the same operation always carries an {@code outcome} tag — see
+     * {@code MicrometerTelemetry.MeterScope}, which defaults it to {@code failed} rather than
+     * leaving it off. A span that said nothing where the counter said {@code failed} is the
+     * same disagreement between a metric and a trace that this library treats as a defect
+     * everywhere else: a dashboard shows the failures and the trace backend, queried for
+     * {@code messaging.acemq.outcome = "failed"}, finds none of the spans that caused them.
+     */
     private static final class SpanScope implements Telemetry.Scope {
 
         private final Span span;
         private final io.opentelemetry.context.Scope scope;
+        private @Nullable String outcome;
         private boolean closed;
 
         SpanScope(Span span, io.opentelemetry.context.Scope scope) {
@@ -228,6 +239,7 @@ final class OpenTelemetryTelemetry implements Telemetry {
 
         @Override
         public void outcome(String outcome) {
+            this.outcome = outcome;
             span.setAttribute(OUTCOME, outcome);
             if (MetricNames.OUTCOME_UNROUTABLE.equals(outcome)
                     || MetricNames.OUTCOME_FAILED.equals(outcome)
@@ -238,6 +250,14 @@ final class OpenTelemetryTelemetry implements Telemetry {
 
         @Override
         public void failed(Throwable failure) {
+            // The exception and the status are not enough on their own: they say something
+            // went wrong without saying, in the vocabulary every other signal uses, what
+            // became of the operation. An outcome already set wins, because a caller that
+            // named one -- timed_out, say -- knows more than "it threw".
+            if (outcome == null) {
+                outcome = MetricNames.OUTCOME_FAILED;
+                span.setAttribute(OUTCOME, MetricNames.OUTCOME_FAILED);
+            }
             span.recordException(failure);
             span.setStatus(StatusCode.ERROR, failure.getMessage() == null ? "failed" : failure.getMessage());
         }
@@ -248,6 +268,13 @@ final class OpenTelemetryTelemetry implements Telemetry {
                 return;
             }
             closed = true;
+            // An operation that closed without saying how it went almost certainly threw --
+            // the same reading, and the same default, as the meter scope's.
+            if (outcome == null) {
+                outcome = MetricNames.OUTCOME_FAILED;
+                span.setAttribute(OUTCOME, MetricNames.OUTCOME_FAILED);
+                span.setStatus(StatusCode.ERROR, MetricNames.OUTCOME_FAILED);
+            }
             scope.close();
             span.end();
         }

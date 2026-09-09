@@ -149,6 +149,20 @@ Only the blocking `request(...)` is timed. `requestAsync` hands back a future
 with no timeout attached, so the wait belongs to whoever holds it — a scope
 closed at return would time the publish and label it the round trip.
 
+### Every span carries an outcome
+
+`messaging.acemq.outcome` is on every span this library ends, whatever happened,
+because the counter for the same operation always carries an `outcome` tag. An
+operation that threw is `failed`; one that closed without saying how it went is
+read the same way, which is what it almost always is. That symmetry is the point:
+a span with no outcome where the counter said `failed` means a dashboard shows
+failures and a trace search for `messaging.acemq.outcome = "failed"` finds none
+of the spans behind them.
+
+An outcome named explicitly wins over the default. A request that timed out
+reports `timed_out` even though the caller then unwound through an exception,
+because `timed_out` says more than "it threw".
+
 ### Adding your own sink
 
 `Telemetry`'s newer methods are **`default` no-ops**, deliberately and
