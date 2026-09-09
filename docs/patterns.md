@@ -83,6 +83,57 @@ Keeping them separate is the point. A step name good enough to route on is rarel
 a sentence, and a sentence is never safe to route on — so improving how a stage
 reads should not be able to change where its messages go.
 
+### Two routing slips, and when each is right
+
+Where a message is going travels with the message. There are two ways to say it
+and the library speaks both, reading either and writing whichever you ask for.
+
+**The declared route — `x-acemq-route`, and the default.** A comma-separated list
+of step names with a position, resolved against the pipeline that declared them:
+
+```
+x-acemq-route: validate,reserve,dispatch
+x-acemq-route-position: 1
+```
+
+The better shape when there is a declaration to resolve against. It costs one
+short header, it says where a message is without anybody decoding anything, and
+the route is checked at build time against steps whose types the compiler already
+threaded together. Nothing changes here; this is what `pipeline.send(order)`
+writes and what a pipeline reads when no itinerary is present.
+
+**The carried itinerary — `acemq-routing-slip`.** The whole route as JSON, each
+stop naming its own exchange and routing key:
+
+```json
+{"steps":[{"exchange":"orders-events","routingKey":"order.charge","name":"charge"}],
+ "done":[{"exchange":"orders-events","routingKey":"order.validate","name":"validate",
+          "completedAt":"2026-09-09T14:03:11Z"}]}
+```
+
+For when the route is decided per message — an order over a threshold visits an
+approver and one under it does not — and for when whoever consumes it has no
+declaration at all. This is the shape Go, Python and Ruby write, field for field,
+so a slip written by any of them is followed here and a slip written here is
+followed by any of them.
+
+```java
+pipeline.send(Itinerary.empty()
+        .then("orders-events", "order.validate", "validate")
+        .then("orders-events", "order.charge", "charge"), order);
+```
+
+A step reading a carried itinerary publishes to the next stop **on the slip**,
+not to the next step in the declaration — that is the whole point, and it is what
+lets a Java consumer sit in the middle of a route that no Java service declared.
+The `done` list grows as the message travels, each stop stamped when it finished,
+so a run that stops halfway says how far it got.
+
+`Itinerary` is immutable: `then` and `advance` return new instances. A slip that
+cannot be parsed is fatal rather than retryable — it will not parse next time
+either, and a message going round the broker while nothing can tell where it is
+meant to go is the worst of both.
+
 ## Idempotency
 
 At-least-once delivery means duplicates. An idempotency store is what turns

@@ -62,6 +62,15 @@ public final class AceMq implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(AceMq.class);
 
+    /**
+     * The broker argument naming how large a stream's segment files get.
+     *
+     * <p>Spelled out because it is the same string in Go, Python and Ruby, and a stream declared
+     * by one of them has to be declarable identically here — a second declaration whose arguments
+     * differ is refused outright.
+     */
+    private static final String STREAM_SEGMENT_BYTES = "x-stream-max-segment-size-bytes";
+
     private final Transport transport;
     private final TransportConnection connection;
     private final Interceptors interceptors = new Interceptors();
@@ -578,6 +587,34 @@ public final class AceMq implements AutoCloseable {
      * @throws org.acemq.amqp.api.AceMqException if the broker does not support streams
      */
     public AceMq declareStream(String name, @Nullable Duration maxAge, @Nullable Long maxLengthBytes) {
+        return declareStream(name, maxAge, maxLengthBytes, null);
+    }
+
+    /**
+     * Declares a stream, saying how large each file on disk gets.
+     *
+     * <p>A stream is stored as a sequence of segment files, and retention happens a whole segment
+     * at a time: nothing is discarded until an entire segment can be. That makes the segment size
+     * the granularity of every other retention setting — a stream told to keep an hour, in
+     * segments large enough to hold a day, keeps a day.
+     *
+     * <p><strong>Absent unless asked for.</strong> No default is invented here, because the
+     * broker has one and it is tuned for the broker's own storage rather than for any particular
+     * stream. Naming a size that merely repeated the broker's would freeze the broker's choice at
+     * whatever it was on the day this was written, and a declaration carrying an argument the
+     * first one did not is a {@code PRECONDITION_FAILED} for whoever declares the same stream
+     * second. Go, Python and Ruby all leave it out the same way.
+     *
+     * @param name stream name
+     * @param maxAge how long a message is kept, or {@code null} for no age limit
+     * @param maxLengthBytes how large the stream may grow, or {@code null} for no size limit
+     * @param segmentBytes how large each segment file gets, or {@code null} to leave it to the
+     *     broker
+     * @return this instance, for chaining
+     * @throws org.acemq.amqp.api.AceMqException if the broker does not support streams
+     */
+    public AceMq declareStream(
+            String name, @Nullable Duration maxAge, @Nullable Long maxLengthBytes, @Nullable Long segmentBytes) {
         requireStreams(name);
         Map<String, Object> arguments = new LinkedHashMap<>();
         if (maxAge != null) {
@@ -587,6 +624,9 @@ public final class AceMq implements AutoCloseable {
         }
         if (maxLengthBytes != null) {
             arguments.put("x-max-length-bytes", maxLengthBytes);
+        }
+        if (segmentBytes != null) {
+            arguments.put(STREAM_SEGMENT_BYTES, segmentBytes);
         }
         if (arguments.isEmpty()) {
             log.warn("stream {} is declared with no retention. It will grow until the disk is full, and the broker"

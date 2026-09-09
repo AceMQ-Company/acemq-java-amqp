@@ -39,8 +39,44 @@ While the version is `0.x` the public API may change in any release.
 - `Telemetry.messageParked`, `Telemetry.setAsideFailed` and
   `Telemetry.retryRungMissing`, all default no-ops, so a sink written before they
   existed keeps compiling and keeps working.
+- **`Itinerary`: the routing slip that travels with the message, so a Java step
+  can read a route a Go, Python or Ruby service wrote.** Java had one routing
+  slip — `x-acemq-route`, a list of step names resolved against a declared
+  `Pipeline` — and the other three had another: `acemq-routing-slip`, the whole
+  itinerary as JSON, each stop naming its own exchange and routing key. Neither
+  side could read the other's, so a polyglot route was not a route. Both work
+  now. A pipeline step reads whichever the message carries, and a message
+  carrying an itinerary is sent to the next stop **on the slip** rather than to
+  the next step in the declaration — which is what lets a Java consumer sit in
+  the middle of a route no Java service declared. `pipeline.send(itinerary,
+  payload)` starts a run with one. The JSON is byte-identical to what Go and Ruby
+  write, including omitting `done` until there is something in it, and the tests
+  assert against literals those two libraries produced rather than against a
+  reading of their source. **The declared form stays the default**: an ordinary
+  `pipeline.send(payload)` writes exactly what it wrote before.
+- **A stream can be declared with a segment size.** `mq.declareStream(name,
+  maxAge, maxLengthBytes, segmentBytes)` sets
+  `x-stream-max-segment-size-bytes`, which Go, Python and Ruby have exposed for
+  some time and Java had no way to express at all — so a stream one of them
+  declared could not be declared identically here, and the second declaration of
+  it was refused. **No default is invented**: absent unless asked for, exactly as
+  the other three behave, because a segment size Java added on its own would
+  break every stream first declared elsewhere. Retention happens a whole segment
+  at a time, so this is the granularity of every other retention setting.
 
 ### Changed
+- **`acemq-replayed-at` is written as RFC 3339 rather than epoch milliseconds.**
+  Go, Python and Ruby all wrote `2026-02-03T04:05:06Z` and Java wrote
+  `1770091506789`, under the same header name, with nothing on the wire saying
+  which — so a consumer reading that header had to know which library had
+  produced the message. Java is one against three, so Java moved. **Reading is
+  unchanged and still accepts every form**: the epoch milliseconds an older Java
+  publisher wrote, the `Z` form Go and Ruby write, and the explicit `+00:00`
+  offset Python writes — the last of which `Instant.parse` refuses on a Java 11
+  runtime and which is now read as an offset date-time instead. **Anything
+  comparing that header as a number needs to compare it as a timestamp.**
+  `envelope-fixtures.json` changes on this one line; the other four repositories
+  need the new copy.
 - **Replay provenance moved out of the reserved header namespace, which changes
   the bytes on the wire.** A replay wrote `x-acemq-replayed-from`,
   `x-acemq-replayed-at` and `x-acemq-replay-count`; it now writes

@@ -26,10 +26,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.acemq.amqp.api.AceMqException;
+import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.RoutingSlip;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
+import org.acemq.amqp.core.Itinerary;
 import org.acemq.amqp.core.Pipeline;
 import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
 import org.junit.jupiter.api.AfterEach;
@@ -233,6 +235,119 @@ class PipelineTest {
 
                 await().atMost(Duration.ofSeconds(30)).until(() -> runIds.size() == 2);
                 assertThat(runIds).containsExactly(runId, runId);
+            }
+        }
+    }
+
+    /**
+     * The other slip: the itinerary a message carries, in the shape Go, Python and Ruby write.
+     *
+     * <p>The literal below came out of the Go library rather than out of a reading of it. A
+     * consumer that follows a slip its own declaration agrees with proves nothing about
+     * interoperability; the point of these two tests is that the route is obeyed even where it
+     * disagrees with the declaration, and that what goes out the other side is a document the
+     * three other libraries can read back.
+     */
+    @Nested
+    @DisplayName("an itinerary carried by the message")
+    class Carried {
+
+        /** As printed by {@code patterns.NewRoutingSlip().Then(...).Header()} in Go. */
+        private String goSlip(String exchange) {
+            return "{\"steps\":["
+                    + "{\"exchange\":\"" + exchange + "\",\"routingKey\":\"one\",\"name\":\"validate\"},"
+                    + "{\"exchange\":\"" + exchange + "\",\"routingKey\":\"two\",\"name\":\"charge\"}]}";
+        }
+
+        @Test
+        @Timeout(60)
+        void is_followed_to_its_next_stop_and_carries_where_it_has_been() {
+            connect("pipeline-carried");
+            AtomicReference<Itinerary> atSecondStop = new AtomicReference<>();
+            List<String> seen = new CopyOnWriteArrayList<>();
+
+            try (Pipeline<String> pipeline = mq.pipeline("carried", String.class)
+                    .step("one", String.class, message -> {
+                        seen.add("one");
+                        return message.payload() + "|validated";
+                    })
+                    .step("two", String.class, message -> {
+                        seen.add("two");
+                        atSecondStop.set(Itinerary.from(message.envelope().headers()).orElse(null));
+                        return null;
+                    })
+                    .build()) {
+
+                // Published by hand, exactly as a Go service would: no declared route, one
+                // header, and a payload.
+                mq.publisher("carried", "one", String.class).send("order-1",
+                        Envelope.of("order.placed").header(Itinerary.HEADER, goSlip("carried")).build());
+
+                await().atMost(Duration.ofSeconds(30)).until(() -> seen.size() == 2);
+
+                Itinerary arrived = atSecondStop.get();
+                assertThat(arrived).as("the second step must have been reached through the slip").isNotNull();
+
+                // Where it is going: the second stop, named by the slip rather than by this
+                // pipeline's declaration.
+                assertThat(arrived.next().get().routingKey()).isEqualTo("two");
+                assertThat(arrived.next().get().name()).isEqualTo("charge");
+
+                // Where it has been: the done list, with the stop that just finished stamped.
+                // This is the half that a slip which merely round-tripped would get wrong.
+                assertThat(arrived.done()).hasSize(1);
+                assertThat(arrived.done().get(0).name()).isEqualTo("validate");
+                assertThat(arrived.done().get(0).routingKey()).isEqualTo("one");
+                assertThat(arrived.done().get(0).completedAt())
+                        .matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z");
+
+                // And the run ended where the itinerary ended, not where the declaration did.
+                await().atMost(Duration.ofSeconds(10)).until(() -> pipeline.completed() == 1);
+            }
+        }
+
+        @Test
+        @Timeout(60)
+        void is_written_when_a_run_is_started_with_one() {
+            connect("pipeline-carried-start");
+            AtomicReference<String> header = new AtomicReference<>();
+            List<String> seen = new CopyOnWriteArrayList<>();
+
+            try (Pipeline<String> pipeline = mq.pipeline("posted", String.class)
+                    .step("one", String.class, message -> {
+                        seen.add("one");
+                        header.set(String.valueOf(message.envelope().headers().get(Itinerary.HEADER)));
+                        return null;
+                    })
+                    .build()) {
+
+                pipeline.send(Itinerary.empty().then("posted", "one", "validate"), "order-2");
+
+                await().atMost(Duration.ofSeconds(30)).until(() -> seen.size() == 1);
+
+                // Byte for byte what Go writes for the same one-stop slip, because a slip only
+                // one library can read is not a slip.
+                assertThat(header.get()).isEqualTo(
+                        "{\"steps\":[{\"exchange\":\"posted\",\"routingKey\":\"one\",\"name\":\"validate\"}]}");
+
+                // The declared form is still what an ordinary send writes, so nothing that was
+                // working changes because this exists.
+                assertThat(header.get()).doesNotContain(RoutingSlip.ROUTE);
+            }
+        }
+
+        @Test
+        @Timeout(60)
+        void refuses_an_itinerary_with_nowhere_to_go() {
+            connect("pipeline-carried-empty");
+
+            try (Pipeline<String> pipeline = mq.pipeline("empty", String.class)
+                    .step("one", String.class, message -> null)
+                    .build()) {
+
+                assertThatThrownBy(() -> pipeline.send(Itinerary.empty(), "order-3"))
+                        .isInstanceOf(AceMqException.class)
+                        .hasMessageContaining("no stops");
             }
         }
     }

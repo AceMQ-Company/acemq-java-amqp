@@ -276,7 +276,10 @@ public final class Replay {
         }
 
         headers.put(AceHeaders.REPLAYED_FROM, fromQueue);
-        headers.put(AceHeaders.REPLAYED_AT, Instant.now().toEpochMilli());
+        // RFC 3339, the one encoding all five libraries write now. Java wrote epoch
+        // milliseconds under the same header name, which made the value unreadable without
+        // knowing which library had produced it.
+        headers.put(AceHeaders.REPLAYED_AT, EnvelopeHeaders.rfc3339(Instant.now()));
         headers.put(AceHeaders.REPLAY_COUNT, previousReplays(delivery) + 1);
 
         // The error that put it here stays readable. Clearing it would hide the one piece of

@@ -125,6 +125,14 @@ prefix and was the only library that did. Correcting that changed the bytes on
 the wire, so anything matching on the old names — a shovel policy, a dashboard, a
 firehose consumer — needs the new ones.
 
+`acemq-replayed-at` is **RFC 3339** — `2026-02-03T04:05:06Z` — which is what Go,
+Python and Ruby write. Java wrote epoch milliseconds under the same name, so one
+header carried two encodings and nothing on the wire said which. It no longer
+does. Reading still accepts all of it: the number an older Java publisher wrote,
+the `Z` form Go and Ruby write, and the explicit `+00:00` offset Python writes.
+**A dashboard or a shovel policy comparing that header as a number needs to
+compare it as a timestamp instead.**
+
 Replay is at-least-once: each message is published to the source queue and only
 then acknowledged in the dead-letter queue, so a crash between the two replays it
 again. Acknowledging first would lose it, which is the wrong way round for a tool

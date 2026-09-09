@@ -19,6 +19,26 @@ Both retention limits may be `null`, which is legal, logs a warning, and is
 almost always a mistake — a stream with no limit grows until the disk is full,
 and a full disk is a broker-wide alarm that blocks every publisher on the node.
 
+### Segment size
+
+A stream is stored as a sequence of segment files, and retention happens a whole
+segment at a time: nothing is discarded until an entire segment can be. That
+makes the segment size the granularity of every other retention setting — a
+stream told to keep an hour, in segments large enough to hold a day, keeps a day.
+
+```java
+mq.declareStream("orders.log", Duration.ofDays(7), 10L * 1024 * 1024 * 1024,
+        100L * 1024 * 1024);   // 100 MB segments
+```
+
+**Absent unless you ask.** The broker has its own default and it is tuned for the
+broker's storage rather than for any particular stream, so nothing is sent unless
+a size is named. That matters beyond tidiness: a declaration carrying an argument
+that the first declaration of the same stream did not is a `PRECONDITION_FAILED`
+for whoever declares second, so a default invented here would break every stream
+first declared by a Go, Python or Ruby service. Those three leave it out the same
+way, and the argument is the same `x-stream-max-segment-size-bytes` in all four.
+
 ## Where to start reading
 
 ```java

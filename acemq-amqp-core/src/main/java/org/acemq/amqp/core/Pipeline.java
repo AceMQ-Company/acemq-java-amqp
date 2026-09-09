@@ -173,6 +173,16 @@ public final class Pipeline<T> implements AutoCloseable {
     private void run(int position, Message<?> message) throws Exception {
         PipelineStep<Object, Object> step = (PipelineStep<Object, Object>) steps.get(position);
 
+        // An itinerary beats everything, because it is the only one of the three that names
+        // somewhere this pipeline may never have heard of. A message published by a Go, Python
+        // or Ruby service carries one, and following it is the whole point: the route belongs
+        // to the message rather than to whoever happens to be consuming it.
+        Optional<Itinerary> carried = Itinerary.from(message.envelope().headers());
+        if (carried.isPresent()) {
+            runCarrying(step, carried.get(), (Message<Object>) message);
+            return;
+        }
+
         // The slip on the message wins over this consumer's position in the declaration. A
         // message replayed into the middle of a pipeline carries where it was going, and that
         // is what makes a replay resume rather than restart.
@@ -207,9 +217,98 @@ public final class Pipeline<T> implements AutoCloseable {
         publishTo(following.get(), next, message.envelope(), slip.advance());
     }
 
+    /**
+     * Runs a step whose message brought its own itinerary, and sends it to the next stop on it.
+     *
+     * <p>Nothing here consults the declaration. The stop names an exchange and a routing key, so
+     * the message goes where the slip says even when this pipeline has no step of that name — a
+     * Go service can put a Java consumer in the middle of a route neither of them declared.
+     *
+     * <p>The step that just ran is named off the slip rather than off the declaration, for the
+     * same reason: the itinerary is the authority on what this hop was called.
+     */
+    private void runCarrying(PipelineStep<Object, Object> step, Itinerary itinerary, Message<Object> message)
+            throws Exception {
+        String stepName = itinerary.next().map(Itinerary.Stop::toString).orElse(step.name());
+        Object next = step.handler().handle(message);
+
+        Itinerary advanced = itinerary.advance();
+        Optional<Itinerary.Stop> following = advanced.next();
+
+        if (!following.isPresent()) {
+            completed.incrementAndGet();
+            mq.telemetry().pipelineRunFinished(
+                    name, stepName, MetricNames.OUTCOME_COMPLETED, message.envelope().age());
+            return;
+        }
+
+        if (next == null) {
+            endedEarly.incrementAndGet();
+            mq.telemetry().pipelineRunFinished(
+                    name, stepName, MetricNames.OUTCOME_ENDED_EARLY, message.envelope().age());
+            log.debug("a carried itinerary ended at {} of pipeline {}: {}", stepName, name, advanced);
+            return;
+        }
+
+        Itinerary.Stop stop = following.get();
+        Envelope carrying = message.envelope().toBuilder()
+                .causationId(message.envelope().id())
+                .header(Itinerary.HEADER, advanced.toHeader())
+                .build();
+        mq.publisher(stop.exchange(), stop.routingKey(), (Class<Object>) (Class<?>) Object.class)
+                .send(next, carrying);
+    }
+
     private void publishTo(String step, Object payload, Envelope envelope, RoutingSlip slip) {
         Envelope carrying = envelope.toBuilder().route(slip).build();
         publisherFor(step).send(payload, carrying);
+    }
+
+    /**
+     * Sends a payload to the first stop of an itinerary the message carries with it.
+     *
+     * <pre>{@code
+     * pipeline.send(Itinerary.empty()
+     *         .then("orders-events", "order.validate", "validate")
+     *         .then("orders-events", "order.charge", "charge"), order);
+     * }</pre>
+     *
+     * <p>The other way to start a run, and not the default. {@link #send(Object)} writes the
+     * declared route as step names against this pipeline's own steps, which is the better shape
+     * when there is a declaration to resolve against — it stays readable in a management console
+     * and it costs one short header. This writes the whole itinerary as JSON, in the shape Go,
+     * Python and Ruby write, for when the route is decided per message and whoever consumes it
+     * may have no declaration at all.
+     *
+     * <p>Nothing about the pipeline's own topology is used: the stops name their own exchanges
+     * and routing keys, and the first of them is where this goes.
+     *
+     * @param itinerary where the message is going, with at least one stop on it
+     * @param payload the message
+     * @param envelope metadata to carry
+     * @return the identifier of the message that started the run
+     */
+    @SuppressWarnings("unchecked")
+    public String send(Itinerary itinerary, T payload, Envelope envelope) {
+        requireOpen();
+        java.util.Objects.requireNonNull(itinerary, "itinerary");
+        Itinerary.Stop first = itinerary.next().orElseThrow(() -> new AceMqException(
+                "this itinerary has no stops on it, so there is nowhere to send " + envelope.type() + "."));
+
+        Envelope carrying = envelope.toBuilder().header(Itinerary.HEADER, itinerary.toHeader()).build();
+        mq.publisher(first.exchange(), first.routingKey(), (Class<Object>) (Class<?>) Object.class)
+                .send(payload, carrying);
+        entered.incrementAndGet();
+        return carrying.id();
+    }
+
+    /**
+     * @param itinerary where the message is going
+     * @param payload the message
+     * @return the identifier of the message that started the run
+     */
+    public String send(Itinerary itinerary, T payload) {
+        return send(itinerary, payload, Envelope.of(name).build());
     }
 
     @SuppressWarnings("unchecked")

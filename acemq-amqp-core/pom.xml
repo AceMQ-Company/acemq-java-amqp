@@ -31,6 +31,15 @@
       <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-codec-json</artifactId>
     </dependency>
+    <!-- Declared rather than left to arrive through the JSON codec. The routing slip
+         Go, Python and Ruby write is a JSON document in a header, so the engine itself
+         reads and writes JSON now — not only the codec that encodes payloads. A
+         transitive dependency that the code imports directly is one refactor of the
+         codec away from a compile error nobody caused. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>

@@ -267,8 +267,42 @@ class ReplayTest {
                 assertThat(headers.get("acemq-replayed-from")).isEqualTo("orders.new.dlq");
                 assertThat(headers.get("acemq-replay-count")).isEqualTo(1);
 
+                // RFC 3339, not epoch milliseconds. Java wrote the number and was the only one
+                // of the five that did, which left one header name carrying two encodings and
+                // every reader guessing which it had. What Go and Ruby write for a whole second
+                // is exactly this, character for character.
+                assertThat(headers.get("acemq-replayed-at"))
+                        .asString()
+                        .matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z");
+
                 replayed.acknowledger().accept();
             }
+        }
+
+        @Test
+        @DisplayName("reads the epoch milliseconds an older Java publisher wrote, and Python's offset form")
+        void readsEveryEncodingOfTheReplayTimestamp() throws Exception {
+            // Nothing writes the number any more; a great deal of it is still in flight and in
+            // dead-letter queues, and dropping it would lose the audit field on exactly the
+            // messages that have been round the longest.
+            mq.publisher("orders", "order.created", String.class).send("old",
+                    Envelope.of("order.created").header("acemq-replayed-at", 1770091506789L).build());
+            assertThat(firstEnvelopeOn("orders.new").replayedAt())
+                    .contains(java.time.Instant.ofEpochMilli(1770091506789L));
+
+            mq.publisher("orders", "order.created", String.class).send("go",
+                    Envelope.of("order.created").header("acemq-replayed-at", "2026-02-03T04:05:06Z").build());
+            assertThat(firstEnvelopeOn("orders.new").replayedAt())
+                    .contains(java.time.Instant.parse("2026-02-03T04:05:06Z"));
+
+            // Python's encoder writes an explicit +00:00 rather than a Z. Equally RFC 3339, and
+            // refused by Instant.parse on a Java 11 runtime, so it is read as an offset instead.
+            mq.publisher("orders", "order.created", String.class).send("python",
+                    Envelope.of("order.created")
+                            .header("acemq-replayed-at", "2026-02-03T04:05:06.789000+00:00")
+                            .build());
+            assertThat(firstEnvelopeOn("orders.new").replayedAt())
+                    .contains(java.time.Instant.ofEpochMilli(1770091506789L));
         }
 
         @Test

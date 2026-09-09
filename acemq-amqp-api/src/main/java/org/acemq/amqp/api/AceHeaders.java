@@ -104,6 +104,17 @@ public final class AceHeaders {
      */
     public static final String REPLY_TO = SHARED_PREFIX + "reply-to";
 
+    /**
+     * A self-describing itinerary: the stops a message still has to make, as JSON.
+     *
+     * <p>The other half of {@link RoutingSlip#ROUTE}, which names steps and leaves a declared
+     * pipeline to say where each one lives. This header carries the exchange and routing key of
+     * every stop with it, so a consumer that has never heard of the pipeline can still send the
+     * message on. Go, Python and Ruby write this one; a declared pipeline is the better model
+     * when there is a declaration, and this is what there is when there is not.
+     */
+    public static final String ROUTING_SLIP = SHARED_PREFIX + "routing-slip";
+
     /** Queue a message was replayed from, set by the replay API for auditing. */
     public static final String REPLAYED_FROM = SHARED_PREFIX + "replayed-from";
 

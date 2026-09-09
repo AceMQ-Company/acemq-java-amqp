@@ -280,4 +280,52 @@ class StreamIT {
         }
 
     }
+
+    @Nested
+    @DisplayName("retention")
+    class Retention {
+
+        /**
+         * A hundred megabytes. Large enough that the broker accepts it — it refuses anything
+         * under a hundred kilobytes — and irrelevant to what the test writes, which is nothing.
+         */
+        private static final long SEGMENT_BYTES = 100_000_000L;
+
+        @Test
+        @Timeout(120)
+        void a_segment_size_reaches_the_broker_and_is_absent_until_it_is_asked_for() {
+            String segmented = "orders.log.segmented." + UUID.randomUUID();
+            try {
+                mq.declareStream(segmented, Duration.ofHours(1), 20_000_000L, SEGMENT_BYTES);
+
+                // Declared again, identically. A declaration has to be safe to repeat, because
+                // every instance of a service makes it on start-up.
+                mq.declareStream(segmented, Duration.ofHours(1), 20_000_000L, SEGMENT_BYTES);
+
+                // And the argument really went to the broker rather than being kept here: the
+                // same stream declared without it is a different stream, and the broker says so
+                // by name. This is also the proof that nothing invents a default — if Java put a
+                // segment size on every stream, this declare would have carried one and agreed.
+                assertThatThrownBy(() -> mq.declareStream(segmented, Duration.ofHours(1), 20_000_000L))
+                        .hasStackTraceContaining("PRECONDITION_FAILED")
+                        .hasStackTraceContaining("x-stream-max-segment-size-bytes");
+            } finally {
+                closeConnection();
+            }
+        }
+
+        @Test
+        @Timeout(120)
+        void a_stream_declared_without_one_stays_without_one() {
+            // The stream from the fixture, declared with an age and a size and no segment size.
+            // Redeclaring it the same way is what a Go, Python or Ruby service declaring the
+            // same stream does, and it has to agree.
+            try {
+                mq.declareStream(stream, Duration.ofHours(1), 20_000_000L);
+                mq.declareStream(stream, Duration.ofHours(1), 20_000_000L, null);
+            } finally {
+                closeConnection();
+            }
+        }
+    }
 }

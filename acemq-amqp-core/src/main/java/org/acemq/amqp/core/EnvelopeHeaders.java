@@ -67,7 +67,12 @@ final class EnvelopeHeaders {
         // the envelope came off the wire. Written over the top rather than around, so the field
         // and the header cannot say different things about the same message.
         envelope.replayedFrom().ifPresent(value -> headers.put(AceHeaders.REPLAYED_FROM, value));
-        envelope.replayedAt().ifPresent(value -> headers.put(AceHeaders.REPLAYED_AT, value.toEpochMilli()));
+        // RFC 3339, which is what Go, Python and Ruby write. Java wrote epoch milliseconds and
+        // was alone in it: a header with one name and two encodings is a header every consumer
+        // has to guess at, and the guess is only ever right by luck. Both are still read — see
+        // instantMillis — because a message published by an older Java service is still out
+        // there and still has to be understood.
+        envelope.replayedAt().ifPresent(value -> headers.put(AceHeaders.REPLAYED_AT, rfc3339(value)));
         if (envelope.replayCount() > 0) {
             // Omitted when zero, so an ordinary message carries no evidence of a loop it was
             // never in and the header only appears where it means something.
@@ -205,17 +210,36 @@ final class EnvelopeHeaders {
      * mean a message replayed by another language arriving with {@code replayedAt} empty and no
      * indication why — the one field an operator looks at to see when a message was put back.
      */
+    /**
+     * Renders an instant the way the other four libraries render one.
+     *
+     * <p>{@code Instant.toString} is RFC 3339 and prints sub-second digits only when there are
+     * any, so a whole second comes out as {@code 2026-02-03T04:05:06Z} — byte for byte what Go's
+     * {@code time.RFC3339} and Ruby's {@code strftime} produce for the same moment.
+     */
+    static String rfc3339(Instant at) {
+        return at.toString();
+    }
+
     private static @Nullable Long instantMillis(@Nullable Object value) {
         Long millis = epochMillis(value);
         if (millis != null || value == null) {
             return millis;
         }
+        String text = value.toString().trim();
         try {
-            return Instant.parse(value.toString().trim()).toEpochMilli();
+            return Instant.parse(text).toEpochMilli();
         } catch (java.time.format.DateTimeParseException e) {
-            // Neither form. Dropping it loses an audit field; failing here would lose the
-            // message, which is the worse of the two.
-            return null;
+            // Not a Z-terminated instant. Python writes an explicit +00:00 offset instead, which
+            // is equally valid RFC 3339 and which Instant.parse refuses on a Java 11 runtime.
+            // Parsing it as an offset date-time is the one reading that covers all four.
+            try {
+                return java.time.OffsetDateTime.parse(text).toInstant().toEpochMilli();
+            } catch (java.time.format.DateTimeParseException stillNot) {
+                // Neither form. Dropping it loses an audit field; failing here would lose the
+                // message, which is the worse of the two.
+                return null;
+            }
         }
     }
 
