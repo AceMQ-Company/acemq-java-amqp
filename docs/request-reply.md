@@ -38,10 +38,13 @@ and an **`acemq-reply-to`** header, always the same value — and carries a
 same id, and the requester matches it to the caller waiting for it.
 
 A responder reads **the header first and the property second**. That order is the
-contract in all five libraries and it is not arbitrary. Go, Python and Ruby have
-only ever written the header; Java and .NET only ever wrote the property. Writing
-both and reading either is what lets a requester in one language be answered by a
-responder in another, in both directions and whichever of the two is older. The
+contract in all five libraries and it is not arbitrary. It comes from a split
+that is now closed: Go, Python and Ruby once wrote only the header, Java and .NET
+only the property, and a requester in one family could not be answered by a
+responder in the other. **Since 0.5.0 all five write both** — verified in the
+source rather than assumed. Writing both and reading either is what lets a
+requester in one language be answered by a responder in another, in both
+directions and whichever of the two is older. The
 header is preferred because it survives a hop that rebuilds the message — a retry
 rung, a dead-letter, a shovel — where the property does not.
 
