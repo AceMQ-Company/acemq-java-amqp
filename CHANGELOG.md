@@ -150,6 +150,50 @@ While the version is `0.x` the public API may change in any release.
   fraction of it.
 
 ### Changed
+- **The docs build fails on a dangling internal link or a dangling anchor, and
+  the `.md` → `.html` rewrite no longer drops anchored links on the floor.** The
+  site had no link check at all: `docs.yml` installed pandoc, aggregated the
+  Javadoc, rendered the pages and uploaded them, and a page pointing at a 404 was
+  published without complaint. Go, Python and Ruby all check; Java did not.
+
+  The check lives in `.github/scripts/build-docs-site.sh`, not in the workflow, so
+  it runs on a local build too — which is where a bad link costs a minute to fix
+  rather than a round trip through CI. It resolves files *and* fragments: every
+  `#fragment`, cross-page and same-page alike, has to name a real `id` on the
+  target page. Offenders are printed as `page -> href`. `http://`, `https://` and
+  `mailto:` are skipped. Links into the generated `apidocs/` reference are checked
+  for file existence — a link into a class that no longer exists is a real break —
+  but their fragments are not, because those ids are javadoc's, generated from
+  erased signatures and encoded differently between JDKs; and the reference's own
+  pages are not scanned as sources, since that would report on a generator's
+  output rather than on this repository's prose.
+
+  The bug it was written for is real and is fixed in the same change. The rewrite
+  that turns cross-page `.md` links into `.html` for the rendered copy was
+  anchored on `.md"`, so `guide.md#section` did not match and reached the site
+  still pointing at a `.md` file the site does not contain. That was caught by
+  hand while `docs/envelope.md` was being written; the hand fix was to write those
+  links as `.html#` directly, which is why the defect left no trace in the pages.
+  The rewrite now handles the anchored form, `#` is excluded from the path capture
+  so a fragment can never be swallowed, and the checker would catch it if it
+  regressed — a link surviving as `foo.md#bar` is a page the site does not have.
+
+  **On its first run against the rendered site the check found nothing**: 22
+  pages, 1,237 internal links, every file and every anchor resolving, including
+  the ten cross-page anchors in `compatibility`, `envelope` and `publishing`. That
+  is a clean result and is reported as one rather than dressed up. It was verified
+  against deliberately broken input rather than trusted for being quiet: a missing
+  page, a dangling cross-page anchor and a dangling same-page anchor are each
+  reported and each fail the build with exit 1, while a valid cross-page anchor
+  and a link into `apidocs/` pass.
+
+  One thing the check does not cover, found while confirming it: every internal
+  cross-page link under `docs/` is written as `.html`, not `.md`, so all of them
+  are dead when the same files are read through GitHub's markdown view — the exact
+  case the `.md` convention in this script exists to serve. The rendered site is
+  correct, which is why a site-scoped check cannot see it. Left as it stands here
+  and recorded rather than quietly rewritten.
+
 - **The overhead budget is 10% of the raw RabbitMQ client, not 5%, and the README
   no longer claims the two are indistinguishable.** A local 3×10 run measured
   `452.7 ±13.2` against `433.8 ±11.6` µs/op: **+4.4%, interval [+0.2%, +8.5%]**.

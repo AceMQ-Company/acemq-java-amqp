@@ -157,7 +157,14 @@ for f in docs/*.md; do
     --output "$OUT/$base.html"
   # Links between pages are written as .md so they work when the same files are
   # read on GitHub; only the rendered copy is rewritten.
-  perl -pi -e 's/href="([^":]*)\.md"/href="$1.html"/g' "$OUT/$base.html"
+  #
+  # Two substitutions, not one, because the anchored form is the one that used to
+  # slip through: `guide.md#section` did not match a pattern anchored on `.md"`,
+  # so it reached the site still pointing at a `.md` file the site does not
+  # contain. The anchored case is rewritten first; `#` is excluded from the
+  # capture so a fragment can never be swallowed into the path.
+  perl -pi -e 's/href="([^":#]*)\.md#/href="$1.html#/g' "$OUT/$base.html"
+  perl -pi -e 's/href="([^":#]*)\.md"/href="$1.html"/g' "$OUT/$base.html"
   echo "  rendered $base.html"
 done
 
@@ -178,6 +185,119 @@ fi
 mkdir -p "$OUT/apidocs"
 cp -R "$APIDOCS/." "$OUT/apidocs/"
 echo "  copied javadoc from $APIDOCS"
+
+# A published page linking to a 404 is a failure this site family has had before,
+# and it went unnoticed because nothing checked. Cheap to check, so it is checked.
+#
+# It lives here rather than in docs.yml on purpose: a check that only runs in the
+# workflow tells you nothing while you are writing the page. This one runs on a
+# local build too, which is where a bad link is cheapest to fix.
+#
+# It resolves fragments as well as files. That is the case that has actually bitten
+# this repository: the .md -> .html rewrite above used to miss `guide.md#section`,
+# so an anchored cross-page link survived pointing at a .md file the site does not
+# contain, and only a hand check caught it. A checker that throws the fragment away
+# would have passed that link the moment the rewrite was fixed.
+python3 - <<'PY'
+import html.parser, os, re, sys, urllib.parse
+
+OUT = "site"
+
+# The pages this script renders, and only those. The generated API reference is
+# tens of thousands of anchors written by javadoc, not by anybody here, so
+# scanning it would report on a tool's output rather than on our prose.
+pages = sorted(f for f in os.listdir(OUT)
+               if f.endswith(".html") and os.path.isfile(os.path.join(OUT, f)))
+
+
+class Ids(html.parser.HTMLParser):
+    """Every fragment a page offers: id= on anything, plus legacy <a name=>."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.ids = set()
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if attrs.get("id"):
+            self.ids.add(attrs["id"])
+        if tag == "a" and attrs.get("name"):
+            self.ids.add(attrs["name"])
+
+
+def anchors(path):
+    parser = Ids()
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        parser.feed(handle.read())
+    return parser.ids
+
+
+cache = {}
+
+
+def anchors_for(relpath):
+    if relpath not in cache:
+        cache[relpath] = anchors(os.path.join(OUT, relpath))
+    return cache[relpath]
+
+
+missing_file, missing_anchor, badges = [], [], []
+links = 0
+
+for page in pages:
+    with open(os.path.join(OUT, page), encoding="utf-8", errors="replace") as handle:
+        body = handle.read()
+    for href in re.findall(r'href="([^"]+)"', body):
+        if href.startswith(("http://", "https://", "mailto:")):
+            continue
+        links += 1
+        raw_target, _, fragment = href.partition("#")
+        target = urllib.parse.unquote(raw_target) or page
+        fragment = urllib.parse.unquote(fragment)
+
+        if not os.path.exists(os.path.join(OUT, target)):
+            missing_file.append("{} -> {}".format(page, href))
+            continue
+        if not fragment:
+            continue
+        # Inside the API reference the ids are javadoc's, generated from erased
+        # signatures and percent-encoded in ways that differ between JDKs. The
+        # file has to exist -- that is checked above, and a link into a class
+        # that no longer exists is a real break -- but policing the fragments a
+        # generator wrote would report on javadoc, not on this repository.
+        if target.split("/")[0] == "apidocs":
+            continue
+        if fragment not in anchors_for(target):
+            missing_anchor.append("{} -> {}".format(page, href))
+
+# Every rendered file, the generated reference included: a badge reached a
+# published page through a pasted README snippet once already.
+for root, _, names in os.walk(OUT):
+    for name in names:
+        if not name.endswith(".html"):
+            continue
+        path = os.path.join(root, name)
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            if "shields.io" in handle.read():
+                badges.append(os.path.relpath(path, OUT))
+
+if missing_file:
+    print("::error::the site links to pages that do not exist:")
+    for item in missing_file:
+        print("  " + item)
+if missing_anchor:
+    print("::error::the site links to anchors that do not exist on the target page:")
+    for item in missing_anchor:
+        print("  " + item)
+if badges:
+    print("::error::badge images reached the rendered site:")
+    for item in sorted(badges):
+        print("  " + item)
+if missing_file or missing_anchor or badges:
+    sys.exit(1)
+print("{} pages, {} internal links, every page and every anchor resolves, no badges"
+      .format(len(pages), links))
+PY
 
 # Jekyll would otherwise skip javadoc's underscore-prefixed resources.
 touch "$OUT/.nojekyll"
