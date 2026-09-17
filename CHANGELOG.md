@@ -9,6 +9,22 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Added
+- **`docs/streams.md` says that the stream prefetch default is this library's
+  choice and not part of the cross-language contract.** It reads as a contract
+  when four other libraries document a number next to the same feature, and the
+  numbers do not match: Java and .NET default a stream consumer to 100, Go,
+  Python and Ruby to 10. Nothing is wrong with either, and **the number here is
+  not changing** — prefetch trades memory against throughput, the right answer
+  depends on payload size and handler speed, and both are properties of the
+  application rather than of the protocol. What the stream contract actually
+  covers is the offset, the retention arguments and the message on the wire;
+  prefetch is a consumer-side setting that never leaves the channel, so a stream
+  written by one library is readable by any of them whatever each defaults to.
+  The page now carries the table of all five defaults, says plainly that a
+  difference between two languages here is not a bug to file, and shows how to
+  state the value rather than inherit it — the same advice the page already gives
+  about the reading position, and for the same reason. The other four
+  repositories are getting the same framing so the five pages agree.
 - **`Envelope.claim()`: the reserved `x-acemq-claim` header is a real envelope
   field, so a claim set by another library no longer vanishes here.** The name
   was defined in `AceHeaders`, referenced by nothing, and written by nothing —

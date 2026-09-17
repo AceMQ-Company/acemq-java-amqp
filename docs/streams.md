@@ -104,13 +104,52 @@ Alert on it or it is invisible.
 
 ## Prefetch
 
-A stream consumer always has one — 100 unless you say otherwise, never zero.
-RabbitMQ closes the channel for a stream consumer without a prefetch, because it
-is the only backpressure a stream has.
+A stream consumer always has one — **100** here unless you say otherwise, never
+zero. RabbitMQ closes the channel for a stream consumer without a prefetch,
+because it is the only backpressure a stream has.
 
 ```java
 mq.stream("orders.log", OrderPlaced.class).fromFirst().prefetch(200).consume(handler);
 ```
+
+### The number is this library's choice, not the contract
+
+**The default is not part of the cross-language contract, and the five libraries
+deliberately disagree about it:**
+
+| Library | Default stream prefetch |
+|---|---|
+| Java | 100 |
+| .NET | 100 |
+| Go | 10 |
+| Python | 10 |
+| Ruby | 10 |
+
+Nothing is wrong with either number. Prefetch is a trade of **memory against
+throughput** — how many undelivered messages a consumer is willing to hold in
+order to avoid waiting on a round trip for each one — and the right answer
+depends on payload size and handler speed, both of which are properties of your
+application rather than of the protocol. A library picking a different default
+does not make a stream written by one unreadable by another: the offset, the
+retention arguments and the message on the wire are the contract, and prefetch
+is a consumer-side setting that never leaves the channel.
+
+So do not read across from another AceMQ service and expect the same number, and
+do not treat a difference between two languages here as a bug to be filed. **If
+the value matters to you, state it** — the same advice as the reading position:
+
+```java
+mq.stream("orders.log", OrderPlaced.class)
+        .fromFirst()
+        .prefetch(50)          // say it rather than inherit it
+        .consume(handler);
+```
+
+Large payloads want a smaller number, because prefetch multiplies them in memory.
+A fast handler on small messages wants a larger one, because the round trip
+starts to dominate. A prefetch below 1 is refused rather than silently corrected,
+since the broker would close the channel with a `PRECONDITION_FAILED` that does
+not explain itself.
 
 ## Requirements
 
