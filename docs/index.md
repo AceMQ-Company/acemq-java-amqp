@@ -43,6 +43,7 @@ recovery are already on.
 | [Security](security.html) | TLS, credentials, and what is not built yet |
 | [Observability](observability.html) | Traces that cross the broker, metrics, and what to alert on |
 | [Testing](testing.html) | An in-memory broker, no Docker needed |
+| [Compatibility](compatibility.html) | What runs on RabbitMQ 3.13 as well as 4.x, and where the two brokers differ |
 | [Native image](native-image.html) | GraalVM ahead-of-time: what works, and the one thing you must configure |
 | [API reference](apidocs/index.html) | Javadoc for every module |
 | [Licence and warranty](licence.html) | Apache-2.0, what it disclaims, and where support comes from |
@@ -74,5 +75,10 @@ A Spring Boot starter ships separately, at
 on its own version line because it tracks Spring Boot's release train as much as
 this one.
 
-Still to come: a RabbitMQ 3.13 compatibility matrix. Coordinates and API shape
-may still move before 1.0, which is why artifacts are not yet on Maven Central.
+**RabbitMQ 3.13 is supported as well as 4.x.** The whole integration suite passes
+on both, a CI job re-runs it against 3.13 on every pull request, and
+[compatibility](compatibility.html) records what was run and where the two
+brokers differ. Nothing here needs 4.x.
+
+Coordinates and API shape may still move before 1.0, which is why artifacts are
+not yet on Maven Central.

@@ -120,6 +120,7 @@ NAV='<nav class="top">
   <a href="observability.html">Observability</a>
   <a href="security.html">Security</a>
   <a href="testing.html">Testing</a>
+  <a href="compatibility.html">Compatibility</a>
   <a href="native-image.html">Native</a>
   <a class="tutorials" href="tutorials.html">Tutorials</a>
   <a class="api" href="apidocs/index.html">API reference</a>

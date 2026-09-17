@@ -9,6 +9,51 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Added
+- **`docs/compatibility.md`: the RabbitMQ 3.13 compatibility matrix, which the
+  Status section had listed as the one thing still genuinely open before 1.0 and
+  which had never been built.** The library is developed and released against
+  RabbitMQ 4.x; 3.13 is what a large part of the installed base actually runs, so
+  "does this work on 3.13" had no answer that came from a run. It does now, and
+  the answer is that **everything works on both** — the whole
+  `acemq-transport-rabbitmq` integration suite, 53 tests, passes unmodified
+  against RabbitMQ 3.13.7 and 4.3.6 alike, with no feature here needing 4.x and
+  no minimum above 3.13 for anything on the message path. Every row on the page
+  came from running against a real broker of each version rather than from
+  reading release notes.
+
+  The page is worth more for the four places the brokers genuinely differ, each
+  checked rather than assumed, and each with the reason it does **not** reach
+  this library written down — because "it happens to pass" and "it cannot break"
+  are different claims. RabbitMQ 4 *denies* transient non-exclusive queues where
+  3.13 permitted them, and closes the whole connection doing it (`541
+  INTERNAL_ERROR`) rather than just the channel; this library never declares one,
+  because `durable` is hard-coded true on every builder path in `Topology` and
+  `AceMq.declareQueue` has no durability parameter to pass. RabbitMQ 4 records
+  `x-queue-type` on every queue where 3.13 leaves it off a classic one, which is
+  what makes an argument-equality check report drift on every classic queue after
+  an upgrade; drift detection here re-declares and reads the broker's `406`
+  rather than comparing argument maps, so the broker decides equivalence and the
+  answer is identical on both. Classic queue mirroring is `removed` in 4 — a
+  `ha-mode` policy that 3.13 accepts is a `400` there — and this library writes
+  no policies at all, so the migration item is the operator's; `declareQueue`
+  already defaults to quorum, which is the thing to migrate *to*. And `global_qos`
+  is `denied_by_default` in 4, which matters only to code calling `basic.qos`
+  with `global=true`; every prefetch this library sets goes through the
+  single-argument `channel.basicQos(prefetch)`, which is per-consumer.
+
+  Two differences are listed that are not this library's behaviour but will break
+  things around it during an upgrade: the stream-prefetch refusal is worded
+  differently on the two versions (this library matches the numeric reply code,
+  never the text, but anything string-matching broker errors will not survive),
+  and `protocol-listener` health answers differ in shape — `"protocol"` became
+  `"protocols"`, and `"missing"` went from a string to an array — so a readiness
+  probe reading those fields breaks while one reading the status code does not.
+
+  Linked from the site navigation and from the overview, and the Status section
+  no longer lists the matrix as missing. The `compatibility` job in `ci.yml`
+  re-runs the integration suite against `rabbitmq:3.13-management` on every pull
+  request, so the page is re-checked rather than left to go stale the way the
+  claim it replaces did.
 - **`docs/envelope.md`: the envelope has a documentation page of its own, which it
   had in the other four libraries and not in this one.** Java documented the
   envelope as six lines of accessors inside the consuming guide: how to read one,
