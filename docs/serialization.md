@@ -167,6 +167,71 @@ already running, point the codec at that instead.
 `createSchemaIfAbsent()` is for development. In production the table belongs in
 whatever migration tool already owns the schema.
 
+## Schema resolution
+
+Handed the writer's schema and the reader's, Avro reconciles the two: a field the
+writer added that the reader does not declare is skipped, and a field the writer
+omitted is filled in from the reader's default. Handed only the writer's, there is
+nothing to reconcile, and the record arrives in the shape it was written.
+
+So there is one rule, and it is the same rule in all five AceMQ libraries:
+
+> **Resolution happens when the library has a reader schema to resolve onto.**
+
+What differs between the languages is where a reader schema comes from, and
+therefore how often there is one. Nothing about the bytes differs.
+
+| Library | Resolves | Where its reader schema comes from |
+|---|---|---|
+| Go | When asked | A Go struct carries no schema, so there is nothing to resolve onto until the caller passes `avro.ReaderSchema(...)` |
+| Java | Sometimes | A generated `SpecificRecord` class carries a schema of its own, and `AvroCodec.registered(registry, readerSchema)` is handed one. A `GenericRecord` through a plain registry codec asks for nothing in particular, so the reader schema is the writer's and nothing resolves |
+| .NET | Always | The codec is constructed with a schema |
+| Python | Always | The codec is constructed with a schema |
+| Ruby | Always | The codec is constructed with a schema |
+
+This is not an inconsistency waiting to be flattened. A library that resolves and
+a library that does not are both right about the same bytes — they are answering
+different questions, because only one of them was told what the reader expects.
+
+**The case that bites is a field the writer removed that the reader declares with
+a default.** With resolution, the field arrives carrying that default. Without it,
+the field is simply absent: a missing key, whatever the language calls one. A
+consumer written against the reader schema then reads a value that was never on
+the wire, or fails to read a field it is sure it declared, and which of those
+happens is decided entirely by whether a reader schema was in play.
+
+The other direction is the one people expect to be dangerous and is not. A field
+the writer added that the reader does not declare is skipped under resolution and
+present without it, and either way the fields the reader does declare come back
+correct — the unknown field does not shift the ones after it.
+
+Both cases are pinned, with the bytes, in
+`acemq-amqp-test/src/test/resources/fixtures/avro-resolution-fixtures.json`,
+which every AceMQ library carries a copy of. It records the decoded value under
+each behaviour, as `resolved` and `writerShape`, and which library lands on
+which.
+
+### Asking for resolution in Java
+
+```java
+// Resolves: every message is reconciled with the schema this consumer holds.
+Codec codec = AvroCodec.registered(registry, OrderPlaced.getClassSchema());
+
+// Does not resolve: the record arrives in the shape the producer wrote it.
+Codec asWritten = AvroCodec.registered(registry);
+```
+
+Reach for the first unless there is a reason not to. Being able to redeploy a
+producer without its consumers is the whole point of putting a schema id on the
+front of the message, and resolution is the half of that which happens on the
+read side.
+
+One edge worth knowing before you meet it: hand a generated class in as the
+decode target of a registry codec — `decode(body, OrderPlaced.class)` — and the
+resolution happens but the record cannot be handed back as that class, so the
+call fails. Name the class's schema instead, as above, and decode into
+`GenericRecord`.
+
 ## Your own format
 
 ```java

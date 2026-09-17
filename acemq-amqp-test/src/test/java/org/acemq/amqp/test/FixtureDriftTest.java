@@ -110,6 +110,27 @@ class FixtureDriftTest {
 
     @Test
     @Timeout(60)
+    @DisplayName("avro-resolution-fixtures.json is exactly what the library produces today")
+    void the_avro_resolution_fixtures_have_not_drifted() throws IOException {
+        Path committed = FIXTURES.resolve("avro-resolution-fixtures.json");
+        String regenerated = AvroResolutionFixtures.generate();
+
+        if (Boolean.getBoolean(WRITE)) {
+            write(committed, regenerated);
+            return;
+        }
+
+        assertThat(committed).as("the committed avro resolution fixtures").exists();
+        assertThat(read(committed))
+                .as("avro-resolution-fixtures.json differs from what this library produces now. Nothing in it"
+                        + " comes from a clock or a hostname, so a difference is a real change: either the"
+                        + " framing moved, or a decode that used to resolve stopped resolving — see this"
+                        + " class's javadoc")
+                .isEqualTo(regenerated);
+    }
+
+    @Test
+    @Timeout(60)
     @DisplayName("envelope-fixtures.json is exactly what the library produces today, bar the clock and the host")
     void the_envelope_fixtures_have_not_drifted() throws IOException {
         Path committed = FIXTURES.resolve("envelope-fixtures.json");

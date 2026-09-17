@@ -9,6 +9,37 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Added
+- **A third cross-language fixture, `avro-resolution-fixtures.json`, and a
+  `docs/serialization.md` section saying when an Avro message is resolved onto a
+  reader schema.** The five libraries do not resolve in the same circumstances
+  and the difference reads as a bug until somebody writes down why it is not:
+  resolution needs a reader schema, and each library resolves exactly when it
+  has one. A Go struct carries no schema, so Go resolves only when the caller
+  passes `avro.ReaderSchema(...)`; .NET, Python and Ruby construct their codec
+  with a schema, so they always have one; Java has one when the target is a
+  generated `SpecificRecord` class or the codec was built with
+  `AvroCodec.registered(registry, readerSchema)`, and none when a
+  `GenericRecord` comes through a plain registry codec. One rule —
+  **resolution happens when the library has a reader schema to resolve onto** —
+  landing five different ways because the languages can know different things.
+  **No resolution behaviour changed in any library.**
+
+  The fixture pins the case that actually bites and its opposite. A field the
+  writer removed that the reader declares with a default: resolved, the default
+  arrives; unresolved, the field is absent, and a consumer sure it declared that
+  field reads nothing. A field the writer added that the reader does not
+  declare: harmless either way, and pinned precisely because it is the one
+  people assume is dangerous. Each case carries both schemas, the registry-framed
+  bytes this library writes, the schema id in the frame, and the decoded value
+  under **both** behaviours, named `resolved` and `writerShape`, so a library
+  reading the file can assert its own documented behaviour without guessing
+  which column applies to it. The default is `"GBP"` and not `""` on purpose: a
+  default that is also the type's zero value passes whether resolution happened
+  or not.
+
+  Java asserts both columns, being the only one of the five that shows both.
+  Go, .NET, Python and Ruby take byte-identical copies, as they do for the other
+  two fixtures.
 - **`docs/streams.md` says that the stream prefetch default is this library's
   choice and not part of the cross-language contract.** It reads as a contract
   when four other libraries document a number next to the same feature, and the

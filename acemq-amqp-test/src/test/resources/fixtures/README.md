@@ -1,12 +1,13 @@
 # The cross-language fixtures
 
-Two JSON files that say what every AceMQ library must do. Java generates them;
+Three JSON files that say what every AceMQ library must do. Java generates them;
 Go, .NET, Python and Ruby carry a copy and assert against it.
 
 | File | What it pins |
 | --- | --- |
 | `envelope-fixtures.json` | the headers an AceMQ publish puts on the wire |
 | `contract-fixtures.json` | retry schedules, the age limit, jitter bounds, the consumer/broker threshold, queue naming, the rung argument table, the declared topology, and queue type defaults |
+| `avro-resolution-fixtures.json` | what an Avro message decodes to with a reader schema and without one |
 
 They are **generated, never written**. Two implementations agreeing with the
 same prose is not interoperability; agreeing with the same bytes is. Every
@@ -69,6 +70,27 @@ a correlation equal to the id, an epoch-millisecond timestamp near now, and an
 origin of the form `acemq@host`. Regeneration only rewrites the file when the
 masked comparison actually differs, so a routine regeneration does not roll a
 new UUID into five repositories for nothing.
+
+## Two columns rather than one
+
+`avro-resolution-fixtures.json` is the odd one out: it does not pin a single
+answer, because there is not one to pin. Avro resolution needs a reader schema,
+and the five libraries differ in whether they have one — a Go struct carries no
+schema, Java takes one from a generated class or from
+`registered(registry, readerSchema)`, and .NET, Python and Ruby take one from
+the codec they were constructed with. That is not five behaviours; it is one
+rule — **resolution happens when the library has a reader schema to resolve
+onto** — landing differently because the languages can know different things.
+
+So the file records both outcomes, as `resolved` and `writerShape`, and says
+which library lands on which. The case worth the file is a field the writer
+removed that the reader declares with a default: resolved, the default appears;
+unresolved, the field is absent. The default is `"GBP"` rather than `""`,
+because a default that is also the type's zero value passes whether resolution
+happened or not.
+
+Java asserts both columns, being the only library that shows both.
+`docs/serialization.md` carries the same rule in prose.
 
 ## Disagreements recorded rather than resolved
 
