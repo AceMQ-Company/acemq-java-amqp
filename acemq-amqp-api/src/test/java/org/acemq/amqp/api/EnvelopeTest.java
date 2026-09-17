@@ -64,6 +64,56 @@ class EnvelopeTest {
             assertThat(envelope.causationId()).isEmpty();
             assertThat(envelope.origin()).isEmpty();
         }
+
+        @Test
+        void has_no_claim_by_default() {
+            assertThat(Envelope.of("order.placed").build().claim()).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("the claim")
+    class Claim {
+
+        @Test
+        void is_absent_rather_than_empty() {
+            // The other four libraries write the header only when there is something in it, so an
+            // empty claim has to mean the same thing here as no claim at all -- otherwise a
+            // consumer meets a header carrying "" and has to special-case it.
+            assertThat(Envelope.of("order.placed").claim("").build().claim()).isEmpty();
+            assertThat(Envelope.of("order.placed").claim(null).build().claim()).isEmpty();
+        }
+
+        @Test
+        void is_kept_when_it_has_a_value() {
+            assertThat(Envelope.of("order.placed").claim("s3://payloads/o-1").build().claim())
+                    .contains("s3://payloads/o-1");
+        }
+
+        @Test
+        void survives_to_builder() {
+            Envelope original = Envelope.of("order.placed").id("m-1").claim("s3://payloads/o-1").build();
+
+            assertThat(original.toBuilder().build()).isEqualTo(original);
+            assertThat(original.toBuilder().build().claim()).contains("s3://payloads/o-1");
+        }
+
+        @Test
+        void survives_a_retry() {
+            Envelope retried = Envelope.of("order.placed").claim("s3://payloads/o-1").build().nextAttempt();
+
+            assertThat(retried.claim()).contains("s3://payloads/o-1");
+        }
+
+        @Test
+        void tells_two_otherwise_identical_envelopes_apart() {
+            Instant when = Instant.now();
+            Envelope without = Envelope.of("order.placed").id("m-1").firstSeen(when).build();
+            Envelope with = Envelope.of("order.placed").id("m-1").firstSeen(when)
+                    .claim("s3://payloads/o-1").build();
+
+            assertThat(with).isNotEqualTo(without);
+        }
     }
 
     @Nested
@@ -216,6 +266,7 @@ class EnvelopeTest {
                     .causationId("m-0")
                     .attempt(2)
                     .origin("orders@host-1")
+                    .claim("s3://payloads/o-1")
                     .header("tenant", "acme")
                     .build();
 

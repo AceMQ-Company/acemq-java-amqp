@@ -18,6 +18,7 @@ e.attempt();        // int     — delivery attempt, from 1
 e.firstSeen();      // Instant — when it was first published
 e.origin();         // Optional<String> — the publishing process
 e.error();          // Optional<String> — why it was set aside
+e.claim();          // Optional<String> — where the payload is, if stored outside
 e.route();          // Optional<RoutingSlip>
 e.replayedFrom();   // Optional<String>
 e.replayedAt();     // Optional<Instant>
@@ -48,6 +49,7 @@ applications can consume the library; see ADR-015.
 | `x-acemq-causation` | string | Omitted when there is no causation. |
 | `x-acemq-origin` | string | Omitted when unknown. |
 | `x-acemq-error` | string | Why the engine set the message aside. Present only on a message read back from a dead-letter or parking queue. |
+| `x-acemq-claim` | string | Where the payload is, when the application stores it outside the message. Omitted when unset. |
 | `x-acemq-route` | string | Step names of a declared pipeline, comma-joined. |
 | `x-acemq-route-position` | **integer** | Which of them this message is for, from 0. |
 | `x-acemq-route-id` | string | One run through that route, across every hop. |
@@ -63,14 +65,29 @@ every AMQP client's mapping carries intact.
 an RFC 3339 string — `2026-02-03T04:05:06.789Z`. Tidying either one up in a port
 produces messages the other four libraries misread.
 
-`x-acemq-claim` is reserved in `AceHeaders` and **written by nothing in this
-library**. It is there for an application that wants an operator reading a
-dead-letter queue to see where a payload went. The
-[claim check](patterns.html#the-claim-check) frames the body instead of setting a
-header, because a header can be stripped by a shovel or a federation link and
-because a present-or-absent header cannot say whether a payload travelled inline.
-Go, Python and Ruby reserve the name the same way; unlike them, this library does
-not surface it as an envelope field at all, since nothing here sets it.
+`x-acemq-claim` is **set by the application, never by the engine**. It is there
+for an application that wants an operator reading a dead-letter queue to see
+where a payload went — conventionally a URI:
+
+```java
+mq.publisher("orders", "order.placed", Order.class)
+  .send(order, Envelope.of("order.placed")
+                       .claim("s3://payloads/orders/o-1")
+                       .build());
+```
+
+It is an envelope field rather than an ordinary header because `x-acemq-` is the
+engine's namespace: left as a header it would be stripped on the way in and never
+reach the handler. Absent rather than empty — a `null` or `""` claim writes no
+header, the same as the other optional fields, so nothing at the other end has to
+special-case a header carrying nothing.
+
+**It is not the claim-check pattern.** The
+[claim check](patterns.html#the-claim-check) frames its reference in the *body*
+and sets no header at all, deliberately: a header can be stripped by a shovel or
+a federation link, and a present-or-absent header cannot say whether a payload
+travelled inline. All five libraries make that choice, and this field does not
+change it.
 
 The reply address is not in that table either. It travels as
 `acemq-reply-to` *and* as AMQP's own `reply-to` property, both written and either

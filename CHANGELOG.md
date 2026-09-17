@@ -9,6 +9,39 @@ While the version is `0.x` the public API may change in any release.
 ## [Unreleased]
 
 ### Added
+- **`Envelope.claim()`: the reserved `x-acemq-claim` header is a real envelope
+  field, so a claim set by another library no longer vanishes here.** The name
+  was defined in `AceHeaders`, referenced by nothing, and written by nothing —
+  which meant the engine's reserved-prefix filter did what it does to every
+  unrecognised `x-acemq-` header and dropped it on the way in. Python and Ruby
+  have carried `claim` as a first-class envelope field all along, so a message
+  published by either of them arrived in a Java handler with the claim silently
+  gone and nothing reporting the loss. It is now read and written like the other
+  reserved fields, with `Envelope.Builder.claim(String)` to set one and
+  `Envelope.claim()` returning `Optional<String>` to read one. Go and .NET are
+  getting the same field, so all five will agree.
+
+  The semantics are the ones the other optional fields already use: **absent
+  rather than empty.** A `null` or `""` claim writes no header at all, matching
+  what Go, .NET, Python and Ruby put on the wire, because a header carrying `""`
+  is a header somebody has to write a special case for at the other end. It
+  participates in `equals`, `hashCode` and `toBuilder`, so it survives a retry
+  and a replay like every other field.
+
+  **The claim-check pattern is unaffected and deliberately stays that way.**
+  `ClaimCheckCodec` frames its reference in the body and sets no header,
+  because a header can be stripped by a shovel or a federation link and because
+  a present-or-absent header cannot say whether a payload travelled inline. All
+  five libraries make that choice. This field is the *optional* one an
+  application may set to tell an operator reading a dead-letter queue where a
+  payload went; the engine never writes or interprets it.
+
+  The shared envelope fixtures gain a `claimed` case, since a header on the wire
+  that no fixture pins is exactly how this divergence survived unnoticed in the
+  first place. **The regenerated `envelope-fixtures.json` needs carrying to
+  acemq-go-amqp, acemq-dotnet-amqp, acemq-python-amqp and acemq-ruby-amqp**; a
+  fixture updated in one repository and not the other four looks like agreement
+  and is worse than no fixture at all.
 - **`docs/compatibility.md`: the RabbitMQ 3.13 compatibility matrix, which the
   Status section had listed as the one thing still genuinely open before 1.0 and
   which had never been built.** The library is developed and released against

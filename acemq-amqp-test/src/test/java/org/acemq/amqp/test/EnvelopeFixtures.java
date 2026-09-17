@@ -112,6 +112,21 @@ final class EnvelopeFixtures {
                     .build();
             mq.publisher("fx", "fx.replayed", String.class).send("{\"id\":\"o-3\"}", replayed);
             emit(out, "replayed", raw, false);
+
+            // The optional claim an application sets to say where a payload went, which no case
+            // covered while Java reserved the name and materialised nothing -- so a claim written
+            // by a Python or Ruby publisher was dropped here and no fixture could tell. Not the
+            // claim-check pattern, which frames its reference in the body and writes no header at
+            // all; all five libraries make that choice deliberately and it is untouched.
+            Envelope claimed = Envelope.of("order.placed")
+                    .id("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+                    .correlationId("corr-3")
+                    .origin("orders@host-7")
+                    .firstSeen(Instant.parse("2026-01-02T03:04:05.678Z"))
+                    .claim("s3://payloads/orders/o-4")
+                    .build();
+            mq.publisher("fx", "fx.claimed", String.class).send("{\"id\":\"o-4\"}", claimed);
+            emit(out, "claimed", raw, false);
         }
 
         out.append("\n  ]\n}\n");

@@ -48,6 +48,7 @@ public final class Envelope {
     private final Instant firstSeen;
     private final @Nullable String origin;
     private final @Nullable String error;
+    private final @Nullable String claim;
     private final @Nullable RoutingSlip route;
     private final @Nullable String replayedFrom;
     private final @Nullable Instant replayedAt;
@@ -64,6 +65,7 @@ public final class Envelope {
         this.firstSeen = builder.firstSeen != null ? builder.firstSeen : Instant.now();
         this.origin = builder.origin;
         this.error = builder.error;
+        this.claim = builder.claim;
         this.route = builder.route;
         this.replayedFrom = builder.replayedFrom;
         this.replayedAt = builder.replayedAt;
@@ -142,6 +144,29 @@ public final class Envelope {
      */
     public Optional<String> error() {
         return Optional.ofNullable(error);
+    }
+
+    /**
+     * Where the payload is, when the application stores it outside the message.
+     *
+     * <p>An optional field an application may set to tell an operator reading a dead-letter queue
+     * where a payload went — conventionally a URI. AceMQ neither writes nor interprets it; it is
+     * carried, like {@link #origin()}, because the name is reserved and a header in the
+     * {@code x-acemq-} namespace would otherwise be stripped before a handler could see it.
+     *
+     * <p><strong>Not the claim-check pattern.</strong> {@code ClaimCheckCodec} frames the
+     * reference in the <em>body</em> and sets no header at all, deliberately: a header can be
+     * stripped by a shovel or a federation link, and a present-or-absent header cannot say whether
+     * a payload travelled inline. That is unchanged and is not what this field is for.
+     *
+     * <p>Java reserved this name and materialised nothing, so a claim set by a Go, .NET, Python or
+     * Ruby publisher was dropped on the way in with nothing reporting the loss. All five now read
+     * and write it.
+     *
+     * @return where the payload is, when the publisher said so
+     */
+    public Optional<String> claim() {
+        return Optional.ofNullable(claim);
     }
 
     /**
@@ -241,6 +266,7 @@ public final class Envelope {
                 .firstSeen(firstSeen)
                 .origin(origin)
                 .error(error)
+                .claim(claim)
                 .route(route)
                 .replayedFrom(replayedFrom)
                 .replayedAt(replayedAt)
@@ -266,6 +292,7 @@ public final class Envelope {
                 && firstSeen.equals(that.firstSeen)
                 && Objects.equals(origin, that.origin)
                 && Objects.equals(error, that.error)
+                && Objects.equals(claim, that.claim)
                 && Objects.equals(replayedFrom, that.replayedFrom)
                 && Objects.equals(replayedAt, that.replayedAt)
                 && replayCount == that.replayCount
@@ -275,7 +302,7 @@ public final class Envelope {
     @Override
     public int hashCode() {
         return Objects.hash(
-                id, type, version, correlationId, causationId, attempt, firstSeen, origin, error,
+                id, type, version, correlationId, causationId, attempt, firstSeen, origin, error, claim,
                 replayedFrom, replayedAt, replayCount, headers);
     }
 
@@ -297,6 +324,7 @@ public final class Envelope {
         private @Nullable Instant firstSeen;
         private @Nullable String origin;
         private @Nullable String error;
+        private @Nullable String claim;
         private @Nullable String replayedFrom;
         private @Nullable Instant replayedAt;
         private int replayCount;
@@ -353,6 +381,16 @@ public final class Envelope {
         /** @param error why the message was dead-lettered or parked */
         public Builder error(@Nullable String error) {
             this.error = error;
+            return this;
+        }
+
+        /**
+         * @param claim where the payload is, when the application stores it outside the message.
+         *     Absent rather than empty: {@code null} and {@code ""} both mean no claim, and
+         *     neither puts a header on the wire
+         */
+        public Builder claim(@Nullable String claim) {
+            this.claim = claim == null || claim.isEmpty() ? null : claim;
             return this;
         }
 

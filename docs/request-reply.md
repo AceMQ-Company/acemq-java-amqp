@@ -116,8 +116,8 @@ code that sleeps before reading one is working around a defect that is fixed.
 identically. Go, Python and Ruby expose neither number: a responder there counts
 nothing. Ruby goes as far as defining `answered` and `timed_out` as telemetry
 outcome names, and nothing writes them — a constant no code reaches reads as a
-supported feature, which is the same trap `AceHeaders.CLAIM` sets in this
-library.
+supported feature. `AceHeaders.CLAIM` was the same trap here until it became a
+real [envelope field](envelope.html); this one is still open.
 
 Until that is closed, a dashboard that has to cover all five reads the
 responder's *consume* metrics instead — the queue is an ordinary queue and

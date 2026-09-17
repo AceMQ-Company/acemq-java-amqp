@@ -85,7 +85,16 @@ public final class AceHeaders {
     /** Identifier of the publishing process, conventionally {@code service@host}. */
     public static final String ORIGIN = PREFIX + "origin";
 
-    /** URI of the externalised payload when the claim-check pattern is in use. */
+    /**
+     * Where the payload is, when the application stores it outside the message.
+     *
+     * <p>Materialised as {@link Envelope#claim()}. Set by the application, never by the engine,
+     * and never interpreted by it — it is for an operator reading a dead-letter queue.
+     *
+     * <p><strong>Not written by the claim-check pattern</strong>, which frames its reference in
+     * the body and sets no header, because a header can be stripped by a shovel or a federation
+     * link. All five libraries make that choice deliberately.
+     */
     public static final String CLAIM = PREFIX + "claim";
 
     /** Why a message was dead-lettered. Present only on messages in a dead-letter queue. */

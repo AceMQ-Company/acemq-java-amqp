@@ -63,6 +63,9 @@ final class EnvelopeHeaders {
         envelope.causationId().ifPresent(value -> headers.put(AceHeaders.CAUSATION, value));
         envelope.origin().ifPresent(value -> headers.put(AceHeaders.ORIGIN, value));
         envelope.error().ifPresent(value -> headers.put(AceHeaders.ERROR, value));
+        // Absent rather than empty, like the three above it. A header carrying "" is a header
+        // somebody has to write a special case for at the other end.
+        envelope.claim().ifPresent(value -> headers.put(AceHeaders.CLAIM, value));
         // The replay three live in the shared namespace, so they are already in the map above if
         // the envelope came off the wire. Written over the top rather than around, so the field
         // and the header cannot say different things about the same message.
@@ -147,6 +150,11 @@ final class EnvelopeHeaders {
         String error = string(source.get(AceHeaders.ERROR));
         if (error != null) {
             builder.error(error);
+        }
+
+        String claim = string(source.get(AceHeaders.CLAIM));
+        if (claim != null) {
+            builder.claim(claim);
         }
 
         Long firstSeen = epochMillis(source.get(AceHeaders.FIRST_SEEN));
