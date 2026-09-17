@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-17
+
 ### Added
 - **A third cross-language fixture, `avro-resolution-fixtures.json`, and a
   `docs/serialization.md` section saying when an Avro message is resolved onto a
@@ -16,7 +18,8 @@ While the version is `0.x` the public API may change in any release.
   resolution needs a reader schema, and each library resolves exactly when it
   has one. A Go struct carries no schema, so Go resolves only when the caller
   passes `avro.ReaderSchema(...)`; .NET, Python and Ruby construct their codec
-  with a schema, so they always have one; Java has one when the target is a
+  with a schema, so they have one by default, and each gives the caller a way to
+  name another or to decline resolution entirely; Java has one when the target is a
   generated `SpecificRecord` class or the codec was built with
   `AvroCodec.registered(registry, readerSchema)`, and none when a
   `GenericRecord` comes through a plain registry codec. One rule —
@@ -37,9 +40,11 @@ While the version is `0.x` the public API may change in any release.
   default that is also the type's zero value passes whether resolution happened
   or not.
 
-  Java asserts both columns, being the only one of the five that shows both.
+  Java asserts both columns, being the only one of the five that reaches
+  `writerShape` without naming a schema at all: `registered(registry)` is handed
+  none, and the writer's schema comes off the wire and serves as the reader's.
   Go, .NET, Python and Ruby take byte-identical copies, as they do for the other
-  two fixtures.
+  two fixtures, and each asserts the column it does not land on by default.
 - **`docs/streams.md` says that the stream prefetch default is this library's
   choice and not part of the cross-language contract.** It reads as a contract
   when four other libraries document a number next to the same feature, and the
@@ -191,8 +196,9 @@ While the version is `0.x` the public API may change in any release.
   cross-page link under `docs/` is written as `.html`, not `.md`, so all of them
   are dead when the same files are read through GitHub's markdown view — the exact
   case the `.md` convention in this script exists to serve. The rendered site is
-  correct, which is why a site-scoped check cannot see it. Left as it stands here
-  and recorded rather than quietly rewritten.
+  correct, which is why a site-scoped check cannot see it. That is closed in this
+  release rather than left standing: all 75 links are now written as `.md`, and
+  the script gained a source-side check for them — see *Fixed*, below.
 
 - **The overhead budget is 10% of the raw RabbitMQ client, not 5%, and the README
   no longer claims the two are indistinguishable.** A local 3×10 run measured
@@ -258,14 +264,48 @@ While the version is `0.x` the public API may change in any release.
   documentation. A publish that fails now hands its increment back, so this counts
   replies that were sent rather than replies that were attempted, and the fix does
   not trade one wrong number for another. .NET resolved this first and deliberately
-  did not follow Java; Java was the last of the five carrying it, and all five now
-  promise the same ordering. `unanswerable()` never had the problem — it is counted
+  did not follow Java; Java and .NET are the only two of the five that expose these
+  counters at all, and the two now promise the same ordering.
+  `unanswerable()` never had the problem — it is counted
   before the delivery is acknowledged, which is the only thing anyone can see — and
   neither did the start-up window .NET had to close, because Java's counters are
   initialised where they are declared and so are in place before the constructor
   calls `mq.consume(...)`.
+- **`docs/request-reply.md` promised the responder counters in all five libraries
+  and described the reply-address split as current. Neither was true.** The page
+  said of `answered` and `unanswerable` that "all five libraries promise this, and
+  they promise it identically"; Java and .NET expose them and Go, Python and Ruby
+  expose neither, so a responder in three of the five counts nothing at all. Ruby
+  goes as far as defining `answered` and `timed_out` as telemetry outcome names
+  that nothing writes — a constant no code reaches, which reads from outside as a
+  supported feature, and is the same trap `x-acemq-claim` set in this library
+  until the change above. The page now names the two libraries that have the
+  counters and says what a dashboard covering all five reads instead: the
+  responder queue is an ordinary queue, so `acemq.messages.consumed.total` counts
+  it, and the request span carries the round trip. Less direct than the counters,
+  and it works everywhere.
+
+  The reply-address paragraph described a split that closed two releases ago. It
+  said Go, Python and Ruby "have only ever written the header" while Java and .NET
+  "only ever wrote the property" — the state before 0.5.0, since when all five
+  write both: Go sets `acemq.ReplyTo` alongside the header, Python passes
+  `reply_to=` with it, Ruby writes `reply_to:` and the header together, each
+  checked in that library's source rather than assumed. The read order is
+  unchanged and still header first, and that order is now explained by the split
+  it came from rather than presented as a live incompatibility.
+- **The overview's Status section understated what ships, in both directions.**
+  It listed batch and asynchronous publishing as still to come when both are on
+  `Publisher` — `sendAsync` returns a `CompletableFuture<PublishResult>` and
+  `sendAll` publishes the whole batch before awaiting any confirm — and listed a
+  Spring Boot starter as unbuilt when it released as `0.1.0` in its own
+  repository, on its own version line. The capability list was also short of
+  request and reply, sagas, claim check, scheduling, payload encryption, topology
+  drift detection and native image, and counted five serialization formats where
+  six modules are published. A reader deciding whether to depend on this was
+  being told less than it does.
 - **Three sentences of `avro-resolution-fixtures.json` described libraries that
-  have since moved, and `docs/serialization.md` carried one of them as well.**
+  have since moved, and the schema-resolution table in `docs/serialization.md`
+  overstated three of its five rows.**
   The fixture is generated here and copied byte for byte into the other four
   repositories, so a wrong sentence in it is a wrong sentence in five places, and
   each of these was found by a different library's tests being written against
@@ -279,7 +319,12 @@ While the version is `0.x` the public API may change in any release.
   `WithoutReaderSchema()` and `Registered(registry, schema, readerSchema)`
   landed: it is always unless the caller declines it, and the opt-out is now
   named, both in the fixture and in the `## Schema resolution` table, whose .NET
-  row said the same thing. And it explained Ruby's `resolved` column with "the
+  row said the same thing. The table's Python and Ruby rows said `Always` too,
+  and were reported later because only .NET had been noticed: both resolve **by
+  default**, `reader_schema=` and `reader_schema:` each move a codec off that
+  default, and Ruby's fixed-schema `AvroCodec.of` has no registry to learn a
+  writer schema from and so resolves nothing per message. All three rows now read
+  as the fixture's corrected `why` lines do. And it explained Ruby's `resolved` column with "the
   codec is constructed with a schema", which is just as true of `AvroCodec.of` —
   a codec that resolves nothing, reads what it writes, and refuses
   `reader_schema:` with an `ArgumentError` — so the column is now attributed to
@@ -307,6 +352,20 @@ While the version is `0.x` the public API may change in any release.
   rewritten output and is satisfied by the `.html` file existing, so it could
   never have caught this; it is also, for the first time, checking a rewrite that
   actually fires.
+- **Three sentences about past releases would have been rewritten into falsehoods
+  by the release itself.** `set-documented-version.sh` replaces every
+  three-segment `0.x.y` under `docs/` and in the README with the version being
+  released, which is right for the coordinates it exists to keep current and
+  wrong for a sentence about history: cutting this release would have turned
+  "since 0.5.0 all five write both" into a claim about 0.6.0, and the stream
+  segment-size argument and the replay-header rename would each have been
+  re-dated to the release that did not introduce them. The script's comment
+  asserted that every `0.x.y` in those files is a version somebody copies —
+  checked when written, and no longer true once pages started referring to
+  earlier releases. All three now use the two-segment form the rewrite
+  deliberately does not match (`0.5`), which is what the surrounding prose
+  already did ("up to and including 0.4"), and the script records the convention
+  so the next such sentence is written safely rather than found afterwards.
 
 ## [0.5.0] - 2026-09-09
 
