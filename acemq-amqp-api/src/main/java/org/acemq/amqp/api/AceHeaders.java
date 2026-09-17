@@ -32,7 +32,6 @@ package org.acemq.amqp.api;
  */
 public final class AceHeaders {
 
-    /** Prefix shared by every AceMQ-defined header. */
     /**
      * The engine's namespace.
      *

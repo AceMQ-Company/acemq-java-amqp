@@ -158,9 +158,9 @@ final class EnvelopeHeaders {
         // copying them twice would let the two representations drift apart.
         source.forEach((name, value) -> {
             // Engine-owned headers become fields on the envelope, so copying them here as well
-            // would let the two representations drift apart. The routing slip is the exception:
-            // it shares the prefix but belongs to the application's message rather than to the
-            // engine, and a step that could not read where it was going would be no step at all.
+            // would let the two representations drift apart. That includes the three route
+            // headers, which a step still reads: the slip below is built from the delivery's own
+            // headers rather than from these, so it survives the filter without escaping it.
             if (!AceHeaders.isAceHeader(name)) {
                 builder.header(name, value);
             }
@@ -203,14 +203,6 @@ final class EnvelopeHeaders {
     }
 
     /**
-     * Reads a replay timestamp, as epoch milliseconds or as an ISO-8601 instant.
-     *
-     * <p>Java writes the number and the Go, Python and Ruby replays write the text, and now that
-     * all four write it under the same name a Java consumer meets both. Refusing the text would
-     * mean a message replayed by another language arriving with {@code replayedAt} empty and no
-     * indication why — the one field an operator looks at to see when a message was put back.
-     */
-    /**
      * Renders an instant the way the other four libraries render one.
      *
      * <p>{@code Instant.toString} is RFC 3339 and prints sub-second digits only when there are
@@ -221,6 +213,14 @@ final class EnvelopeHeaders {
         return at.toString();
     }
 
+    /**
+     * Reads a replay timestamp, as epoch milliseconds or as an ISO-8601 instant.
+     *
+     * <p>All five libraries write the text now, and older Java publishers wrote the number, so a
+     * consumer meets both. Refusing either would mean a replayed message arriving with
+     * {@code replayedAt} empty and no indication why — the one field an operator looks at to see
+     * when a message was put back.
+     */
     private static @Nullable Long instantMillis(@Nullable Object value) {
         Long millis = epochMillis(value);
         if (millis != null || value == null) {

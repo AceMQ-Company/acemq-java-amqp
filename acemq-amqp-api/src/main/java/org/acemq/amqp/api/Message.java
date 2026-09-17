@@ -71,16 +71,6 @@ public interface Message<T> {
     }
 
     /**
-     * Returns a view of this message with a different payload, preserving all metadata.
-     *
-     * <p>Used by decoding and upcasting, which change the payload while leaving the delivery
-     * untouched.
-     *
-     * @param payload replacement payload
-     * @param <R> replacement payload type
-     * @return a new message sharing this message's metadata
-     */
-    /**
      * Where the sender asked for a reply.
      *
      * <p>Present only for a request. A handler answering one does not need to read this --
@@ -100,5 +90,15 @@ public interface Message<T> {
         return Optional.empty();
     }
 
+    /**
+     * Returns a view of this message with a different payload, preserving all metadata.
+     *
+     * <p>Used by decoding and upcasting, which change the payload while leaving the delivery
+     * untouched.
+     *
+     * @param payload replacement payload
+     * @param <R> replacement payload type
+     * @return a new message sharing this message's metadata
+     */
     <R> Message<R> withPayload(R payload);
 }

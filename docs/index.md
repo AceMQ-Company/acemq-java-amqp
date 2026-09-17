@@ -33,6 +33,7 @@ recovery are already on.
 | [Getting started](getting-started.html) | Install it and send your first message |
 | [Publishing](publishing.html) | Confirms, unroutable messages, delivery options |
 | [Consuming](consuming.html) | Prefetch, acknowledgement, concurrency |
+| [The envelope](envelope.html) | What travels with every message, the header contract, and the reserved namespace |
 | [Reliability](reliability.html) | Retries, dead letters, replay, idempotency |
 | [Topology](topology.html) | Planning exchanges and queues, and catching drift before a deployment does |
 | [Patterns](patterns.html) | Idempotency, the transactional outbox, the schema registry |

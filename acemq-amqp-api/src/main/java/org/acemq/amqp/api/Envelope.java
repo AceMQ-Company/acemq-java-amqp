@@ -148,9 +148,10 @@ public final class Envelope {
      * Where this message was replayed from, when it was.
      *
      * <p>Set by {@code mq.replay(...)} when a message is moved back out of a dead-letter queue or
-     * parking lot. A first-class field rather than a header because engine-owned headers are
-     * stripped before an application sees them: left as a header, the one piece of evidence that
-     * this message has been round the loop before would be invisible to the code handling it.
+     * parking lot. On the wire this is {@code acemq-replayed-from}, in the shared namespace rather
+     * than the reserved one, so it reaches a handler's headers as well as this field — the one
+     * piece of evidence that a message has been round the loop before is of no use to the code
+     * handling it if the engine strips it on the way in.
      *
      * @return the queue it came back from, when it is a replay
      */
@@ -373,13 +374,6 @@ public final class Envelope {
             return this;
         }
 
-        /**
-         * Adds one application header.
-         *
-         * @param name header name; must not use the AceMQ prefix
-         * @param value header value
-         * @throws IllegalArgumentException if the name is AceMQ-owned
-         */
         private @Nullable RoutingSlip route;
 
         /**
@@ -391,6 +385,14 @@ public final class Envelope {
             return this;
         }
 
+        /**
+         * Adds one application header.
+         *
+         * @param name header name; must not use the AceMQ prefix
+         * @param value header value
+         * @return this builder
+         * @throws IllegalArgumentException if the name is AceMQ-owned
+         */
         public Builder header(String name, Object value) {
             if (AceHeaders.isAceHeader(name)) {
                 throw new IllegalArgumentException("header '" + name

@@ -8,7 +8,41 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+- **`docs/envelope.md`: the envelope has a documentation page of its own, which it
+  had in the other four libraries and not in this one.** Java documented the
+  envelope as six lines of accessors inside the consuming guide: how to read one,
+  and nothing about the header contract, the reserved namespace or the defaults —
+  which are the three things somebody debugging a message in a dead-letter queue
+  needs and the three things the cross-language fixtures actually pin. The page
+  states what is always written and what is omitted when unset, that the two
+  timestamps on the wire are deliberately encoded differently, why `x-acemq-` is
+  reserved and `acemq-` is not, and what each field defaults to — including the
+  two edges nothing had written down: `origin` is `{clientName}@{hostname}` rather
+  than always `acemq@{hostname}`, and a `type` falling back to an empty routing
+  key becomes the literal `message`. It is linked from the site navigation and the
+  overview, and the consuming guide now points at it rather than restating a
+  fraction of it.
+
 ### Fixed
+- **Javadoc that described the pre-0.5.0 header layout.** `Envelope.replayedFrom()`
+  still explained itself as a field that exists because engine-owned headers are
+  stripped from a handler's view — true when the replay stamps were written under
+  `x-acemq-`, and not true since they moved to the shared namespace, where they
+  reach the handler as headers as well as fields. `EnvelopeHeaders` carried the
+  same vintage in two comments: one calling the routing slip an exception to the
+  reserved-prefix filter, when the filter drops the route headers like any other
+  and the slip is rebuilt from the delivery's own headers; and one saying Java
+  writes the replay timestamp as a number, which it has not done since 0.5.0. No
+  behaviour changes; the API reference is generated from these.
+- **Two javadoc comments were attached to the wrong thing, and the compiler had
+  been saying so.** `Envelope.Builder.header`'s sat above the `route` field, so the
+  published reference attached `@throws IllegalArgumentException` — the one warning
+  that stops somebody putting a header in the reserved namespace — to a field
+  rather than to the method that throws it, and `header` itself appeared
+  undocumented; `Message.withPayload`'s sat above `replyTo`'s in the same way. Both
+  now sit on the members they describe, and the two
+  `documentation comment is not attached to any declaration` warnings are gone.
 - **`Responder.answered()` is incremented before the reply is published, so a
   caller holding its answer can rely on the count already including it.** It used
   to be incremented after the send returned, which left a window in which the

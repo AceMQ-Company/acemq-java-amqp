@@ -110,6 +110,7 @@ NAV='<nav class="top">
   <a href="getting-started.html">Getting started</a>
   <a href="publishing.html">Publishing</a>
   <a href="consuming.html">Consuming</a>
+  <a href="envelope.html">The envelope</a>
   <a href="reliability.html">Reliability</a>
   <a href="topology.html">Topology</a>
   <a href="patterns.html">Patterns</a>
