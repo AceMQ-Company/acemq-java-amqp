@@ -67,10 +67,13 @@ AceMQ aims to be that layer:
 - **Observable from the start** — OpenTelemetry spans and Micrometer metrics are
   emitted by the core, with names fixed by the specification so every language
   port reports identically.
-- **And it does not cost you** — a confirmed publish through AceMQ has not been
-  shown to differ from the same publish written by hand against the RabbitMQ
-  client. A nightly benchmark re-measures the pair against a real broker and
-  fails on a regression.
+- **And it costs little** — a confirmed publish through AceMQ measured
+  `452.7 ±13.2 µs/op` against `433.8 ±11.6 µs/op` for the same publish written by
+  hand against the RabbitMQ client: **+4.4%, interval [+0.2%, +8.5%]** over three
+  forks of ten iterations. The interval excludes zero, so the library is
+  measurably slower, by somewhere in that range. A nightly benchmark re-measures
+  the pair against a real broker and fails the build when the whole interval sits
+  above the **10%** budget the gate enforces.
 
 ## Modules
 

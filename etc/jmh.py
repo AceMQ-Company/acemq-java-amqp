@@ -7,9 +7,11 @@ bars printed next to them.
 
 JMH's ``scoreError`` is the half-width of the 99.9% confidence interval of the
 mean. A verdict that ignores it is a verdict about noise. On a shared GitHub
-runner a network round-trip measures 250 +/- 17 us/op, which is +/-7%, so a 5%
-budget enforced on the means alone reports a regression roughly half the nights
-whatever the code does -- which is what happened here every night from 27 August.
+runner a network round-trip measures 250 +/- 17 us/op, which is +/-7%, so a 10%
+budget enforced on the means alone reports a regression on any night the noise
+happens to lean the wrong way, whatever the code does -- which is what happened
+here every night from 27 August, when the budget was 5% and the gap between the
+budget and the precision was wider still.
 
 The rule everything below applies: a difference counts only when the whole
 confidence interval is on one side of the threshold. Anything else is reported,

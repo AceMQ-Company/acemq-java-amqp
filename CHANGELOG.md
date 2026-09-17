@@ -149,6 +149,41 @@ While the version is `0.x` the public API may change in any release.
   overview, and the consuming guide now points at it rather than restating a
   fraction of it.
 
+### Changed
+- **The overhead budget is 10% of the raw RabbitMQ client, not 5%, and the README
+  no longer claims the two are indistinguishable.** A local 3×10 run measured
+  `452.7 ±13.2` against `433.8 ±11.6` µs/op: **+4.4%, interval [+0.2%, +8.5%]**.
+  Two things follow, and neither is comfortable. The interval no longer contains
+  zero, so AceMQ **is** measurably slower than a hand-written confirmed publish on
+  that machine, by somewhere between 0.2% and 8.5% — the earlier "not shown to
+  differ" reading was a measurement too coarse to see the difference, not an
+  absence of one. And with a true overhead near 4.4%, fitting a whole interval
+  inside 5% needs about ±0.6% precision, which is roughly 1,400 samples on quiet
+  hardware against the 30 taken today; the 5% gate could in practice only fail
+  above about 9%. A budget that cannot fail at its stated number is decoration, so
+  the stated number is now the one the gate enforces.
+
+  `etc/check-overhead-budget.py` defaults to 10%, the nightly passes `10`, and the
+  reproduction line on the benchmarks page says `10`. The ≤200 µs added p99
+  latency half of the budget is unaffected and unchanged. The README's performance
+  bullet now quotes the measured figure with its interval and names the budget —
+  this is the second correction to that bullet, after it quoted `421 against 422
+  microseconds` from ±40% error bars.
+
+  `etc/test-benchmark-checks.py` moved with it rather than after it. It now pins
+  the default limit at 10%, a run over 10% that fails, and — the case the change
+  is actually about — a run at +7.5% with interval [+6.3%, +8.7%], asserted to
+  pass at 10% and to fail at 5%. The run behind the decision is a fixture too,
+  asserted as *within budget* at 10% and *inconclusive* at 5%. That file exists
+  because the gate was silently wrong for eight nights and nothing caught it; a
+  threshold that moves without its tests moving is the same failure again.
+
+  The honest caveat is that the measurement design is the real limit. A ~450 µs
+  broker round trip dominates the ~19 µs of library overhead being measured, so
+  the benchmark is detecting a small difference inside a large number it does not
+  control, and no amount of budget arithmetic fixes that. Excluding the round trip
+  would make a tighter budget defensible again. That is a separate piece of work.
+
 ### Fixed
 - **Javadoc that described the pre-0.5.0 header layout.** `Envelope.replayedFrom()`
   still explained itself as a field that exists because engine-owned headers are

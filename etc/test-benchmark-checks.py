@@ -56,15 +56,23 @@ def run(script, *args):
 
 class OverheadBudget(unittest.TestCase):
 
-    def check(self, acemq, acemq_error, raw, raw_error, budget="5"):
+    def check(self, acemq, acemq_error, raw, raw_error, budget="10"):
         path = results_file([
             record("acemqConfirmedPublish", acemq, acemq_error),
             record("rawClientConfirmedPublish", raw, raw_error),
         ])
         try:
-            return run("check-overhead-budget.py", path, budget)
+            args = [path] if budget is None else [path, budget]
+            return run("check-overhead-budget.py", *args)
         finally:
             os.unlink(path)
+
+    def test_the_budget_defaults_to_ten_percent(self):
+        # The workflow passes the limit explicitly, so nothing else would notice
+        # if the default drifted away from the number the project agreed on.
+        code, output = self.check(240.0, 4.0, 236.0, 4.0, budget=None)
+        self.assertEqual(0, code, output)
+        self.assertIn("budget of 10.0%", output)
 
     def test_the_night_that_started_this_is_inconclusive_not_a_failure(self):
         # 3 September: 252.2 +/- 16.7 against 236.2 +/- 14.8, reported as
@@ -78,7 +86,41 @@ class OverheadBudget(unittest.TestCase):
         # Tight intervals, and a gap far outside them.
         code, output = self.check(300.0, 4.0, 236.0, 4.0)
         self.assertEqual(OVER_BUDGET, code, output)
+        self.assertIn("exceeds the 10.0% budget", output)
+
+    def test_over_the_ten_percent_budget_fails(self):
+        # +14.4%, interval [+11.8%, +17.0%]: entirely above 10%, so the gate has
+        # to fail at its stated number and not merely somewhere above it.
+        code, output = self.check(270.0, 4.0, 236.0, 4.0)
+        self.assertEqual(OVER_BUDGET, code, output)
+        self.assertIn("exceeds the 10.0% budget", output)
+        self.assertIn("is above it", output)
+
+    def test_between_five_and_ten_percent_passes_now_and_would_not_have(self):
+        # +7.5%, interval [+6.3%, +8.7%] -- entirely above the old 5% budget and
+        # entirely below the new one. This is the band the change actually moved,
+        # so it is asserted in both directions: a pass at 10%, a failure at 5%.
+        code, output = self.check(253.7, 2.0, 236.0, 2.0)
+        self.assertEqual(0, code, output)
+        self.assertIn("within budget", output)
+        self.assertIn("under 10.0%", output)
+
+        code, output = self.check(253.7, 2.0, 236.0, 2.0, budget="5")
+        self.assertEqual(OVER_BUDGET, code, output)
         self.assertIn("exceeds the 5.0% budget", output)
+
+    def test_the_measured_overhead_is_inside_the_new_budget(self):
+        # The 3x10 run behind the decision: 452.7 +/- 13.2 against 433.8 +/- 11.6,
+        # which is +4.4% with an interval of [+0.2%, +8.5%]. It excludes zero --
+        # the library is measurably slower -- and it sits inside 10%, whereas at
+        # 5% the same numbers could only ever be reported as inconclusive.
+        code, output = self.check(452.7, 13.2, 433.8, 11.6)
+        self.assertEqual(0, code, output)
+        self.assertIn("within budget", output)
+
+        code, output = self.check(452.7, 13.2, 433.8, 11.6, budget="5")
+        self.assertEqual(0, code, output)
+        self.assertIn("inconclusive", output)
 
     def test_a_clean_run_passes(self):
         code, output = self.check(240.0, 4.0, 236.0, 4.0)
@@ -99,7 +141,7 @@ class OverheadBudget(unittest.TestCase):
     def test_a_missing_benchmark_cannot_be_judged(self):
         path = results_file([record("acemqConfirmedPublish", 252.0, 16.0)])
         try:
-            code, output = run("check-overhead-budget.py", path, "5")
+            code, output = run("check-overhead-budget.py", path, "10")
         finally:
             os.unlink(path)
         self.assertEqual(UNJUDGEABLE, code, output)

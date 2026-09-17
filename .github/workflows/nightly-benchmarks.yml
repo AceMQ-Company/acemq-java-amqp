@@ -11,6 +11,11 @@ name: nightly-benchmarks
 # ubuntu-latest. Both are fixed -- the checks compare intervals, the benchmarks
 # run enough forks to have intervals worth comparing, and the baseline is per
 # environment and refuses to be read across one.
+#
+# The budget itself is now 10%, not 5%. Measured overhead is +4.4%, interval
+# [+0.2%, +8.5%]; enforcing 5% against that needs about +/-0.6% precision, which
+# this run cannot reach, so the old gate could only ever fail above about 9%.
+# 10% is what it enforces, so 10% is what it claims.
 on:
   schedule:
     - cron: "0 4 * * *"
@@ -73,10 +78,10 @@ jobs:
       # interval is above the budget; a run too imprecise to decide says so and
       # passes.
       - name: Enforce the overhead budget against the raw client
-        run: python3 etc/check-overhead-budget.py benchmarks/results/current.json 5
+        run: python3 etc/check-overhead-budget.py benchmarks/results/current.json 10
 
       - name: Compare against the baseline for this environment
-        # Looser than the 5% budget on purpose: this compares across nights on
+        # Looser than the 10% budget on purpose: this compares across nights on
         # shared hardware, where the budget's within-run cancellation does not
         # apply. A benchmark regresses only when its whole interval is past the
         # threshold, and a missing baseline for this environment is reported

@@ -65,10 +65,13 @@ import com.rabbitmq.client.MessageProperties;
 /*
  * Three forks and ten iterations, not one and five.
  *
- * The gate enforces a 5% budget, and it can only do that if the measurement resolves better
- * than 5%. One fork of five iterations of a network round-trip on a shared runner produced
+ * The gate enforces a 10% budget, and it can only do that if the measurement resolves better
+ * than 10%. One fork of five iterations of a network round-trip on a shared runner produced
  * +/-7%, which cannot tell a breach from a clean run -- and reported one every night from
- * 27 August. Forks matter more than iterations here: each one is a fresh JVM, so
+ * 27 August. Three forks of ten bring that to about +/-4%, which decides a 10% budget and is
+ * the reason the budget is 10%: measured overhead is +4.4%, and resolving it against 5% would
+ * need roughly +/-0.6%, or some 1,400 samples on quiet hardware against 30 here.
+ * Forks matter more than iterations here: each one is a fresh JVM, so
  * fork-to-fork spread includes the JIT and allocation luck that repeated iterations inside
  * one JVM never sample, and it is that spread the interval needs to contain.
  *

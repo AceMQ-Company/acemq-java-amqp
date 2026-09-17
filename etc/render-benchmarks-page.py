@@ -486,7 +486,7 @@ def main():
     out.append("mvn -Pbenchmarks -DskipTests install")
     out.append("java -jar acemq-amqp-benchmarks/target/benchmarks.jar \\")
     out.append("     -rf json -rff benchmarks/results/current.json")
-    out.append("python3 etc/check-overhead-budget.py benchmarks/results/current.json 5")
+    out.append("python3 etc/check-overhead-budget.py benchmarks/results/current.json 10")
     out.append("```")
     out.append("")
     out.append("Docker is required: the publish benchmark starts its own broker.")
