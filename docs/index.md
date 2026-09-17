@@ -61,11 +61,17 @@ It is not finished. See [what is missing](#status) below before you depend on it
 ## Status
 
 Pre-1.0, and honest about it. What works today is tested against real RabbitMQ in
-CI on every commit: publishing with confirms, consuming, the retry ladder,
+CI on every commit: publishing with confirms, asynchronous publishing
+(`sendAsync`) and batch publishing (`sendAll`), consuming, the retry ladder,
 dead-letter and parking queues, replay, streams, pipelines, ordered consumption,
-the transactional outbox, idempotency (in-process and shared), interceptors, and
-five serialization formats.
+the transactional outbox, idempotency (in-process and shared), request and reply,
+sagas, claim check, scheduling, payload encryption, topology drift detection,
+interceptors, GraalVM native image, and six serialization formats.
 
-Still to come: batch and asynchronous publishing, a Spring Boot starter, and a
-RabbitMQ 3.13 compatibility matrix. Coordinates and API shape may still move
-before 1.0, which is why artifacts are not yet on Maven Central.
+A Spring Boot starter ships separately, at
+[acemq-java-amqp-spring-boot-starter](https://acemq.org/acemq-java-amqp-spring-boot-starter/),
+on its own version line because it tracks Spring Boot's release train as much as
+this one.
+
+Still to come: a RabbitMQ 3.13 compatibility matrix. Coordinates and API shape
+may still move before 1.0, which is why artifacts are not yet on Maven Central.
