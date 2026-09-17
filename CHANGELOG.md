@@ -264,6 +264,32 @@ While the version is `0.x` the public API may change in any release.
   neither did the start-up window .NET had to close, because Java's counters are
   initialised where they are declared and so are in place before the constructor
   calls `mq.consume(...)`.
+- **Three sentences of `avro-resolution-fixtures.json` described libraries that
+  have since moved, and `docs/serialization.md` carried one of them as well.**
+  The fixture is generated here and copied byte for byte into the other four
+  repositories, so a wrong sentence in it is a wrong sentence in five places, and
+  each of these was found by a different library's tests being written against
+  it. It claimed Java was the only one of the five that shows both columns, which
+  stopped being true when Go, .NET, Python and Ruby each grew tests asserting the
+  column they do not land on by default; the distinction that actually survives
+  is narrower and is now stated as such — Java is the only one that reaches
+  `writerShape` without naming a schema at all, because `registered(registry)` is
+  handed none and the writer's schema comes off the wire and serves as the
+  reader's. It said resolution in .NET is "always", which stopped being true when
+  `WithoutReaderSchema()` and `Registered(registry, schema, readerSchema)`
+  landed: it is always unless the caller declines it, and the opt-out is now
+  named, both in the fixture and in the `## Schema resolution` table, whose .NET
+  row said the same thing. And it explained Ruby's `resolved` column with "the
+  codec is constructed with a schema", which is just as true of `AvroCodec.of` —
+  a codec that resolves nothing, reads what it writes, and refuses
+  `reader_schema:` with an `ArgumentError` — so the column is now attributed to
+  `registered(...)` specifically. Go's and Python's lines were held to the same
+  standard while the file was open, and the `writerShape` column definition
+  widened to cover the reader holding the writer's own schema rather than none,
+  which is how a library that always resolves arrives there at all. **The decoded
+  values, the framed bytes, the schema ids and every column assignment are
+  unchanged** — this is a prose-only regeneration, and the four copies need
+  taking again.
 
 ## [0.5.0] - 2026-09-09
 

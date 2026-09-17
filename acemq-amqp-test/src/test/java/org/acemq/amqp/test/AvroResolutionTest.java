@@ -41,11 +41,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Holds this library to both columns of {@code avro-resolution-fixtures.json}.
  *
- * <p>Java is the only one of the five libraries that shows both, which is why the fixture is
- * asserted from here twice rather than once. A reader schema taken from the generated class
- * resolves, so the field the writer never sent arrives carrying the reader's default; a
- * {@code GenericRecord} asked for through a plain registry codec has no reader schema of its own,
- * so the writer's record comes back as it was written and the field is simply not there.
+ * <p>Both are reachable from here without asking for either, which is why the fixture is asserted
+ * from here twice rather than once. A reader schema taken from the generated class resolves, so the
+ * field the writer never sent arrives carrying the reader's default; a {@code GenericRecord} asked
+ * for through a plain registry codec has no reader schema of its own, so the writer's record comes
+ * back as it was written and the field is simply not there.
+ *
+ * <p>The other four libraries assert both columns too, and reach the second one deliberately: Go by
+ * leaving {@code avro.ReaderSchema(...)} off, Python and Ruby by naming the writer's schema as the
+ * reader schema, .NET by calling {@code WithoutReaderSchema()}. What is only true here is that
+ * {@code registered(registry)} is handed no schema at all, so the writer's serves as the reader's
+ * without anybody having chosen it.
  *
  * <p>Neither of those is a bug and neither is being changed. The rule underneath is the same one
  * in all five languages — a library resolves when it has a reader schema to resolve onto — and the

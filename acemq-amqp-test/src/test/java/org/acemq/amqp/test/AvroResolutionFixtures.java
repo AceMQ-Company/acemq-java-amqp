@@ -35,15 +35,18 @@ import org.apache.avro.generic.GenericRecord;
  *
  * <p>The five libraries do not resolve in the same circumstances, and that is not a bug anybody
  * is going to fix: resolution needs a reader schema, and each library resolves exactly when it
- * has one. Go has none unless the caller passes one, because a Go struct carries no schema. Java
- * has one when the target is a generated class or the codec was handed a reader schema, and none
- * when a {@code GenericRecord} is asked for through a registry codec. .NET, Python and Ruby
- * always have one, because their codec is constructed with it.
+ * has one. Go has none unless the caller passes one, because the schema its constructor takes is
+ * the one it writes with and a Go struct carries no schema either. Java has one when the target
+ * is a generated class or the codec was handed a reader schema, and none when a
+ * {@code GenericRecord} is asked for through a registry codec. .NET, Python and Ruby have one by
+ * default, because their codec is constructed with it — .NET until {@code WithoutReaderSchema()}
+ * declines it, Python and Ruby until the writer's own schema is named as the reader's.
  *
  * <p>So this file does not pin one answer. It pins <em>both</em>, in two columns named
- * {@code resolved} and {@code writerShape}, and says which library lands on which. A library
- * reading it asserts the column its own documentation claims, and the fixture is then a test of
- * the documentation as much as of the code.
+ * {@code resolved} and {@code writerShape}, and says which library lands on which by default. All
+ * five can be asked for the other, and all five now assert both. A library reading it asserts the
+ * column its own documentation claims, and the fixture is then a test of the documentation as much
+ * as of the code.
  *
  * <p>Every value below is produced by running the library rather than typed. The bodies are the
  * bytes {@code AvroCodec.registered(...)} actually writes; the {@code resolved} column is a real
@@ -171,9 +174,12 @@ final class AvroResolutionFixtures {
         columns.put("resolved", "what a reader that holds a reader schema sees: the writer's bytes reconciled"
                 + " with the reader's declaration. A field the writer omitted is filled in from the reader's"
                 + " default; a field the writer added and the reader does not declare is skipped");
-        columns.put("writerShape", "what a reader that holds no reader schema sees: the writer's record as it"
-                + " was written. Nothing is filled in, because there is no declaration saying what to fill it"
-                + " in with, and nothing is skipped");
+        columns.put("writerShape", "what a reader sees when no declaration of its own stands between it and"
+                + " the bytes: the writer's record as it was written. Nothing is filled in and nothing is"
+                + " skipped, because there is no reader's declaration saying what to fill in or leave out. A"
+                + " reader arrives here either by holding no reader schema at all, or by holding the writer's"
+                + " own -- resolving a schema onto itself changes nothing, which is how a library that always"
+                + " resolves reaches this column");
         return columns;
     }
 
@@ -182,28 +188,50 @@ final class AvroResolutionFixtures {
         libraries.add(library(
                 "acemq-go-amqp",
                 "writerShape",
-                "a Go struct carries no schema, so by default the decoder has nothing to resolve onto. A"
-                        + " caller who passes avro.ReaderSchema(...) has given it one, and that call moves"
-                        + " Go to the resolved column"));
+                "the schema Registered(registry, subject, schema) takes is the one this codec writes with,"
+                        + " and a Go struct carries no schema either, so by default there is nothing of the"
+                        + " reader's to resolve onto. A caller who passes avro.ReaderSchema(...) has given it"
+                        + " one, and that call moves Go to the resolved column. writerShape is Go's default"
+                        + " rather than the only answer it has, and Go asserts both"));
         libraries.add(library(
                 "acemq-java-amqp",
                 "both",
                 "a GenericRecord asks for nothing in particular, so the reader schema is the writer's and"
                         + " nothing resolves; a generated SpecificRecord class carries a schema of its own,"
                         + " and registered(registry, readerSchema) is handed one, and either of those"
-                        + " resolves. Java is the only one of the five that shows both columns"));
+                        + " resolves. All five libraries can reach both columns and all five assert both."
+                        + " What is only true of Java is that it reaches writerShape without naming a schema"
+                        + " at all: registered(registry) is handed none, so the writer's schema comes off the"
+                        + " wire and serves as the reader's. The other four have to ask -- Go by leaving"
+                        + " avro.ReaderSchema(...) off, Python and Ruby by passing the writer's schema as the"
+                        + " reader schema, .NET by calling WithoutReaderSchema()"));
         libraries.add(library(
                 "acemq-dotnet-amqp",
                 "resolved",
-                "the codec is constructed with a schema, so there is always one to resolve onto"));
+                "the codec is constructed with a schema, so there is always one to resolve onto -- unless the"
+                        + " caller declines it. Registered(registry, schema, readerSchema) reads against a"
+                        + " different schema than it writes, and WithoutReaderSchema() leaves the codec with"
+                        + " none at all, which is how .NET reaches writerShape. resolved is .NET's default,"
+                        + " not the only answer it has"));
         libraries.add(library(
                 "acemq-python-amqp",
                 "resolved",
-                "the codec is constructed with a schema, so there is always one to resolve onto"));
+                "a registered codec is constructed with a schema, and that schema is the reader schema unless"
+                        + " reader_schema= names another, so there is always one to resolve onto. Python"
+                        + " reaches writerShape by making the two the same: from_registry with the writer's"
+                        + " schema, or reading(writerSchema), resolves the writer's schema onto itself and"
+                        + " leaves the record as written. A fixed-schema AvroCodec(schema) has no registry to"
+                        + " learn a writer's schema from, so it reads what it writes and there is nothing per"
+                        + " message to resolve"));
         libraries.add(library(
                 "acemq-ruby-amqp",
                 "resolved",
-                "the codec is constructed with a schema, so there is always one to resolve onto"));
+                "registered(registry, subject:, schema:) is constructed with a schema, and that schema is the"
+                        + " reader schema unless reader_schema: names another, so a registered codec always"
+                        + " has one to resolve onto. The column belongs to registered specifically:"
+                        + " AvroCodec.of fixes one schema for the codec's whole life, reads what it writes,"
+                        + " resolves nothing, and refuses reader_schema: with an ArgumentError. Ruby reaches"
+                        + " writerShape by passing the writer's schema as reader_schema:"));
         return libraries;
     }
 
