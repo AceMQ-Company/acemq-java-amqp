@@ -28,8 +28,8 @@ removed rather than excused, and they are now in the jar — built after three
 applications had needed them, which is why the shapes are what they are.
 
 Three more live in the core rather than here, because they are wired into the
-consumer runtime: the [retry ladder](reliability.html),
-[request/reply](request-reply.html), and pipelines — below.
+consumer runtime: the [retry ladder](reliability.md),
+[request/reply](request-reply.md), and pipelines — below.
 
 ## Pipelines
 
@@ -267,7 +267,7 @@ restart makes every message written before the restart unreadable — and the by
 still parse, just as the wrong schema, which is the worst way to fail.
 
 `InMemorySchemaRegistry` (in the Avro module) forgets on restart and belongs in
-tests only. Full detail is in [serialization](serialization.html).
+tests only. Full detail is in [serialization](serialization.md).
 
 ## The claim check
 
@@ -366,7 +366,7 @@ database changes.
 
 ## Related
 
-- [Reliability](reliability.html) — retries and dead letters, the patterns that
+- [Reliability](reliability.md) — retries and dead letters, the patterns that
   live in the core
-- [Serialization](serialization.html) — the schema registry in context
-- [Tutorial 3](tutorial-exactly-once.html) — all of this built up step by step
+- [Serialization](serialization.md) — the schema registry in context
+- [Tutorial 3](tutorial-exactly-once.md) — all of this built up step by step

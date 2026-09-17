@@ -2,16 +2,16 @@
 
 Step by step, in order, each one ending with something that runs.
 
-The [guide](index.html) explains how a thing works and why it is that way. These
+The [guide](index.md) explains how a thing works and why it is that way. These
 are the other shape: start with nothing, finish with a working service, and
 understand what you typed by the end rather than before the beginning.
 
 | | | |
 |---|---|---|
-| 1 | [Your first message](tutorial-first-message.html) | Connect, declare, publish, consume. No broker needed | 10 min |
-| 2 | [Surviving failure](tutorial-surviving-failure.html) | Retries that do not block, dead letters, and replaying them | 20 min |
-| 3 | [Never processing twice](tutorial-exactly-once.html) | Idempotency, the outbox, and why "exactly once" is a lie | 25 min |
-| 4 | [Seeing what happens](tutorial-observability.html) | Traces and metrics, and reading them when something is wrong | 20 min |
+| 1 | [Your first message](tutorial-first-message.md) | Connect, declare, publish, consume. No broker needed | 10 min |
+| 2 | [Surviving failure](tutorial-surviving-failure.md) | Retries that do not block, dead letters, and replaying them | 20 min |
+| 3 | [Never processing twice](tutorial-exactly-once.md) | Idempotency, the outbox, and why "exactly once" is a lie | 25 min |
+| 4 | [Seeing what happens](tutorial-observability.md) | Traces and metrics, and reading them when something is wrong | 20 min |
 
 Each builds on the one before it, and each is a single file you can paste into a
 scratch project. Nothing is left as an exercise.

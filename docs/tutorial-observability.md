@@ -1,6 +1,6 @@
 # Tutorial 4 — Seeing what happens
 
-**20 minutes.** Continues from [tutorial 3](tutorial-exactly-once.html).
+**20 minutes.** Continues from [tutorial 3](tutorial-exactly-once.md).
 
 A message goes in and does not come out. This tutorial is about answering *where
 did it stop* in under a minute, rather than by grepping four services' logs for
@@ -179,7 +179,7 @@ bound, and nothing else anywhere changes.
 
 You have finished the tutorials. From here:
 
-- [Reliability](reliability.html) — the full retry, dead-letter and replay guide
-- [Topology](topology.html) — declaring exchanges and queues, and catching drift
+- [Reliability](reliability.md) — the full retry, dead-letter and replay guide
+- [Topology](topology.md) — declaring exchanges and queues, and catching drift
 - The [examples repository](https://github.com/AceMQ-Company/acemq-java-amqp-examples)
   — 26 runnable programs and a complete microservice application

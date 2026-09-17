@@ -72,7 +72,7 @@ is not a guarantee.
 
 ## Failure
 
-Throw, and the retry policy takes over — see [Reliability](reliability.html).
+Throw, and the retry policy takes over — see [Reliability](reliability.md).
 Short waits are held in the consumer; waits of thirty seconds or more are handed
 to a rung queue in the broker:
 
@@ -111,7 +111,7 @@ mq.consume("orders.new", Order.class, message -> {
 `message.headers()` is your own headers only. Anything named `x-acemq-` is the
 engine's and is stripped on the way in, which is why the fields above are read off
 the envelope rather than out of the map — and why a header of yours must not use
-that prefix. [The envelope](envelope.html) has the full header contract, the
+that prefix. [The envelope](envelope.md) has the full header contract, the
 defaults, and what the two AceMQ namespaces are for.
 
 ## Counting what happened

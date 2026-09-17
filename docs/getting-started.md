@@ -105,7 +105,7 @@ in production — **check before touching anything**, so a queue that already
 exists with different settings is reported with the offending argument named
 rather than failing partway through and closing the channel.
 
-[Topology](topology.html) covers the modes and what drift looks like.
+[Topology](topology.md) covers the modes and what drift looks like.
 
 ## What just happened
 
@@ -134,14 +134,14 @@ AceMq.connect("amqps://broker.internal:5671");
 ```
 
 Credentials belong in a `CredentialsProvider` rather than in the URL — see
-[Security](security.html), which also states plainly which parts of the security
+[Security](security.md), which also states plainly which parts of the security
 story are not built yet.
 
 ## Where to go next
 
-Publishing options and what a confirm really promises: [Publishing](publishing.html).
-Prefetch, concurrency and acknowledgement: [Consuming](consuming.html).
-What happens when a handler keeps failing: [Reliability](reliability.html).
+Publishing options and what a confirm really promises: [Publishing](publishing.md).
+Prefetch, concurrency and acknowledgement: [Consuming](consuming.md).
+What happens when a handler keeps failing: [Reliability](reliability.md).
 
 And before you write a test against a real broker, read
-[Testing](testing.html) — there is an in-memory transport that needs no Docker.
+[Testing](testing.md) — there is an in-memory transport that needs no Docker.

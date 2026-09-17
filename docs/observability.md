@@ -238,6 +238,6 @@ that.
 
 ## Related
 
-- [Tutorial 4](tutorial-observability.html) — the same ground, built up, with the
+- [Tutorial 4](tutorial-observability.md) — the same ground, built up, with the
   procedure for reading a trace when something is wrong
-- [Reliability](reliability.html) — what the retry and dead-letter numbers mean
+- [Reliability](reliability.md) — what the retry and dead-letter numbers mean

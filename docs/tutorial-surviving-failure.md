@@ -1,6 +1,6 @@
 # Tutorial 2 — Surviving failure
 
-**20 minutes.** Continues from [tutorial 1](tutorial-first-message.html).
+**20 minutes.** Continues from [tutorial 1](tutorial-first-message.md).
 
 Your handler throws. This tutorial is about what should happen next, and about
 the answer most services reach for first — which is wrong in a way that takes a
@@ -269,5 +269,5 @@ wait the retry accounting knows about.
 
 ## Next
 
-**[Tutorial 3 — Never processing twice](tutorial-exactly-once.html).** Retries
+**[Tutorial 3 — Never processing twice](tutorial-exactly-once.md).** Retries
 create duplicates by construction. What that means for taking money.

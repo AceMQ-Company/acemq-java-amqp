@@ -136,7 +136,7 @@ That difference is real, and it is exactly the trap that makes an
 argument-equality check report drift on every classic queue on 4 and none on
 3.13.
 
-**[Drift detection here](topology.html#how-it-is-detected) does not compare
+**[Drift detection here](topology.md#how-it-is-detected) does not compare
 argument maps.** It re-declares the queue with the arguments the plan asks for
 and reads the broker's `406 PRECONDITION_FAILED` reply code, so the broker
 itself decides equivalence and the answer is the same on both versions.
@@ -158,12 +158,12 @@ apply to the message path.
 than per consumer. This library calls the single-argument
 `channel.basicQos(prefetch)`, which is `global=false`, everywhere it sets a
 prefetch — on subscribe and on a later
-[`prefetch(int)`](consuming.html#prefetch) change. Nothing to do.
+[`prefetch(int)`](consuming.md#prefetch) change. Nothing to do.
 
 ### The stream prefetch refusal reads differently
 
 Both versions refuse a stream consumer with no prefetch, which is what
-[`StreamOptions`](streams.html#prefetch) exists to prevent. The message differs:
+[`StreamOptions`](streams.md#prefetch) exists to prevent. The message differs:
 
 | | Text |
 |---|---|
@@ -195,7 +195,7 @@ breaks on 4.
 Nothing special, and that is deliberate.
 
 There is **no broker-version detection in this library.** The RabbitMQ transport
-reports a fixed [capability set](testing.html) and never queries the server's
+reports a fixed [capability set](testing.md) and never queries the server's
 version to decide what to offer. The consequences are worth being explicit
 about:
 
@@ -243,6 +243,6 @@ one to look at.
 
 ## Related
 
-- [Topology](topology.html) — declaring queues, and how drift is detected
-- [Streams](streams.html) — what a stream needs from the broker
-- [Testing](testing.html) — the in-memory broker, and testing against a real one
+- [Topology](topology.md) — declaring queues, and how drift is detected
+- [Streams](streams.md) — what a stream needs from the broker
+- [Testing](testing.md) — the in-memory broker, and testing against a real one

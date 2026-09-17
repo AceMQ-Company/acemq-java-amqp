@@ -290,6 +290,23 @@ While the version is `0.x` the public API may change in any release.
   values, the framed bytes, the schema ids and every column assignment are
   unchanged** — this is a prose-only regeneration, and the four copies need
   taking again.
+- **Every cross-page link under `docs/` was written as `.html`, so every one of
+  them was dead when the pages were read on GitHub.** That is where somebody
+  meets these pages before they find the site — a repository is the first thing
+  a link to it opens — and none of the 75 links worked there. The convention the
+  other four libraries follow, and that this repository's own build script
+  documents, is to write them as `.md` and let the build rewrite them for the
+  rendered copy; here there was nothing for that rewrite to do, so it had been
+  silently inert since it was written. All 75 are now `.md`, fragments intact
+  (`reliability.md#replay`), and the one link that is genuinely HTML —
+  `apidocs/index.html`, which javadoc generates and no markdown renders into —
+  is deliberately left alone. The rendered site is byte-for-byte what it was.
+  `build-docs-site.sh` now also checks the source side before it renders
+  anything: every `.md` target must exist as a file in `docs/`, and a docs page
+  linked as `.html` is named as the mistake it is. The existing check runs on the
+  rewritten output and is satisfied by the `.html` file existing, so it could
+  never have caught this; it is also, for the first time, checking a rewrite that
+  actually fires.
 
 ## [0.5.0] - 2026-09-09
 

@@ -83,7 +83,7 @@ header, the same as the other optional fields, so nothing at the other end has t
 special-case a header carrying nothing.
 
 **It is not the claim-check pattern.** The
-[claim check](patterns.html#the-claim-check) frames its reference in the *body*
+[claim check](patterns.md#the-claim-check) frames its reference in the *body*
 and sets no header at all, deliberately: a header can be stripped by a shovel or
 a federation link, and a present-or-absent header cannot say whether a payload
 travelled inline. All five libraries make that choice, and this field does not
@@ -91,7 +91,7 @@ change it.
 
 The reply address is not in that table either. It travels as
 `acemq-reply-to` *and* as AMQP's own `reply-to` property, both written and either
-read — see [request and reply](request-reply.html#how-it-works).
+read — see [request and reply](request-reply.md#how-it-works).
 
 ## The defaults are contract, not convenience
 
@@ -166,11 +166,11 @@ arrive twice, as `replayedFrom()`, `replayedAt()` and `replayCount()` on the
 envelope *and* as ordinary entries in `headers()`; that duplication is deliberate,
 and writing puts the fields over the top of the headers rather than around them so
 the two cannot say different things about one message. See
-[replay](reliability.html#replay).
+[replay](reliability.md#replay).
 
 W3C trace context — `traceparent` and `tracestate` — is unprefixed for the same
 reason plus one more: other tools already know those names. It reaches handlers as
-ordinary headers. See [traces cross the broker](observability.html#traces-cross-the-broker).
+ordinary headers. See [traces cross the broker](observability.md#traces-cross-the-broker).
 
 ## The route
 
@@ -184,7 +184,7 @@ what makes replaying it *resume* the run instead of starting it again.
 That trio is this library's declared-pipeline form. The other form, the
 self-describing `acemq-routing-slip` JSON that Go, Python and Ruby write, is an
 ordinary header in the shared namespace and is read by `Itinerary`. Both are read;
-see [pipelines](patterns.html#pipelines).
+see [pipelines](patterns.md#pipelines).
 
 ## Reading it in a handler
 
@@ -225,7 +225,7 @@ three helpers cover nearly every case.
 carried across, causation set to this message's id, attempt restarted, origin
 inherited. `nextAttempt()` returns a copy with the counter advanced and everything
 else, `firstSeen` included, preserved. `toBuilder()` copies the lot, which is what
-an [interceptor](publishing.html#cross-cutting-concerns) uses to stamp something
+an [interceptor](publishing.md#cross-cutting-concerns) uses to stamp something
 onto every outgoing envelope.
 
 Note the asymmetry between the two header methods, because it is easy to trip
@@ -282,8 +282,8 @@ that proves it is the one already in the dead-letter queue.
 
 ## Related
 
-- [Publishing](publishing.html) — setting the fields, and interceptors that stamp them
-- [Consuming](consuming.html) — where a handler meets one
-- [Reliability](reliability.html#replay) — `attempt`, `error` and the replay stamps
-- [Patterns](patterns.html#pipelines) — the two routing slips
-- [Observability](observability.html#traces-cross-the-broker) — trace context beside the envelope
+- [Publishing](publishing.md) — setting the fields, and interceptors that stamp them
+- [Consuming](consuming.md) — where a handler meets one
+- [Reliability](reliability.md#replay) — `attempt`, `error` and the replay stamps
+- [Patterns](patterns.md#pipelines) — the two routing slips
+- [Observability](observability.md#traces-cross-the-broker) — trace context beside the envelope

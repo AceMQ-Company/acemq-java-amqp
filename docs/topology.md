@@ -186,6 +186,6 @@ so only queues are worth the round trip.
 
 ## Related
 
-- [Reliability](reliability.html) — the retry ladder, which is topology the
+- [Reliability](reliability.md) — the retry ladder, which is topology the
   library generates for you
-- [Getting started](getting-started.html)
+- [Getting started](getting-started.md)

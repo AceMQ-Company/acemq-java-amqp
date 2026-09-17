@@ -99,7 +99,7 @@ mq.declareQueue("orders.new", QueueType.CLASSIC, Collections.emptyMap());
 Declaring is idempotent. Running this twice is fine; running it against a queue
 that already exists **with different settings** is not, and AceMQ will tell you
 which setting differs rather than failing at the broker. That is
-[topology drift](topology.html), and it is tutorial 2's problem, not yours yet.
+[topology drift](topology.md), and it is tutorial 2's problem, not yours yet.
 
 ### The same thing, as data
 
@@ -246,6 +246,6 @@ binding you declared.
 
 ## Next
 
-**[Tutorial 2 — Surviving failure](tutorial-surviving-failure.html).** Your
+**[Tutorial 2 — Surviving failure](tutorial-surviving-failure.md).** Your
 handler throws. What should happen, what actually happens, and why sleeping in a
 consumer is the wrong answer.

@@ -1,6 +1,6 @@
 # Tutorial 3 — Never processing twice
 
-**25 minutes.** Continues from [tutorial 2](tutorial-surviving-failure.html).
+**25 minutes.** Continues from [tutorial 2](tutorial-surviving-failure.md).
 Needs Docker and a database.
 
 Tutorial 2 gave you retries. Retries create duplicates — that is not a bug in the
@@ -234,5 +234,5 @@ Every step exists to close a window opened by the one before it.
 
 ## Next
 
-**[Tutorial 4 — Seeing what happens](tutorial-observability.html).** All of the
+**[Tutorial 4 — Seeing what happens](tutorial-observability.md).** All of the
 numbers above, and where they come from.

@@ -87,6 +87,6 @@ the JVM.
 
 ## Related
 
-- [Serialization](serialization.html) — which types cross the wire, and so which
+- [Serialization](serialization.md) — which types cross the wire, and so which
   ones need registering
-- [Security](security.html) — TLS, which works in an image unchanged
+- [Security](security.md) — TLS, which works in an image unchanged

@@ -190,4 +190,4 @@ mq.intercept((PublishInterceptor) context ->
 
 Interceptors run before encoding, so they see your object rather than bytes.
 Throwing from one refuses the publish — which is what makes them usable for
-policy. See [Reliability](reliability.html#interceptors).
+policy. See [Reliability](reliability.md#interceptors).

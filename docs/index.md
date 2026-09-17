@@ -30,23 +30,23 @@ recovery are already on.
 
 | | |
 |---|---|
-| [Getting started](getting-started.html) | Install it and send your first message |
-| [Publishing](publishing.html) | Confirms, unroutable messages, delivery options |
-| [Consuming](consuming.html) | Prefetch, acknowledgement, concurrency |
-| [The envelope](envelope.html) | What travels with every message, the header contract, and the reserved namespace |
-| [Reliability](reliability.html) | Retries, dead letters, replay, idempotency |
-| [Topology](topology.html) | Planning exchanges and queues, and catching drift before a deployment does |
-| [Patterns](patterns.html) | Idempotency, the transactional outbox, the schema registry |
-| [Serialization](serialization.html) | JSON, XML, YAML, TOML, Avro, Protobuf |
-| [Streams](streams.html) | Append-only logs, offsets, replay |
-| [Request and reply](request-reply.html) | Asking a question over a broker, and when not to |
-| [Security](security.html) | TLS, credentials, and what is not built yet |
-| [Observability](observability.html) | Traces that cross the broker, metrics, and what to alert on |
-| [Testing](testing.html) | An in-memory broker, no Docker needed |
-| [Compatibility](compatibility.html) | What runs on RabbitMQ 3.13 as well as 4.x, and where the two brokers differ |
-| [Native image](native-image.html) | GraalVM ahead-of-time: what works, and the one thing you must configure |
+| [Getting started](getting-started.md) | Install it and send your first message |
+| [Publishing](publishing.md) | Confirms, unroutable messages, delivery options |
+| [Consuming](consuming.md) | Prefetch, acknowledgement, concurrency |
+| [The envelope](envelope.md) | What travels with every message, the header contract, and the reserved namespace |
+| [Reliability](reliability.md) | Retries, dead letters, replay, idempotency |
+| [Topology](topology.md) | Planning exchanges and queues, and catching drift before a deployment does |
+| [Patterns](patterns.md) | Idempotency, the transactional outbox, the schema registry |
+| [Serialization](serialization.md) | JSON, XML, YAML, TOML, Avro, Protobuf |
+| [Streams](streams.md) | Append-only logs, offsets, replay |
+| [Request and reply](request-reply.md) | Asking a question over a broker, and when not to |
+| [Security](security.md) | TLS, credentials, and what is not built yet |
+| [Observability](observability.md) | Traces that cross the broker, metrics, and what to alert on |
+| [Testing](testing.md) | An in-memory broker, no Docker needed |
+| [Compatibility](compatibility.md) | What runs on RabbitMQ 3.13 as well as 4.x, and where the two brokers differ |
+| [Native image](native-image.md) | GraalVM ahead-of-time: what works, and the one thing you must configure |
 | [API reference](apidocs/index.html) | Javadoc for every module |
-| [Licence and warranty](licence.html) | Apache-2.0, what it disclaims, and where support comes from |
+| [Licence and warranty](licence.md) | Apache-2.0, what it disclaims, and where support comes from |
 
 ## What it is not
 
@@ -77,7 +77,7 @@ this one.
 
 **RabbitMQ 3.13 is supported as well as 4.x.** The whole integration suite passes
 on both, a CI job re-runs it against 3.13 on every pull request, and
-[compatibility](compatibility.html) records what was run and where the two
+[compatibility](compatibility.md) records what was run and where the two
 brokers differ. Nothing here needs 4.x.
 
 Coordinates and API shape may still move before 1.0, which is why artifacts are

@@ -71,7 +71,7 @@ matters:
 **A timeout is not a failure to handle the request.** Retrying is a decision
 about whether the responder is idempotent, not a reflex. Where the work is not
 idempotent — taking money, sending an email — a timeout is a question for a human
-or for a [shared idempotency store](reliability.html), not for a retry loop.
+or for a [shared idempotency store](reliability.md), not for a retry loop.
 
 `requestAsync` hands back a `CompletableFuture` with no timeout attached, because
 the timeout belongs to the caller. `orTimeout` is the usual way to add one.
@@ -117,7 +117,7 @@ identically. Go, Python and Ruby expose neither number: a responder there counts
 nothing. Ruby goes as far as defining `answered` and `timed_out` as telemetry
 outcome names, and nothing writes them — a constant no code reaches reads as a
 supported feature. `AceHeaders.CLAIM` was the same trap here until it became a
-real [envelope field](envelope.html); this one is still open.
+real [envelope field](envelope.md); this one is still open.
 
 Until that is closed, a dashboard that has to cover all five reads the
 responder's *consume* metrics instead — the queue is an ordinary queue and
@@ -146,6 +146,6 @@ blocked on the other side, and dropping it turns their call into a timeout.
 
 ## Related
 
-- [Publishing](publishing.html)
-- [Consuming](consuming.html)
-- [Reliability](reliability.html) — idempotency, which decides whether a timeout can be retried
+- [Publishing](publishing.md)
+- [Consuming](consuming.md)
+- [Reliability](reliability.md) — idempotency, which decides whether a timeout can be retried
