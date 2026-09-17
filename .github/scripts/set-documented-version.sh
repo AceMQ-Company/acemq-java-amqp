@@ -8,9 +8,15 @@
 # behind and told every reader to depend on something that was no longer current.
 # The release runs this instead.
 #
-# Every 0.x.y in these files is a reference to this library — checked, not
-# assumed — so a blanket rewrite is safe. Broker and JDK versions (3.13, 4, 17)
-# do not match the pattern.
+# Every three-segment 0.x.y in these files is a version somebody is meant to copy
+# — checked, not assumed — so a blanket rewrite is safe. Broker and JDK versions
+# (3.13, 4, 17) do not match the pattern.
+#
+# A reference to a *past* release is not a version to copy, and rewriting one
+# turns a true sentence into a false one ("since 0.5.0 all five write both" is
+# not a claim about the release being cut). Three of those had accumulated by
+# 0.6.0. Write history with two segments — `0.5`, `0.4` — which this pattern
+# deliberately does not match, and keep three segments for coordinates.
 set -euo pipefail
 
 VERSION="${1:-}"

@@ -155,7 +155,7 @@ dead-letter queue. Put either in the reserved namespace and the engine eats it o
 the way in. `acemq-reply-to`, `acemq-routing-slip` and the three replay stamps
 live here.
 
-**The replay three changed spelling in 0.5.0.** Up to and including 0.4 this
+**The replay three changed spelling in 0.5.** Up to and including 0.4 this
 library wrote `x-acemq-replayed-from`, `x-acemq-replayed-at` and
 `x-acemq-replay-count` — the reserved namespace, stripped on consume — so the one
 question replay provenance exists to answer, *did this message come back off a

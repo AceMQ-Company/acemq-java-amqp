@@ -41,7 +41,7 @@ A responder reads **the header first and the property second**. That order is th
 contract in all five libraries and it is not arbitrary. It comes from a split
 that is now closed: Go, Python and Ruby once wrote only the header, Java and .NET
 only the property, and a requester in one family could not be answered by a
-responder in the other. **Since 0.5.0 all five write both** — verified in the
+responder in the other. **Since 0.5 all five write both** — verified in the
 source rather than assumed. Writing both and reading either is what lets a
 requester in one language be answered by a responder in another, in both
 directions and whichever of the two is older. The

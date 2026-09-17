@@ -56,7 +56,7 @@ that needs 4.x.
 | Classic queues | Yes | Yes | Always declared durable |
 | Quorum queues | Yes | Yes | The default for `declareQueue`; needs 3.8+ |
 | Streams | Yes | Yes | Needs 3.9+ |
-| Stream segment size | Yes | Yes | `x-stream-max-segment-size-bytes`, added in 0.5.0 |
+| Stream segment size | Yes | Yes | `x-stream-max-segment-size-bytes`, added by this library in 0.5 |
 | Retry ladder | Yes | Yes | Built from `x-message-ttl` and `x-dead-letter-exchange` |
 | Dead-letter and parking queues | Yes | Yes | |
 | Replay | Yes | Yes | |
