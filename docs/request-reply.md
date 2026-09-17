@@ -108,7 +108,18 @@ over during start-up — what a queue with a backlog looks like from in here —
 counted like any other. Neither number needs a wait before it can be trusted, and
 code that sleeps before reading one is working around a defect that is fixed.
 
-All five libraries promise this, and they promise it identically.
+**Two libraries promise this, not five.** Java and .NET expose `answered` and
+`unanswerable` with the ordering described above, and they promise it
+identically. Go, Python and Ruby expose neither number: a responder there counts
+nothing. Ruby goes as far as defining `answered` and `timed_out` as telemetry
+outcome names, and nothing writes them — a constant no code reaches reads as a
+supported feature, which is the same trap `AceHeaders.CLAIM` sets in this
+library.
+
+Until that is closed, a dashboard that has to cover all five reads the
+responder's *consume* metrics instead — the queue is an ordinary queue and
+`acemq.messages.consumed.total` counts it — and the request span carries the
+round trip. Neither is as direct as the counters, and both work everywhere.
 
 ## Concurrency
 
