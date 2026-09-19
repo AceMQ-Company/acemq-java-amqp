@@ -176,6 +176,25 @@ dead every time an alarm fires gets restarted by its orchestrator while the
 broker is recovering on its own. Consuming deliberately keeps working while
 publishing is blocked — draining queues is how the broker gets out of the alarm.
 
+### Do not ask the broker anything in a health check
+
+`isOpen()`, `isBlocked()`, `blockedReason()` and `inFlight()` are answered from
+state the connection already holds. None of them costs a round trip, which is
+what makes them safe to call from a probe: they answer in microseconds whatever
+the broker is doing.
+
+A probe that instead asks the broker a question — a passive queue declare, a
+`messageCount`, anything with a reply — **hangs on exactly the connection you most
+need to hear about.** A blocked connection is one RabbitMQ has stopped reading
+from, so the question is never delivered and no answer ever comes back. The check
+then sits there until something else times out, and a generic `catch` turns that
+into a *down* report for a broker that is up and talking. The blocked-aware logic
+underneath never runs, because nothing gets that far.
+
+So a readiness check reads the facts above and returns. The broker having told
+you it blocked you, over that socket, is livelier proof than any declare you
+could send it.
+
 ## Cross-cutting concerns
 
 Anything that belongs on *every* message goes in an interceptor rather than in

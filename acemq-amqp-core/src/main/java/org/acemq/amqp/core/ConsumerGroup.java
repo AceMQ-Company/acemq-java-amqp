@@ -62,8 +62,18 @@ public final class ConsumerGroup implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerGroup.class);
 
-    /** How long a consumer being removed is given to finish what it is holding. */
-    private static final Duration DEFAULT_DRAIN_TIMEOUT = Duration.ofSeconds(30);
+    /**
+     * How long a <em>set</em> of consumers being stopped is given to finish what it is holding,
+     * in total.
+     *
+     * <p>Twenty seconds rather than thirty, and shared rather than per consumer, because the
+     * number this has to fit inside is Kubernetes' default {@code terminationGracePeriodSeconds}
+     * of 30. A budget handed to each consumer in turn is not a budget: eight consumers at thirty
+     * seconds each is four minutes of a thirty-second grace period, at the end of which the pod
+     * is killed anyway and every message still held is redelivered — the exact outcome draining
+     * exists to avoid, arrived at slowly.
+     */
+    private static final Duration DEFAULT_DRAIN_TIMEOUT = Duration.ofSeconds(20);
 
     private final String queue;
     private final Supplier<MessageConsumer> factory;
@@ -96,7 +106,7 @@ public final class ConsumerGroup implements AutoCloseable {
     }
 
     /**
-     * @param timeout how long a consumer being removed may take to finish its work
+     * @param timeout how long the consumers being removed have between them to finish their work
      * @return this group
      */
     public ConsumerGroup drainTimeout(Duration timeout) {
@@ -153,11 +163,11 @@ public final class ConsumerGroup implements AutoCloseable {
             // ones with warm connections and whatever caches the handler keeps.
             removed.add(members.remove(members.size() - 1));
         }
+        if (!drainWithin(removed, drainTimeout)) {
+            log.warn("consumers removed from the group on {} did not all finish within {}; what they still held"
+                    + " will be redelivered", queue, drainTimeout);
+        }
         for (MessageConsumer consumer : removed) {
-            if (!consumer.drain(drainTimeout)) {
-                log.warn("a consumer removed from the group on {} did not finish within {}; its messages will be"
-                        + " redelivered", queue, drainTimeout);
-            }
             consumer.close();
         }
         log.info("consumer group on {} shrank by {} to {}", queue, howMany, members.size());
@@ -209,31 +219,61 @@ public final class ConsumerGroup implements AutoCloseable {
     }
 
     /**
-     * Stops every member, letting each finish what it holds.
+     * Stops every member, letting them finish what they hold.
      *
-     * @param timeout how long to wait in total
+     * @param timeout how long to wait in total, shared by every member
      * @return whether everything finished in time
      */
     public boolean drain(Duration timeout) {
-        boolean quiet = true;
-        for (MessageConsumer consumer : members) {
-            quiet &= consumer.drain(timeout);
-        }
-        return quiet;
+        return drainWithin(members, timeout);
     }
 
     @Override
     public void close() {
+        closeWithin(drainTimeout);
+    }
+
+    /**
+     * Closes the group, giving every member together at most {@code budget} to finish.
+     *
+     * <p>Separate from {@link #close()} so that a caller stopping several groups at once can
+     * hand out what is left of one budget rather than a fresh one per group, which is the same
+     * multiplication this class avoids internally, one level up.
+     *
+     * @param budget the whole time the group's members have between them
+     */
+    void closeWithin(Duration budget) {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
         synchronized (resizeLock) {
+            if (!drainWithin(members, budget)) {
+                log.warn("the consumer group on {} did not finish within {}; what it still held will be"
+                        + " redelivered", queue, budget);
+            }
             for (MessageConsumer consumer : members) {
-                consumer.drain(drainTimeout);
                 consumer.close();
             }
             members.clear();
         }
+    }
+
+    /**
+     * Drains consumers in turn against one deadline rather than giving each the full timeout.
+     *
+     * <p>Every consumer is still visited even once the deadline has passed, because draining
+     * cancels the subscription before it waits: a consumer skipped entirely would keep taking
+     * new work while the rest of the group shut down. What it loses past the deadline is the
+     * waiting, not the stopping.
+     */
+    private boolean drainWithin(List<MessageConsumer> consumers, Duration budget) {
+        long deadline = System.nanoTime() + budget.toNanos();
+        boolean quiet = true;
+        for (MessageConsumer consumer : consumers) {
+            long remaining = deadline - System.nanoTime();
+            quiet &= consumer.drain(Duration.ofNanos(Math.max(0L, remaining)));
+        }
+        return quiet;
     }
 
     @Override

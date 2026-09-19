@@ -63,6 +63,15 @@ public final class AceMq implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(AceMq.class);
 
     /**
+     * The whole time {@link #close()} may spend waiting for work in progress, shared by
+     * everything it has to stop.
+     *
+     * <p>Twenty seconds, to leave room inside Kubernetes' default thirty-second
+     * {@code terminationGracePeriodSeconds} for the rest of an orderly shutdown.
+     */
+    private static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(20);
+
+    /**
      * The broker argument naming how large a stream's segment files get.
      *
      * <p>Spelled out because it is the same string in Go, Python and Ruby, and a stream declared
@@ -915,14 +924,40 @@ public final class AceMq implements AutoCloseable {
 
     @Override
     public void close() {
+        close(DEFAULT_SHUTDOWN_TIMEOUT);
+    }
+
+    /**
+     * Closes the connection, giving everything still working at most {@code budget} in total.
+     *
+     * <p>The budget is shared, and that is the whole point of the parameter. Consumer groups
+     * drain before they close, and a connection that handed each group its own full timeout
+     * would take as long as the number of groups multiplied by it — a figure nobody chose,
+     * quietly larger than whatever grace period the caller is shutting down inside.
+     *
+     * <p>Consumers that are not in a group are cancelled without waiting, as they always have
+     * been; what they hold is redelivered.
+     *
+     * @param budget the whole time this close may spend waiting for work in progress
+     */
+    public void close(Duration budget) {
+        Objects.requireNonNull(budget, "budget");
         if (!closed.compareAndSet(false, true)) {
             return;
         }
-        // Consumers stop before the connection goes, so in-flight deliveries settle rather
-        // than becoming redeliveries on the next start-up.
+        // Everything stops before the connection goes, so deliveries already dispatched settle
+        // rather than becoming redeliveries on the next start-up. Groups drain first and are
+        // handed what is left of the one budget, in turn, so that the cost of shutting down is
+        // the budget rather than the budget multiplied by however many groups there happen to be.
+        long deadline = System.nanoTime() + budget.toNanos();
         for (AutoCloseable closeable : managed) {
             try {
-                closeable.close();
+                if (closeable instanceof ConsumerGroup) {
+                    Duration remaining = Duration.ofNanos(Math.max(0L, deadline - System.nanoTime()));
+                    ((ConsumerGroup) closeable).closeWithin(remaining);
+                } else {
+                    closeable.close();
+                }
             } catch (Exception e) {
                 log.debug("ignoring error while closing {}", closeable, e);
             }

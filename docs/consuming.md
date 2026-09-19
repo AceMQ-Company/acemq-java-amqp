@@ -42,6 +42,30 @@ group.prefetch(50);     // also at runtime
 Scaling down drains: the consumers being removed stop taking new messages and
 finish what they are holding.
 
+## Shutting down
+
+Draining has a budget, and the budget is a **total** rather than an allowance per
+consumer:
+
+```java
+group.drainTimeout(Duration.ofSeconds(20));   // the default
+
+mq.close();                                   // spends 20 seconds in total
+mq.close(Duration.ofSeconds(10));             // or whatever your grace period leaves
+```
+
+Twenty seconds because the number it has to fit inside is usually Kubernetes'
+default `terminationGracePeriodSeconds` of 30. Handing the figure out again to
+each consumer in turn would not be a budget at all: eight consumers at twenty
+seconds each is nearly three minutes, the pod is killed at thirty seconds, and
+everything still held is redelivered — which is the outcome draining exists to
+avoid, reached slowly. One deadline is shared by every consumer in a group, and
+by every group on a connection.
+
+Consumers whose share of the deadline is already gone are still **stopped**; they
+are simply not waited for. Skipping them entirely would leave consumers taking
+new work while the rest of the application shut down around them.
+
 ## Ordering
 
 Competing consumers process in parallel, which means out of order. When order

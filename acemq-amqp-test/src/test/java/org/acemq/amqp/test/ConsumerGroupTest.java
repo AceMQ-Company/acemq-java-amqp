@@ -295,4 +295,88 @@ class ConsumerGroupTest {
             }
         }
     }
+
+    /**
+     * What a shutdown costs when several consumers are all still holding work.
+     *
+     * <p>The drain timeout is a budget for stopping, and a budget that is handed out again to
+     * each consumer in turn is not one. Eight consumers at the old thirty seconds each came to
+     * four minutes, inside a grace period of thirty seconds — after which the process is killed
+     * and everything still held is redelivered anyway, which is the outcome draining exists to
+     * avoid. These tests pin the total rather than the per-consumer figure, because the total is
+     * the number that has to fit.
+     */
+    @Nested
+    @DisplayName("shutting down with work in flight")
+    class ShuttingDown {
+
+        private final int consumers = 8;
+        private final Duration budget = Duration.ofMillis(500);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        @AfterEach
+        void releaseHandlers() {
+            release.countDown();
+        }
+
+        /** A handler that holds its message until the test lets go, so nothing drains early. */
+        private void hold() {
+            try {
+                release.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Test
+        @Timeout(60)
+        @DisplayName("the drain timeout is the total, not an allowance per consumer")
+        void draining_a_group_shares_one_deadline() {
+            connect("group-drain-budget");
+            ConsumerGroup group = mq.consumeGroup("orders.new", String.class, message -> hold())
+                    .concurrency(consumers)
+                    .prefetch(1)
+                    .start();
+
+            publish(consumers);
+            await().atMost(Duration.ofSeconds(20)).until(() -> group.inFlight() == consumers);
+
+            long startedAt = System.nanoTime();
+            boolean quiet = group.drain(budget);
+            Duration took = Duration.ofNanos(System.nanoTime() - startedAt);
+
+            assertThat(quiet)
+                    .as("nothing finished, because every handler is still being held")
+                    .isFalse();
+            assertThat(took)
+                    .as("eight consumers given %s each would have taken %s", budget, budget.multipliedBy(consumers))
+                    .isLessThan(budget.multipliedBy(3));
+            assertThat(took)
+                    .as("it should still have spent the budget waiting, rather than abandoning the work at once")
+                    .isGreaterThanOrEqualTo(budget.dividedBy(2));
+        }
+
+        @Test
+        @Timeout(60)
+        @DisplayName("a consumer whose share of the budget is gone is still stopped, just not waited for")
+        void a_consumer_past_the_deadline_is_still_cancelled() {
+            connect("group-drain-exhausted");
+            ConsumerGroup group = mq.consumeGroup("orders.new", String.class, message -> hold())
+                    .concurrency(consumers)
+                    .prefetch(1)
+                    .start();
+
+            publish(consumers);
+            await().atMost(Duration.ofSeconds(20)).until(() -> group.inFlight() == consumers);
+
+            // The first consumer spends the whole budget, so every later one is visited with
+            // nothing left. Skipping them would leave consumers still taking new work while the
+            // group shut down around them, which is worse than not waiting for them.
+            group.drain(budget);
+
+            publish(consumers);
+            // Nothing new is picked up: what is in flight is what was in flight before.
+            assertThat(group.inFlight()).isEqualTo(consumers);
+        }
+    }
 }

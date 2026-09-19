@@ -8,6 +8,59 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+- **A shutdown budget is now spent once in total rather than once per consumer
+  and once per group.** `ConsumerGroup.close()` gave every member the full drain
+  timeout in turn, and `AceMq.close()` gave every group its own on top of that,
+  so the cost of stopping was the timeout multiplied by however many consumers
+  and groups an application happened to have. Nothing chose those totals and
+  nothing reported them. Measured against a real broker with three groups of two
+  consumers all mid-message and a five-second drain timeout each: **15.047 s
+  before, 0.818 s after** against a supplied budget of 800 ms.
+
+  The number this has to fit inside is Kubernetes' default
+  `terminationGracePeriodSeconds` of 30, and a budget that multiplies does not
+  fit it: eight consumers at the old thirty seconds each came to four minutes,
+  at the end of which the pod is killed anyway and every message still held is
+  redelivered — the exact outcome draining exists to avoid, arrived at slowly.
+  One deadline is now shared by every consumer in a group and by every group on
+  a connection, and the default is **20 s, down from 30 s**, to leave room inside
+  that grace period for the rest of an orderly shutdown.
+
+  `ConsumerGroup.drain(Duration)` already documented its argument as "how long to
+  wait in total" and did not behave that way; it does now. Consumers reached
+  after the deadline has passed are still cancelled, just not waited for —
+  skipping them would leave consumers taking new work while the application shut
+  down around them.
+
+### Added
+- **`AceMq.close(Duration)`, which closes the connection inside a budget the
+  caller supplies.** `close()` is unchanged in spelling and now means
+  `close(Duration.ofSeconds(20))`. Applications that know their own grace period
+  — an orchestrator's, a test's — can say so rather than inherit a default
+  chosen for somebody else's deployment.
+- **Two integration tests that run against a broker under a genuine memory
+  alarm, `BlockedHealthIT` and `GracefulShutdownIT`.** Sibling libraries shipped
+  a health check that reported a blocked connection correctly in principle and
+  hung in practice, because the check asked the broker a question first; a
+  blocked connection is one RabbitMQ has stopped reading from, so the question
+  never arrived and the careful blocked-aware branch never ran. **Java did not
+  have that defect** — the facts a health check reads are answered from state the
+  connection already holds — but nothing proved it, and a property nothing tests
+  is a property that survives until it does not.
+
+  `BlockedHealthIT` times the five facts a health indicator reads against a real
+  `connection.blocked`: **32.6 µs**. It then shows, on that same connection, that
+  a passive queue declare had still not returned after 5 s and only completed
+  once the alarm cleared — without which the first measurement would pass just as
+  happily against a broker that was never blocked, and would prove nothing.
+
+### Changed
+- **`docs/publishing.md` says plainly that a health check must not ask the broker
+  anything, and `docs/consuming.md` documents the shutdown budget** — that it is
+  a total rather than an allowance per consumer, what the twenty seconds is
+  measured against, and that a consumer past the deadline is still stopped.
+
 ## [0.6.0] - 2026-09-17
 
 ### Added
