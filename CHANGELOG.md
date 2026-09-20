@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-20
+
 ### Security
 - **`com.rabbitmq:amqp-client` moves 5.33.1 → 5.36.0, closing CVE-2026-75516
   (GHSA-jh4v-gfqj-7rhx), an unbounded allocation in the client's connection
