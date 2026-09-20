@@ -16,7 +16,6 @@
 package org.acemq.amqp.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,7 +24,6 @@ import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 
-import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.codec.avro.AvroCodec;
 import org.acemq.amqp.codec.avro.InMemorySchemaRegistry;
 import org.acemq.amqp.test.avro.ResolutionOrder;
@@ -214,25 +212,51 @@ class AvroResolutionTest {
     }
 
     @Test
-    @DisplayName("recorded, not endorsed: asking a registry codec for the generated class itself fails")
-    void handing_the_generated_class_in_as_the_decode_target_does_not_come_back() {
-        // Worth pinning because it is the obvious thing to try and because the failure is not
-        // obvious. AvroCodec takes its reader schema from a SpecificRecord target, so the
-        // resolution below really does happen -- and then a registry codec builds a
-        // GenericDatumReader, which produces a GenericData.Record, which is not the class that
-        // was asked for. The resolved column is reachable with the same schema through
-        // registered(registry, ResolutionOrder.SCHEMA$), which is what the tests above use and
-        // what docs/serialization.md tells a caller to write.
+    @DisplayName("asking a registry codec for the generated class returns the generated class, "
+            + "resolved against its own schema")
+    void the_generated_class_can_be_the_decode_target() {
+        // This threw until the codec stopped choosing its reader from how it was built.
         //
-        // No behaviour is changed here. This records where the edge is, in the same spirit as the
-        // disagreements recorded rather than resolved in contract-fixtures.json, so that the next
-        // person to meet it finds a test instead of an afternoon.
+        // AvroCodec has always taken the reader schema from a SpecificRecord target, so the
+        // resolution below always happened. What did not happen was reading into the class: a
+        // registry codec built a GenericDatumReader whatever it was asked for, produced a
+        // GenericData.Record, and failed the cast with a ClassCastException naming two types the
+        // caller had never mentioned. The reader is now chosen from the target, which is the same
+        // thing the reader schema is chosen from and the same thing the cast is against.
+        //
+        // Passing a generated class is the obvious thing to try, so it should be the thing that
+        // works rather than the thing with a test explaining why it does not.
         JsonNode entry = fixtureCase("field-removed-by-the-writer");
 
-        assertThatThrownBy(() -> AvroCodec.registered(registryFor(entry))
-                .decode(body(entry), ResolutionOrder.class))
-                .isInstanceOf(AceMqException.class)
-                .hasMessageContaining("could not decode a message as")
-                .hasCauseInstanceOf(ClassCastException.class);
+        ResolutionOrder decoded = AvroCodec.registered(registryFor(entry))
+                .decode(body(entry), ResolutionOrder.class);
+
+        // The generated class itself came back, which is the whole point: before the fix this
+        // line was a ClassCastException inside an AceMqException.
+        assertThat(decoded).isInstanceOf(ResolutionOrder.class);
+
+        // And it resolved: "GBP" is in no message and in no writer schema, and exists only as
+        // the reader schema's default.
+        assertThat(decoded.get("currency"))
+                .as("the field the writer does not have, filled in from the generated class's default")
+                .hasToString("GBP");
+        assertMatches(decoded, entry.get("resolved"), "resolved");
+    }
+
+    @Test
+    @DisplayName("the same class through the explicit reader-schema overload agrees with it")
+    void the_explicit_reader_schema_overload_gives_the_same_answer() {
+        // The two routes to the same place must not disagree. Before the fix only this one
+        // worked, so nothing compared them, and a divergence would have gone unseen.
+        JsonNode entry = fixtureCase("field-removed-by-the-writer");
+
+        ResolutionOrder viaTarget = AvroCodec.registered(registryFor(entry))
+                .decode(body(entry), ResolutionOrder.class);
+        ResolutionOrder viaSchema = AvroCodec.registered(registryFor(entry), ResolutionOrder.SCHEMA$)
+                .decode(body(entry), ResolutionOrder.class);
+
+        assertThat(viaTarget)
+                .as("the target's schema and the same schema passed explicitly decode alike")
+                .isEqualTo(viaSchema);
     }
 }

@@ -35,6 +35,7 @@ import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.EncoderFactory;
+import org.apache.avro.specific.SpecificData;
 import org.apache.avro.specific.SpecificDatumReader;
 import org.apache.avro.specific.SpecificDatumWriter;
 import org.apache.avro.specific.SpecificRecord;
@@ -249,8 +250,24 @@ public final class AvroCodec implements Codec {
             // it resolves the difference, so a field the writer added and the reader does not
             // know is skipped rather than shifting every field after it.
             Schema readerSchema = readerSchemaFor(target, writerSchema);
-            DatumReader<Object> reader = specific
-                    ? new SpecificDatumReader<>(writerSchema, readerSchema)
+            // The target decides which reader to build, not how the codec was constructed.
+            //
+            // readerSchemaFor above already looks at the target: hand it a generated class and it
+            // takes that class's schema as the reader schema, so the resolution happens correctly.
+            // Choosing the reader from the codec's own flag then threw that away. A codec built
+            // with registered(registry) has specific=false, so it resolved onto the generated
+            // class's schema and handed back a GenericData.Record, and the cast below failed with
+            // a ClassCastException naming two types the caller never mentioned. The two decisions
+            // have to be made from the same thing, and the target is that thing, because the cast
+            // at the end of this method is against the target and nothing else.
+            boolean readSpecific = specific || SpecificRecord.class.isAssignableFrom(target);
+            DatumReader<Object> reader = readSpecific
+                    // The target's own loader, not SpecificData.get()'s. The default resolves a
+                    // schema's full name through the loader that happened to load Avro, which in a
+                    // container or a Spring Boot fat jar is not the one that has the generated
+                    // class, and the miss is silent: SpecificDatumReader falls back to a
+                    // GenericData.Record and the cast fails exactly as it did before.
+                    ? new SpecificDatumReader<>(writerSchema, readerSchema, new SpecificData(target.getClassLoader()))
                     : new GenericDatumReader<>(writerSchema, readerSchema);
             BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(body, offset, body.length - offset, null);
             Object decoded = reader.read(null, decoder);

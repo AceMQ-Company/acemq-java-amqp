@@ -8,6 +8,30 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+- **A registry-backed `AvroCodec` can now decode into a generated
+  `SpecificRecord` class.** `AvroCodec.registered(registry).decode(body,
+  MyRecord.class)` threw `ClassCastException` wrapped in an `AceMqException`
+  naming two types the caller had never mentioned.
+
+  The codec already took its reader schema from the target, so the resolution
+  was correct — a field the writer had dropped arrived with the generated
+  class's default, exactly as intended. What it then did was pick the reader
+  implementation from how the codec had been *constructed* rather than from what
+  was *asked for*: `registered(...)` builds with `specific = false`, so a
+  `GenericDatumReader` produced a `GenericData.Record`, and the cast at the end
+  of `decode` failed. Two decisions made from two different facts.
+
+  The reader is now chosen from the target, which is what the reader schema is
+  chosen from and what the final cast is against. It also resolves the generated
+  class through the target's own class loader rather than the one that happened
+  to load Avro, because the default lookup fails silently in a fat jar or a
+  container and lands back on the same `GenericData.Record`.
+
+  The workaround — naming the schema explicitly via
+  `registered(registry, MyRecord.SCHEMA$)` — still works and is unchanged. A
+  test now asserts the two routes agree.
+
 ## [0.7.1] - 2026-09-20
 
 ### Security
