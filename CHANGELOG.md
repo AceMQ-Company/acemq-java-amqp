@@ -32,7 +32,49 @@ While the version is `0.x` the public API may change in any release.
   own channel and its own `basicQos`, so `prefetch(1)` on a group of two means
   one message per consumer, not one per group.
 
-## [0.7.0] - 2026-09-18
+### Security
+- **`com.rabbitmq:amqp-client` moves 5.33.1 → 5.36.0, closing CVE-2026-75516
+  (GHSA-jh4v-gfqj-7rhx), an unbounded allocation in the client's connection
+  handshake.** After `connection.tune`, the client capped the inbound frame
+  payload with `Math.min(maxInboundMessageBodySize, frameMax)`. In AMQP a
+  `frame_max` of zero means *no limit*, so when the negotiation settled on zero
+  that `Math.min` selected the zero and switched off the 64 MB body cap it was
+  meant to be tightening. A single frame could then ask for up to
+  `Integer.MAX_VALUE` bytes and take the process down with an
+  `OutOfMemoryError`.
+
+  **This library was exposed, in the sense that it never opted out.** It sets
+  neither `requestedFrameMax` nor `maxInboundMessageBodySize`, so every
+  connection it opens inherits the client defaults — and the client's default
+  `requestedFrameMax` is zero. Firing the bug needs the *peer* to send zero as
+  well, because the negotiation takes the larger value when either side says
+  "unlimited". A stock broker ships `frame_max = 131072` and so negotiates
+  131072, which is why this is not a thing an ordinary deployment hits; reaching
+  it takes a broker configured with `frame_max = 0`, or something impersonating
+  one on the wire. A narrower door than the severity suggests — but a door this
+  library left unlocked, not one it never built.
+
+  No AceMQ code changes. Applications that take the client version from this
+  library get the fix by upgrading; applications that pin
+  `com.rabbitmq:amqp-client` themselves have to move to 5.34.0 or later on their
+  own, because their pin wins over ours.
+
+  The version is declared in one place, `rabbitmq.amqp.client.version` in the
+  root POM, and reaches `acemq-transport-rabbitmq` and `acemq-amqp-benchmarks`
+  through `dependencyManagement`. 5.36.0 rather than the minimum 5.34.0 because
+  it is the head of the line: the two releases after the fix are maintenance
+  only, declare themselves compatible, and harden the same negotiation and
+  table-parsing paths further. The dependency shape is unchanged — Netty was
+  already a compile-scope transitive of 5.33.1, and comes along at 4.2.18 rather
+  than 4.2.15.
+
+  The full suite passes on JDK 21 against RabbitMQ 4.x and again against 3.13,
+  which is the part that mattered: a transport bump can move reconnection,
+  confirm and dispatch behaviour without a unit test noticing. `HandlerConcurrencyIT`,
+  `GracefulShutdownIT` and `BlockedHealthIT` — the consumer dispatch pool, the
+  shutdown budget, and blocked-connection handling — are green on both brokers.
+
+## [0.7.0] - 2026-09-20
 
 ### Fixed
 - **A shutdown budget is now spent once in total rather than once per consumer
