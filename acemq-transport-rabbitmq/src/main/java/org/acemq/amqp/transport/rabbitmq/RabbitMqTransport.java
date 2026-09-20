@@ -19,7 +19,11 @@ import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.acemq.amqp.api.Capability;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -176,10 +180,49 @@ public final class RabbitMqTransport implements Transport {
         factory.setTopologyRecoveryEnabled(true);
         factory.setNetworkRecoveryInterval(TimeUnit.SECONDS.toMillis(5));
 
+        ExecutorService dispatch = dispatchPool(config.clientName());
+        factory.setSharedExecutor(dispatch);
+
         try {
-            return new RabbitMqConnection(factory.newConnection(config.clientName()), config);
+            return new RabbitMqConnection(factory.newConnection(config.clientName()), config, dispatch);
         } catch (Exception e) {
+            dispatch.shutdownNow();
             throw new TransportException("could not connect to " + config.url(), e);
         }
+    }
+
+    /**
+     * The pool every handler on this connection runs on.
+     *
+     * <p>Supplied rather than left to the client, and that is a correctness fix rather than
+     * tuning. Left alone, the RabbitMQ client dispatches consumers on a fixed pool of
+     * {@code availableProcessors()} threads, shared by every channel on the connection — so the
+     * number of handlers that can run at the same time is the size of the machine, whatever
+     * concurrency was asked for. On a four-core pod, ten consumers at {@code concurrency(10)}
+     * ran four at a time and the other six waited, silently, with no configuration anywhere
+     * saying so.
+     *
+     * <p>That cap is wrong for what this library says concurrency is for: handlers that spend
+     * their time waiting on a database or an HTTP call, where the right number is the number
+     * the caller asked for and has nothing to do with cores. So the pool grows on demand and
+     * lets idle threads go after a minute.
+     *
+     * <p>Unbounded in form only. The client dispatches at most one delivery per channel at a
+     * time and each consumer holds its own channel, so the thread count cannot exceed the number
+     * of consumers the application itself created.
+     */
+    private static ExecutorService dispatchPool(String clientName) {
+        AtomicInteger counter = new AtomicInteger();
+        return new ThreadPoolExecutor(
+                0,
+                Integer.MAX_VALUE,
+                60L,
+                TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
+                // Not daemon threads, matching what the client would have created: a handler
+                // part-way through a message should not be abandoned by an exiting JVM. Nothing
+                // is pinned by this either way -- the core size is zero, so every thread here is
+                // reclaimed once it has been idle for a minute.
+                runnable -> new Thread(runnable, "acemq-consumer-" + clientName + "-" + counter.incrementAndGet()));
     }
 }

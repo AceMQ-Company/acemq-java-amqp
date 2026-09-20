@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -74,6 +75,15 @@ final class RabbitMqConnection implements TransportConnection {
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
+     * The pool every handler on this connection runs on.
+     *
+     * <p>Owned here because the client only shuts down a dispatch pool it created itself, and
+     * this one was handed to it. Left to expire on its own, its threads would outlive every
+     * connection that ever used one.
+     */
+    private final ExecutorService dispatch;
+
+    /**
      * The broker's reason for refusing publishes, or null when it is accepting them.
      *
      * <p>Guarded by {@link #blockedLock} for waiting, and volatile so a reader asking
@@ -98,9 +108,10 @@ final class RabbitMqConnection implements TransportConnection {
 
     private final java.util.concurrent.Semaphore outstanding;
 
-    RabbitMqConnection(Connection connection, ConnectionConfig config) {
+    RabbitMqConnection(Connection connection, ConnectionConfig config, ExecutorService dispatch) {
         this.connection = connection;
         this.config = config;
+        this.dispatch = dispatch;
         this.outstanding = new java.util.concurrent.Semaphore(config.maxOutstandingPublishes());
         try {
             this.publishChannel = connection.createChannel();
@@ -461,6 +472,11 @@ final class RabbitMqConnection implements TransportConnection {
         } catch (IOException e) {
             log.debug("ignoring error while closing the connection", e);
         }
+        // After the connection, so anything the client still wanted to dispatch during shutdown
+        // has somewhere to run. Not awaited: everything that had to finish was drained before
+        // close() was reached, and a handler still running past that point is one the caller
+        // has already decided not to wait for.
+        dispatch.shutdown();
     }
 
     private AMQP.BasicProperties properties(OutboundMessage message) {

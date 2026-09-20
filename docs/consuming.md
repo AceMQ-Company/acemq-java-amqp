@@ -42,6 +42,13 @@ group.prefetch(50);     // also at runtime
 Scaling down drains: the consumers being removed stop taking new messages and
 finish what they are holding.
 
+The number you ask for is the number that runs. Handlers dispatch on a pool that
+grows to fit the consumers on the connection, so `consumers(40)` waiting on a
+payment gateway is forty handlers at once on a two-core pod, not two. This is
+worth stating because the RabbitMQ Java client does the opposite left alone: its
+default dispatch pool has one thread per core, shared by every consumer on the
+connection, and the surplus consumers wait with nothing reporting that they are.
+
 ## Shutting down
 
 Draining has a budget, and the budget is a **total** rather than an allowance per

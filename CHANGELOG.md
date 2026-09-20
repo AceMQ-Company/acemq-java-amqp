@@ -8,6 +8,30 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+- **Concurrency is now the number of handlers that actually run at once, rather
+  than the number of cores the machine has.** The RabbitMQ transport left the
+  client to supply its own consumer dispatch pool, which is a fixed
+  `availableProcessors()` threads shared by every channel on the connection. So
+  the ceiling on concurrent handlers was the size of the machine, across every
+  consumer and every group together, whatever concurrency was asked for: on a
+  four-core pod, ten consumers at `concurrency(10)` ran four and the other six
+  waited. Nothing said so — the consumers existed, the broker had delivered to
+  them, and the handlers had not started.
+
+  That cap is wrong for what concurrency is for here. It is the knob for handlers
+  that spend their time waiting on a database or an HTTP call, where the right
+  number is the one the caller chose and has nothing to do with cores. The
+  transport now supplies a pool that grows on demand and releases threads idle
+  for a minute, and closes it with the connection. Unbounded in form only: the
+  client dispatches at most one delivery per channel at a time and each consumer
+  holds its own channel, so the thread count cannot exceed the number of
+  consumers the application itself created.
+
+  Prefetch is unaffected and was never the cause — each consumer already gets its
+  own channel and its own `basicQos`, so `prefetch(1)` on a group of two means
+  one message per consumer, not one per group.
+
 ## [0.7.0] - 2026-09-18
 
 ### Fixed
