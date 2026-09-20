@@ -184,7 +184,7 @@ therefore how often there is one. Nothing about the bytes differs.
 | Library | Resolves | Where its reader schema comes from |
 |---|---|---|
 | Go | When asked | A Go struct carries no schema, so there is nothing to resolve onto until the caller passes `avro.ReaderSchema(...)` |
-| Java | Sometimes | A generated `SpecificRecord` class carries a schema of its own, and `AvroCodec.registered(registry, readerSchema)` is handed one. A `GenericRecord` through a plain registry codec asks for nothing in particular, so the reader schema is the writer's and nothing resolves |
+| Java | Sometimes | Resolution needs a reader schema, and there are two ways to supply one: `AvroCodec.registered(registry, readerSchema)`, or a generated `SpecificRecord` as the decode target, which carries its schema with it. A `GenericRecord` through a plain registry codec supplies neither, so the reader schema is the writer's and nothing resolves |
 | .NET | By default | The codec is constructed with a schema, so there is always one to resolve onto unless the caller declines it: `Registered(registry, schema, readerSchema)` reads against a different schema than it writes, and `WithoutReaderSchema()` leaves the codec none at all |
 | Python | By default | The codec is constructed with a schema, and that schema is the reader schema unless `reader_schema=` names another. A fixed-schema `AvroCodec(schema)` has no registry to learn a writer schema from, so there is nothing per message to resolve |
 | Ruby | By default | `registered(...)` is constructed with a schema, and that schema is the reader schema unless `reader_schema:` names another. `AvroCodec.of` fixes one schema for the codec's whole life, reads what it writes, and resolves nothing |
@@ -226,11 +226,23 @@ producer without its consumers is the whole point of putting a schema id on the
 front of the message, and resolution is the half of that which happens on the
 read side.
 
-One edge worth knowing before you meet it: hand a generated class in as the
-decode target of a registry codec — `decode(body, OrderPlaced.class)` — and the
-resolution happens but the record cannot be handed back as that class, so the
-call fails. Name the class's schema instead, as above, and decode into
-`GenericRecord`.
+A generated class can also be the decode target directly:
+
+```java
+OrderPlaced order = AvroCodec.registered(registry)
+        .decode(body, OrderPlaced.class);
+```
+
+The class carries its own schema, so that schema is the reader schema and the
+resolution is the same one described above — you simply do not have to name it
+twice. Both routes give the same record; use whichever reads better where you
+are. Naming the schema explicitly is still the only option when the reader
+schema is not a generated class.
+
+(Through the 0.7 line this threw a `ClassCastException`: the resolution
+happened, but a registry codec always built a generic reader and the result
+could not be handed back as the class asked for. On those versions, name the
+schema.)
 
 ## Your own format
 
