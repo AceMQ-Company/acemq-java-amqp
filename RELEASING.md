@@ -21,18 +21,25 @@ the documentation site is part of the release rather than a nicety.
 
 ## Which number
 
-**Stay on `0.2.x` until 1.0.** Releases are `0.2.1`, `0.2.2`, and so on; the minor
-number does not move again until the API is settled enough to call it `1.0.0`.
+**The minor number moves with each release: `0.3.0`, `0.4.0`, `0.5.0`, `0.6.0`,
+`0.7.0`.** The patch number is for a fix cut on top of a release that is already
+out, which is what `0.2.1` through `0.2.10` were; it has not been needed since.
 
-That is deliberate, and it is not quite semantic versioning. A `0.2.x` release
-here may change the API — the changelog has always said so ("while the version is
-`0.x` the public API may change in any release"), and semver explicitly leaves
-`0.y.z` outside its compatibility guarantees. What the policy buys is a version
-number that stops implying the API has stabilised before it has. `0.9.0` reads as
-"nearly there"; `0.2.7` reads as what it is.
+This used to say the opposite — stay on `0.2.x` until 1.0, so that the version
+number never implied the API had stabilised before it had. That policy was
+abandoned at `0.3.0` and the page was not updated, so it spent four releases
+telling the next releaser to cut a patch. What it was protecting against is
+covered by saying the thing outright instead: **while the version is `0.x` the
+public API may change in any release**, which is what the changelog says at the
+top and what semver means by leaving `0.y.z` outside its compatibility
+guarantees. A moving minor number is the honest signal that a release did change
+things.
 
-The corollary: **anything depending on AceMQ before 1.0 should pin an exact
-version**, not a range.
+The corollary is unchanged: **anything depending on AceMQ before 1.0 should pin
+an exact version**, not a range.
+
+The five libraries release together on one number, so the minor here moves when
+the others move, whether or not this repository had the headline change.
 
 ## Cutting a release
 
@@ -42,8 +49,21 @@ version**, not a range.
    the README and the Maven repository's landing page. Those had all drifted
    while it was a manual step — the landing page by two releases — which is
    worse than saying nothing, because a reader copies it.
+
+   **The pom is not edited either.** The version comes from the tag: the
+   workflow strips the leading `v`, refuses anything that is not a plain version
+   number, and runs `versions:set` itself before deploying. Nothing committed
+   here names the version being released, so there is no pom change to forget
+   and no way for the tag and the artifacts to disagree.
+
+   One thing the rewrite cannot tell apart: a version somebody is meant to
+   **copy** and a sentence **about** a past release. `set-documented-version.sh`
+   replaces every three-segment `0.x.y` in `docs/*.md` and `README.md`, which
+   would turn "since 0.5 all five write both" into a claim about the release
+   being cut. Write history with two segments — `0.5`, `0.6` — which the pattern
+   does not match, and keep three segments for coordinates.
 3. **Commit everything**, and check `git status` is clean.
-3. **Pull first.** The previous release's `document` and `landing-page` jobs push
+4. **Pull first.** The previous release's `document` and `landing-page` jobs push
    to `main`, so `main` has almost certainly moved since you started. Tagging
    without pulling gives a tag whose commit is not on `main` — the release still
    builds correctly, because it builds from the tag, but the released commit is
@@ -53,7 +73,7 @@ version**, not a range.
    If it happens anyway, **merge rather than rebase**: rebasing changes the
    commit the tag points at, and a release tag that is not reachable from `main`
    is worse than a merge commit.
-4. **Tag it.** `git tag -a v0.2.5 -m 0.2.5 && git push origin v0.2.5`.
+5. **Tag it.** `git tag -a v0.7.0 -m 0.7.0 && git push origin v0.7.0`.
    Annotated: a bare `git tag -m` is rejected, and `git tag` alone opens an
    editor that fails in a non-interactive shell.
 
@@ -69,26 +89,35 @@ commit had not been made, so the artifacts did not match the repository, and
 nothing noticed until CI in another repository failed. The workflow builds from
 the tag, which makes that impossible.
 
-The script in `scripts/publish-maven-repo.sh` still exists for the case where
-the workflow itself cannot run. It builds from the **working tree**, so if you
-ever use it:
+**There is no working-tree fallback, and this page used to claim there was** — a
+`scripts/publish-maven-repo.sh` that has never existed in this repository.
+Anyone reaching for it during an incident would have spent the search finding
+that out.
+
+What the workflow offers instead is `workflow_dispatch`, which takes the version
+as an input and builds from whichever ref you run it on. That keeps the property
+the hand-publish lost: the artifacts are built from a commit that is pushed, so
+what is published and what is readable are the same thing.
 
 ```bash
-git status                                          # must be clean
-DRY_RUN=1 ./scripts/publish-maven-repo.sh 0.2.5     # stage, push nothing
-./scripts/publish-maven-repo.sh 0.2.5
+gh workflow run release.yml --ref main -f version=0.7.0
 ```
 
-and then check the published artifact actually contains what you released —
-downloading the jar and looking is thirty seconds, and is the step whose absence
-cost a version.
+Whatever route it took, then check the published artifact actually contains what
+you released — downloading the jar and looking is thirty seconds, and is the
+step whose absence cost a version.
 
 ## What a release contains
 
-Twelve modules, each with its main jar, `-sources` and `-javadoc`. Checksums are
-written for everything. Signing is opt-in (`ACEMQ_SIGN=1`) and off by default,
-because unsigned artifacts are ordinary for a repository like this one and a
-build that fails for want of a GPG key is not.
+Fifteen modules, each with its main jar, `-sources` and `-javadoc`: every module
+in the root `<modules>` list except `acemq-amqp-coverage`, which sets
+`maven.deploy.skip`, as do the profile-guarded `acemq-amqp-benchmarks` and
+`acemq-amqp-native`. The count said twelve for several releases after the list
+grew, which is the sort of number worth deriving rather than remembering.
+
+Checksums are written for everything. Signing is opt-in (`ACEMQ_SIGN=1`) and off
+by default, because unsigned artifacts are ordinary for a repository like this
+one and a build that fails for want of a GPG key is not.
 
 ## Verifying a release
 
@@ -98,7 +127,7 @@ consumer can actually use it:
 ```bash
 mvn -q -Dmaven.repo.local=/tmp/verify-m2 dependency:get \
   -DremoteRepositories=https://acemq-company.github.io/maven/ \
-  -Dartifact=org.acemq:acemq-amqp-core:0.2.4
+  -Dartifact=org.acemq:acemq-amqp-core:0.7.0
 ```
 
 GitHub Pages takes a minute or two to serve newly pushed files.
@@ -152,20 +181,29 @@ re-tagging: re-releasing would rewrite a published version, which is the one
 thing this repository does not do.
 
 ```bash
-.github/scripts/set-documented-version.sh 0.2.4   # then commit and push
+.github/scripts/set-documented-version.sh 0.7.0   # then commit and push
 ```
 
 and edit the version on the organisation landing page the same way.
 
 ## After a release
 
-Bump the development version:
+**Nothing has to be bumped for the next release to work**, because the release
+takes its version from the tag rather than from the pom. The snapshot version in
+the pom names one thing only: the snapshots `ci.yml`'s `publish-snapshot` job
+pushes to GitHub Packages. It has been left behind before — it read
+`0.5.0-SNAPSHOT` while `0.6.0` was the current release — which misleads anyone
+resolving a snapshot and breaks nothing else.
+
+Less than it used to, in fact: `publish-snapshot` still guards on
+`github.event_name == 'push'`, and `ci.yml` no longer has a push trigger, so
+nothing publishes a snapshot at all at the moment.
+
+If you want the snapshots named after the version being worked towards:
 
 ```bash
-mvn versions:set -DnewVersion=0.2.5-SNAPSHOT -DgenerateBackupPoms=false
+mvn versions:set -DnewVersion=0.8.0-SNAPSHOT -DgenerateBackupPoms=false
 ```
-
-The next *patch*, per the policy above.
 
 ## Credentials the release uses
 
@@ -233,3 +271,10 @@ missing webhook must never fail a release that worked.
   already resolved is not.
 - **Release from `main`, green.** The workflow re-runs the whole suite anyway; a
   release is the one moment where waiting for it is obviously worth it.
+
+  Green is no longer something that happens on its own: `ci.yml` runs on
+  `workflow_dispatch` only, so a commit starts nothing. Before tagging, either
+  run it from the Actions tab or run the same checks locally —
+  `mvn clean verify` on **JDK 21**, which is the only JDK the NullAway and
+  ErrorProne profile is bound to and therefore the only one where the static
+  analysis gate actually fires.

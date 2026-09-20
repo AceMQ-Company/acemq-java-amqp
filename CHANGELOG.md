@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-18
+
 ### Fixed
 - **A shutdown budget is now spent once in total rather than once per consumer
   and once per group.** `ConsumerGroup.close()` gave every member the full drain
