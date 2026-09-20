@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-20
+
 ### Fixed
 - **A registry-backed `AvroCodec` can now decode into a generated
   `SpecificRecord` class.** `AvroCodec.registered(registry).decode(body,
