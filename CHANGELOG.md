@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-21
+
 ### Added
 - **`acemq-amqp-actuator`: metrics, health and version over HTTP for an
   application with no HTTP server of its own.**
