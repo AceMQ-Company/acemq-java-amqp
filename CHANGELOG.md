@@ -8,6 +8,32 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+- **A skipped test now fails continuous integration and the release.** Go and
+  Python have failed on one for some time; Java did not, and the gap was not
+  theoretical. Python grew its guard only after seven TLS tests had skipped on
+  every run for the entire life of that job — reported as "53 passed, 7 skipped",
+  green throughout — because nothing there started a TLS broker and nothing
+  noticed that nothing had.
+
+  Java cannot lose a broker the same way: Testcontainers starts its own and
+  reaches `rabbitmqctl` through `execInContainer`, neither of which can skip.
+  What it can lose is a test somebody disables to quieten a flake, which stops
+  testing whatever that test covered and says so nowhere.
+
+  `etc/check-nothing-skipped.py` reads Surefire's and Failsafe's XML reports
+  rather than their `Tests run: ..., Skipped: S` line. The console is a stream
+  shared with a suite that logs at DEBUG, so grepping it means grepping the
+  library's own output as well as Maven's; and the summary counts skips without
+  naming them, which is a gate people switch off rather than investigate. The XML
+  carries the class, the method and the reason JUnit recorded, and it is on disk
+  even when the build dies before Maven prints anything.
+
+  `LargeClusterIT` is exempt by name, because it needs a multi-node cluster that
+  only the nightly cluster job stands up. The exemption lives in the script with
+  its reason beside it, so a second one is a visible edit rather than a flag on a
+  workflow line nobody reads.
+
 ## [0.7.2] - 2026-09-20
 
 ### Fixed

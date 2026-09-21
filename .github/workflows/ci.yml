@@ -60,6 +60,25 @@ jobs:
           cache: maven
       - name: Build and test
         run: mvn -B --no-transfer-progress clean verify
+
+      - name: Check nothing skipped
+        # A skip reads as success. Go and Python both fail on one, and Python only
+        # grew the guard after seven TLS tests had skipped on every run for the
+        # life of that job -- green throughout as "53 passed, 7 skipped" -- because
+        # nothing started a TLS broker and nothing noticed that nothing had. Java
+        # had no equivalent, so a @Disabled added to quieten a flake would have
+        # stopped testing whatever it covered and said nothing.
+        #
+        # This reads Surefire's and Failsafe's XML rather than their "Tests run:
+        # ..., Skipped: S" line; check-nothing-skipped.py says why at length, but
+        # the short version is that the console is a stream shared with a suite
+        # that logs at DEBUG, and the summary counts skips without naming them.
+        #
+        # --require-integration because the other half of the failure is the
+        # integration tests not running at all, which no count of unit-test skips
+        # would reveal.
+        run: python3 etc/check-nothing-skipped.py --require-integration .
+
       # acemq-amqp-native sits behind the `native` profile, so no ordinary CI job
       # compiles it -- and the static-analysis profile only activates on JDK 21.
       # The intersection of those two facts is a module that NullAway checks
@@ -113,6 +132,15 @@ jobs:
             -pl acemq-transport-rabbitmq \
             -Dacemq.test.rabbitmq.image=rabbitmq:3.13-management \
             -Djacoco.skip=true
+
+      - name: Check nothing skipped
+        # The same guard, and it matters more here than in the build job: this one
+        # exists solely to prove the suite passes against 3.13, so a test that
+        # quietly stopped running would leave the whole claim resting on nothing.
+        # The first Maven invocation above runs with -DskipTests and writes no
+        # reports, so everything found here comes from the run that matters.
+        run: python3 etc/check-nothing-skipped.py --require-integration .
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4

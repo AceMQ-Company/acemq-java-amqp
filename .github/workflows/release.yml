@@ -99,6 +99,18 @@ jobs:
         # it: this is the artifact people will actually depend on.
         run: mvn -B --no-transfer-progress verify
 
+      - name: Check nothing skipped
+        # Before anything is published, not only on the pull request. A release is
+        # cut from a tag, and a tag can be pushed from a branch whose CI never ran
+        # or ran on an older commit, so "the build job already checked" is an
+        # assumption rather than a fact at this point. Go and Python both hold the
+        # release to the same bar as CI for that reason.
+        #
+        # Placed above the checkout of the Maven repository so a skip stops the
+        # release while nothing has been published: every step from the push
+        # onwards operates on a version consumers can already resolve.
+        run: python3 etc/check-nothing-skipped.py --require-integration .
+
       - name: Check out the Maven repository
         uses: actions/checkout@v4
         with:
