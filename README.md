@@ -66,7 +66,10 @@ AceMQ aims to be that layer:
   language.
 - **Observable from the start** — OpenTelemetry spans and Micrometer metrics are
   emitted by the core, with names fixed by the specification so every language
-  port reports identically.
+  port reports identically. A Spring Boot application scrapes them through
+  Actuator; one with no HTTP server of its own adds `acemq-amqp-actuator` and
+  gets `/acemq-metrics`, `/acemq-health` and `/acemq-info` on port 9464, the same
+  three paths the Go and .NET libraries serve.
 - **And it costs little** — a confirmed publish through AceMQ measured
   `452.7 ±13.2 µs/op` against `433.8 ±11.6 µs/op` for the same publish written by
   hand against the RabbitMQ client: **+4.4%, interval [+0.2%, +8.5%]** over three
@@ -86,6 +89,7 @@ AceMQ aims to be that layer:
 | `acemq-amqp-crypto` | Payload encryption: AES-GCM around any codec, with the key identifier in the message so keys rotate without a flag day |
 | `acemq-transport-rabbitmq` | AMQP 0-9-1 binding over the RabbitMQ Java client |
 | `acemq-amqp-test` | In-memory transport (`memory://`), Testcontainers harness, fluent assertions |
+| `acemq-amqp-actuator` | Metrics, health and version over HTTP for an application with no HTTP server of its own. **Not** for Spring Boot, which has Actuator; for workers, daemons and command-line consumers |
 | `acemq-amqp-codec-json` | JSON, via Jackson. A **required** dependency of the core: the format an application writes should not depend on what happens to be on its classpath |
 | `acemq-amqp-codec-xml` | XML, for the parts of an estate that will not be rewritten. External entities disabled and not configurable |
 | `acemq-amqp-codec-yaml` | YAML, for messages a person reads as well as a program |

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-parent</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>acemq-amqp-actuator</artifactId>
+  <name>AceMQ AMQP Actuator</name>
+  <description>Metrics, health and version over HTTP for an application with no HTTP server of
+    its own. A module of its own, never a dependency of the core: a worker or a command-line
+    consumer opts in, and everything else pays nothing for it.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-api</artifactId>
+    </dependency>
+    <!-- The health and version endpoints read a live connection, and the metrics
+         come from MicrometerTelemetry, which the core already owns. This module
+         adds an HTTP surface to that; it does not reimplement any of it. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-core</artifactId>
+    </dependency>
+    <!-- Not optional here, unlike in the core, and that is the whole point of
+         the module existing separately. An application that wants a scrape
+         endpoint has already decided to pay for Micrometer; one that only wants
+         to publish a message never puts this artifact on its classpath and never
+         sees any of it. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+    </dependency>
+    <!-- Six Prometheus jars arrive with this, which is the largest single cost of
+         the module and is deliberate. The alternative is writing the exposition
+         format by hand, as the Go library does, having no Micrometer to lean on
+         and no choice. Java does have one, and hand-rolled exposition is exactly
+         the code that goes quietly wrong: name sanitisation, label escaping, the
+         _total suffix, the +Inf bucket, the escaping rules that changed with
+         OpenMetrics. Micrometer's renderer has all of that right and is the one
+         every Spring Boot application is already scraped through, so the bytes
+         this serves are the bytes a reader's dashboards already expect.
+
+         io.prometheus:prometheus-metrics-exporter-httpserver was the other
+         candidate and is not enough: it serves metrics and only metrics, on its
+         own port and path, so health and version would still need a server, and
+         the three paths would not line up with Go's and .NET's. Under the covers
+         it wraps the same JDK HttpServer this module uses directly. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+    <!-- Declared rather than left to arrive through the core, for the reason the
+         core declares it rather than leaving it to the JSON codec: /acemq-health
+         and /acemq-info are JSON documents written here, so this module imports
+         Jackson directly and should say so. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+
+    <!-- The in-memory transport, so the tests can ask a real AceMq how it is
+         rather than a mock that answers however the test wants. -->
+    <dependency>
+      <groupId>org.acemq</groupId>
+      <artifactId>acemq-amqp-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

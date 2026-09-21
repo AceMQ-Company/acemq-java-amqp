@@ -65,6 +65,10 @@
     <module>acemq-amqp-crypto</module>
     <module>acemq-transport-rabbitmq</module>
     <module>acemq-amqp-test</module>
+    <!-- After the test kit because it uses the in-memory transport to test itself;
+         Maven sorts the reactor from the dependency graph either way, and the list
+         reads in build order. -->
+    <module>acemq-amqp-actuator</module>
     <module>acemq-amqp-coverage</module>
   </modules>
 
@@ -235,6 +239,11 @@
         <artifactId>acemq-amqp-test</artifactId>
         <version>${project.version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.acemq</groupId>
+        <artifactId>acemq-amqp-actuator</artifactId>
+        <version>${project.version}</version>
+      </dependency>
 
       <!-- Nullness annotations. Provided scope, so they are visible while
            compiling and absent from a consumer's classpath: acemq-amqp-api's
@@ -260,6 +269,16 @@
       <dependency>
         <groupId>io.micrometer</groupId>
         <artifactId>micrometer-core</artifactId>
+        <version>${micrometer.version}</version>
+      </dependency>
+      <!-- The Prometheus exposition format, used by acemq-amqp-actuator alone. Held
+           to the same version as micrometer-core: Micrometer publishes the registry
+           and the core as one release, and mixing two of them is the sort of thing
+           that fails at class-load time in a consumer's deployment rather than here.
+           No module outside the actuator may depend on this. -->
+      <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-registry-prometheus</artifactId>
         <version>${micrometer.version}</version>
       </dependency>
       <dependency>

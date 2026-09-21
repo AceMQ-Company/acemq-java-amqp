@@ -28,6 +28,10 @@ have isolated is already isolated, by the optional dependencies and by
 `MicrometerSupport` and `OpenTelemetrySupport` — two classes that exist purely so
 no optional type is ever named in a signature the JVM would have to resolve.
 
+`acemq-amqp-actuator` below is not a counter-example. It **records nothing**: the
+numbers are still produced by the core, and that module only serves them over
+HTTP for an application that has no other way to.
+
 ## Explicit wiring
 
 ```java
@@ -44,6 +48,95 @@ try (AceMq mq = AceMq.connect("amqp://localhost", telemetry)) {
 | `MicrometerSupport.telemetry(registry, transport)` | A registry that is not the global one |
 | `OpenTelemetrySupport.telemetry(otel, transport)` | Likewise for tracing |
 | `Telemetry.NONE` | Off. What the test suite uses |
+
+## Getting the numbers out of the process
+
+Recording metrics and **serving** them are two different jobs, and only the first
+one is in the core. Micrometer is a recording API: it needs a registry to record
+into and something to serve that registry over HTTP, and neither is a thing a
+messaging library should assume.
+
+### With Spring Boot — use Actuator, not this
+
+Add `spring-boot-starter-actuator` and `micrometer-registry-prometheus`, and
+scrape `/actuator/prometheus`. Boot supplies the registry, the endpoint, the
+security around it and the configuration for all three; the starter wires this
+library into the same registry, so AceMQ's series appear alongside the JVM's and
+the HTTP server's with nothing further to do. Quarkus, Micronaut, Helidon and any
+servlet application are the same story with different names.
+
+**This is the right answer whenever it is available.** Everything below is for
+the applications where it is not.
+
+### Without a framework — `acemq-amqp-actuator`
+
+```xml
+<dependency>
+  <groupId>org.acemq</groupId>
+  <artifactId>acemq-amqp-actuator</artifactId>
+</dependency>
+```
+
+```java
+try (AceMq mq = AceMq.connect("amqp://localhost");
+     AceMqActuator actuator = AceMqActuator.start(mq)) {
+    // http://127.0.0.1:9464/acemq-metrics
+}
+```
+
+A worker, a batch consumer, a daemon or a command-line tool has no registry and
+no HTTP server, and until this module existed the JVM was the only one of the
+five libraries where such an application had to write an endpoint itself. Go
+ships `actuator`, .NET ships `AceMq.Amqp.Diagnostics`, Python ships `prometheus`,
+Ruby ships `telemetry`.
+
+Three paths, the same three in every language, so one scrape configuration and
+one probe serve a whole estate:
+
+| | |
+|---|---|
+| `/acemq-metrics` | Prometheus text format, rendered by Micrometer |
+| `/acemq-health` | JSON. **503** when the connection is not open |
+| `/acemq-info` | JSON: library version, application version, transport capabilities |
+
+Port **9464** by default, the OpenTelemetry convention, bound to **loopback**.
+
+`AceMqActuator.start(mq)` needs no other wiring: `connect` with no telemetry
+argument records into Micrometer's global registry, and the actuator attaches its
+own registry to that. **Start it before the traffic.** Micrometer replays the
+meters that already exist into a registry added later but not their accumulated
+values, so anything published beforehand is counted nowhere the endpoint can see
+it — the series appears, the scrape parses, and the number is simply low. Where
+the ordering cannot be arranged, wire it explicitly:
+
+```java
+PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+AceMq mq = AceMq.connect(url, MicrometerSupport.telemetry(registry, "rabbitmq"));
+AceMqActuator actuator = AceMqActuator.start(
+        ActuatorOptions.builder().connection(mq).registry(registry).build());
+```
+
+#### What it costs, and what it does not do
+
+The HTTP server is `com.sun.net.httpserver.HttpServer` from the JDK, so the
+module adds no server dependency at all. It does add
+`micrometer-registry-prometheus`, which is six Prometheus jars: that is the
+largest cost here and it is deliberate. The alternative is writing the exposition
+format by hand — name sanitisation, label escaping, the `_total` suffix, the
+`+Inf` bucket — which is Micrometer's job and which it already does exactly as
+every Spring Boot service in the estate does it, so the bytes match what the
+dashboards expect.
+
+**The endpoints are unauthenticated.** They name queues, report broker state and
+show traffic rates. Loopback is the default for that reason: let the scraper
+reach it from the same host, pod or sidecar, and where it genuinely has to be
+reachable from elsewhere, put something in front that authenticates. The library
+will not, and says so rather than shipping a token check nobody configures.
+
+An application that already runs an HTTP server should not start a second one.
+`actuator.metrics()` returns exactly what a scrape would receive, and
+`actuator.registry()` hands over the registry itself — either can be served from
+whatever endpoint that application already has.
 
 ## Traces cross the broker
 

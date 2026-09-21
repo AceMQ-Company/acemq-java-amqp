@@ -8,6 +8,71 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+- **`acemq-amqp-actuator`: metrics, health and version over HTTP for an
+  application with no HTTP server of its own.**
+
+  ```xml
+  <dependency>
+    <groupId>org.acemq</groupId>
+    <artifactId>acemq-amqp-actuator</artifactId>
+  </dependency>
+  ```
+
+  ```java
+  try (AceMq mq = AceMq.connect("amqp://localhost");
+       AceMqActuator actuator = AceMqActuator.start(mq)) {
+      // http://127.0.0.1:9464/acemq-metrics
+  }
+  ```
+
+  `MicrometerTelemetry` in the core records the numbers and has done for some
+  time, but recording and *serving* are two jobs and only the first was here. A
+  Spring Boot application gets the second from Actuator — a registry to record
+  into and an endpoint to serve from — and the starter wires the library to it. A
+  worker, a daemon or a command-line consumer gets neither, which made the JVM
+  the only one of the five libraries where a non-framework application had to
+  write an HTTP endpoint itself. Go ships `actuator`, .NET ships
+  `AceMq.Amqp.Diagnostics`, Python ships `prometheus`, Ruby ships `telemetry`.
+
+  Three paths, the same three in every language, so one scrape configuration and
+  one probe serve an estate written in several of them: `/acemq-metrics` in
+  Prometheus text format, `/acemq-health` as JSON with a 503 when the connection
+  is not open, and `/acemq-info` naming the library version, the application
+  version and what the transport can do. Port 9464, the OpenTelemetry convention,
+  bound to loopback.
+
+  It records nothing of its own. The metrics are the core's, rendered by
+  Micrometer's own Prometheus registry; health reads the same four facts the
+  Spring Boot health indicator reports, and agrees with it that a blocked
+  connection is up-with-a-reason rather than down — an application that fails its
+  health check for back pressure gets restarted into the same blocked broker,
+  having thrown away whatever it was holding.
+
+  **A Spring Boot application should not use this.** Actuator's
+  `/actuator/prometheus` is managed, secured and configured alongside every other
+  endpoint that application has, and a second HTTP server on a second port is one
+  more thing to firewall for no gain. The same goes for Quarkus, Micronaut,
+  Helidon and any servlet application; where one of those wants the library's
+  registry served from an endpoint it already has, `actuator.metrics()` and
+  `actuator.registry()` hand it over without starting a server at all.
+
+  The HTTP surface is the JDK's own `com.sun.net.httpserver.HttpServer`, so the
+  module brings no server dependency; the one real cost is
+  `micrometer-registry-prometheus` and the six Prometheus jars behind it, taken
+  deliberately rather than hand-rolling an exposition format Micrometer already
+  writes exactly as every Boot service in the estate does.
+
+  The endpoints are unauthenticated and report queue names, broker state and
+  traffic rates, which is why loopback is the default.
+
+  One thing worth knowing before wiring it the short way: `AceMqActuator.start(mq)`
+  attaches its registry to Micrometer's global one, and Micrometer replays the
+  *registration* of meters that already exist into a registry added later but not
+  their accumulated values. Start the actuator before the traffic, or pass a
+  registry explicitly. A test pins this down, because the failure is silent — the
+  series appears, the scrape parses, and the number is simply low.
+
 ### Changed
 - **A skipped test now fails continuous integration and the release.** Go and
   Python have failed on one for some time; Java did not, and the gap was not
