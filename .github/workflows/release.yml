@@ -50,9 +50,9 @@ jobs:
       # before the push, which is most of them.
       published: ${{ steps.push.outputs.published }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           # 21 rather than the newest available: the NullAway and ErrorProne
@@ -112,7 +112,7 @@ jobs:
         run: python3 etc/check-nothing-skipped.py --require-integration .
 
       - name: Check out the Maven repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: AceMQ-Company/maven
           # A deploy key rather than a token: write access to this repository
@@ -254,7 +254,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -300,7 +300,7 @@ jobs:
       # To dispatch the docs workflow after pushing; see the last step.
       actions: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: Point the documentation at this release
@@ -340,7 +340,7 @@ jobs:
     if: needs.publish.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: AceMQ-Company/AceMQ-Company.github.io
           ssh-key: ${{ secrets.LANDING_PAGE_DEPLOY_KEY }}
