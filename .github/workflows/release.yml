@@ -194,7 +194,14 @@ jobs:
         run: |
           echo "Waiting for GitHub Pages to serve $VERSION"
           POM="https://acemq-company.github.io/maven/org/acemq/acemq-amqp-core/$VERSION/acemq-amqp-core-$VERSION.pom"
-          for attempt in $(seq 1 20); do
+          # Forty attempts at thirty seconds is twenty minutes, up from five.
+          # Pages rebuilds this feed in about four seconds on an ordinary day,
+          # but on 21 September 2026 it took twenty-five minutes, and the admin
+          # tool's release -- same feed, same step, a five-minute wait -- called
+          # an artifact that was on the feed and correct a release that had not
+          # finished. The normal case is not what this timeout is for; the long
+          # tail is, and waiting costs nothing when Pages is behaving.
+          for attempt in $(seq 1 40); do
             # -L because the repository has a custom domain: every github.io URL
             # answers 301 to https://acemq.org/maven/... . Without it this step
             # reported a perfectly good 0.2.4 as unpublished, having seen the
@@ -203,7 +210,7 @@ jobs:
             code=$(curl -sL -o /dev/null -w '%{http_code}' "$POM")
             [ "$code" = "200" ] && break
             echo "  attempt $attempt: HTTP $code"
-            sleep 15
+            sleep 30
           done
           if [ "$code" != "200" ]; then
             echo "::error::$VERSION was pushed but is not being served at $POM"
