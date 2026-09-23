@@ -229,6 +229,65 @@ jobs:
           echo "Pages takes a minute or two to serve the new files."
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+  # The releases page, which is where a person lands rather than in the Maven
+  # repository. It was empty for twenty versions: a tag is not a release to
+  # anybody reading GitHub, it is a line in a list with no date, no notes and
+  # nothing to copy, so the one page a visitor is most likely to look at said
+  # that nothing had ever shipped.
+  #
+  # Keyed on `published` rather than on the job's result, for the same reason the
+  # notification below is. A release object announcing a version the Maven
+  # repository never received is worse than no page at all: the reader copies
+  # coordinates that resolve for nobody and goes looking for the fault in their
+  # own settings.xml.
+  #
+  # No jars are attached, deliberately. A jar taken from a release page arrives
+  # without its POM, so it arrives without SLF4J, without the AMQP client and
+  # without the fourteen sibling modules, and fails at the first call -- it looks
+  # like the thing you want and is not. The coordinates are the whole point of
+  # the page, and the repository they name serves the jars with what makes them
+  # usable.
+  announce:
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes "AceMQ for Java $VERSION.
+
+          \`\`\`xml
+          <repository>
+            <id>acemq</id>
+            <url>https://acemq-company.github.io/maven/</url>
+          </repository>
+
+          <dependency>
+            <groupId>org.acemq</groupId>
+            <artifactId>acemq-amqp-core</artifactId>
+            <version>$VERSION</version>
+          </dependency>
+          <dependency>
+            <groupId>org.acemq</groupId>
+            <artifactId>acemq-transport-rabbitmq</artifactId>
+            <version>$VERSION</version>
+          </dependency>
+          \`\`\`
+
+          The repository is served over GitHub Pages, so nothing here needs credentials. \`acemq-transport-rabbitmq\` can be \`<scope>runtime</scope>\`: it is discovered by the \`amqp://\` scheme in your URL.
+
+          Documentation: https://acemq.org/acemq-java-amqp/
+          Changelog: https://github.com/AceMQ-Company/acemq-java-amqp/blob/v$VERSION/CHANGELOG.md" \
+            || echo "release v$VERSION already exists"
+
   # The guide tells people which version to depend on. Left to a manual step it
   # sat two releases behind, which is worse than saying nothing: a reader copies
   # it and gets a version that is no longer current.

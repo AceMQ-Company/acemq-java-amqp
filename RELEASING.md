@@ -119,6 +119,14 @@ Checksums are written for everything. Signing is opt-in (`ACEMQ_SIGN=1`) and off
 by default, because unsigned artifacts are ordinary for a repository like this
 one and a build that fails for want of a GPG key is not.
 
+A release on GitHub is part of it too, created by the `announce` job once the
+push to the Maven repository has happened and never before it. Its notes carry
+the `<repository>` and `<dependency>` blocks for that version, because the
+releases page is where a visitor lands and a tag on its own gives them nothing
+to copy. No jars are attached: a jar taken from a release page arrives without
+its POM and therefore without its dependencies, which is a worse thing to hand
+somebody than a link to the repository that serves both.
+
 ## Verifying a release
 
 Resolve it from an empty local repository, which is the only check that proves a
