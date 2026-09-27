@@ -318,6 +318,21 @@ final class DefaultConsumer<T> implements MessageConsumer {
             scope.failed(e);
             if (retries != null) {
                 RetryDispatcher.Outcome outcome = retries.onFailure(delivery, message.envelope(), e, false);
+                if (outcome == RetryDispatcher.Outcome.NOT_REPUBLISHED) {
+                    // The hop did not land: the broker answered and declined it, so this delivery
+                    // is the only copy there is. Acknowledging it here is the moment the message
+                    // is lost, which is what happened until the dispatcher started reporting it —
+                    // a dead-letter queue deleted by hand ate everything routed to it and the
+                    // only visible trace was one queue draining.
+                    //
+                    // Requeued rather than rejected outright so the next delivery tries the hop
+                    // again, which is what Go, Python and .NET do in the same place. A broker that
+                    // keeps refusing means a redelivery loop, and that is the right failure: it is
+                    // loud, and it is recoverable the moment the queue is declared.
+                    acknowledger.reject(true);
+                    scope.outcome(MetricNames.OUTCOME_REJECTED);
+                    return;
+                }
                 if (outcome == RetryDispatcher.Outcome.RETRIED) {
                     retried.incrementAndGet();
                     scope.outcome(MetricNames.OUTCOME_RETRIED);

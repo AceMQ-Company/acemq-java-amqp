@@ -24,6 +24,7 @@ import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.Telemetry;
+import org.acemq.amqp.transport.ConfirmResult;
 import org.acemq.amqp.transport.InboundDelivery;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.TransportConnection;
@@ -84,8 +85,9 @@ final class RetryDispatcher {
      */
     Outcome onFailure(InboundDelivery delivery, Envelope envelope, Throwable failure, boolean fatal) {
         if (fatal) {
-            deadLetter(delivery, envelope, "the handler reported an unprocessable message: " + describe(failure));
-            return Outcome.DEAD_LETTERED;
+            return deadLetter(delivery, envelope, "the handler reported an unprocessable message: " + describe(failure))
+                    ? Outcome.DEAD_LETTERED
+                    : Outcome.NOT_REPUBLISHED;
         }
 
         Duration age = envelope.age();
@@ -95,13 +97,22 @@ final class RetryDispatcher {
             String reason = envelope.attempt() >= policy.maxAttempts()
                     ? "exhausted " + policy.maxAttempts() + " attempts"
                     : "exceeded the maximum message age of " + policy.maxMessageAge();
-            deadLetter(delivery, envelope, reason + ": " + describe(failure));
-            return Outcome.DEAD_LETTERED;
+            return deadLetter(delivery, envelope, reason + ": " + describe(failure))
+                    ? Outcome.DEAD_LETTERED
+                    : Outcome.NOT_REPUBLISHED;
         }
 
         RetryPolicy.Wait wait = next.get();
-        if (wait.isInBroker() && retryInBroker(delivery, envelope, wait.delay())) {
-            return Outcome.RETRIED;
+        if (wait.isInBroker()) {
+            switch (retryInBroker(delivery, envelope, wait.delay())) {
+                case LANDED :
+                    return Outcome.RETRIED;
+                case DECLINED :
+                    return Outcome.NOT_REPUBLISHED;
+                default :
+                    // The rung is not on the broker. Waiting here is the documented fallback.
+                    break;
+            }
         }
         return retryHere(delivery, envelope, wait.delay());
     }
@@ -121,7 +132,7 @@ final class RetryDispatcher {
      * here. Degraded rather than fatal: the message is still deliverable, and waiting for it
      * here is what this library did before there were rungs.
      */
-    private boolean retryInBroker(InboundDelivery delivery, Envelope envelope, Duration wait) {
+    private RungResult retryInBroker(InboundDelivery delivery, Envelope envelope, Duration wait) {
         Optional<String> rung = topology.rungFor(wait);
         if (!rung.isPresent()) {
             // Loud, because a topology declared without its rungs otherwise looks like it works
@@ -134,11 +145,16 @@ final class RetryDispatcher {
                     envelope.id(),
                     wait);
             telemetry.retryRungMissing(topology.sourceQueue(), missing, wait);
-            return false;
+            return RungResult.NO_RUNG;
         }
 
         Envelope advanced = envelope.nextAttempt();
-        publish(rung.get(), delivery, advanced, null, false);
+        if (!publish(rung.get(), delivery, advanced, null, false)) {
+            // The rung exists as far as the topology is concerned and the broker still would not
+            // take the message. Reported as declined rather than fallen back to waiting here:
+            // waiting would hold a delivery whose copy may or may not be on the rung.
+            return RungResult.DECLINED;
+        }
         telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
         log.debug(
                 "retrying {} attempt {} of {} after {} via {}",
@@ -147,7 +163,7 @@ final class RetryDispatcher {
                 policy.maxAttempts(),
                 wait,
                 rung.get());
-        return true;
+        return RungResult.LANDED;
     }
 
     /**
@@ -173,7 +189,9 @@ final class RetryDispatcher {
         }
 
         Envelope advanced = envelope.nextAttempt();
-        publish(topology.sourceQueue(), delivery, advanced, null, false);
+        if (!publish(topology.sourceQueue(), delivery, advanced, null, false)) {
+            return Outcome.NOT_REPUBLISHED;
+        }
         telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
         log.debug(
                 "retrying {} attempt {} of {} after waiting {} in this consumer",
@@ -231,9 +249,9 @@ final class RetryDispatcher {
      * queue that was never declared and a dead-letter queue doing its job look identical in
      * every other series — one queue draining, in both cases.
      */
-    private void send(OutboundMessage message, String target) {
+    private boolean send(OutboundMessage message, String target) {
         try {
-            connection.send(message);
+            return landed(connection.send(message), target);
         } catch (RuntimeException e) {
             telemetry.setAsideFailed(topology.sourceQueue(), target, describe(e));
             log.error(
@@ -245,8 +263,13 @@ final class RetryDispatcher {
         }
     }
 
-    private void deadLetter(InboundDelivery delivery, Envelope envelope, String reason) {
-        publish(topology.deadLetterQueue(), delivery, envelope, reason, true);
+    private boolean deadLetter(InboundDelivery delivery, Envelope envelope, String reason) {
+        if (!publish(topology.deadLetterQueue(), delivery, envelope, reason, true)) {
+            // Not counted as dead-lettered, because it was not: the counter an operator reads to
+            // know a message reached the dead-letter queue must not be raised by one that did
+            // not get there.
+            return false;
+        }
         telemetry.messageDeadLettered(topology.sourceQueue(), envelope, reason);
         log.warn(
                 "dead-lettered {} from {} after {} attempts: {}",
@@ -254,9 +277,10 @@ final class RetryDispatcher {
                 topology.sourceQueue(),
                 envelope.attempt(),
                 reason);
+        return true;
     }
 
-    private void publish(
+    private boolean publish(
             String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error, boolean setAside) {
         // The reason travels as an envelope field, so a consumer of the dead-letter queue can
         // read it back through the API rather than having to know the wire header name.
@@ -274,11 +298,39 @@ final class RetryDispatcher {
                 .contentType(delivery.contentType())
                 .build();
 
-        if (setAside) {
-            send(message, queue);
-        } else {
-            connection.send(message);
+        return setAside ? send(message, queue) : landed(connection.send(message), queue);
+    }
+
+    /**
+     * Whether the broker actually took a republished message.
+     *
+     * <p>{@link TransportConnection#send} reports two of its three failures as return values
+     * rather than exceptions: {@link ConfirmResult#unroutable} when nothing was bound to receive
+     * the message, and {@link ConfirmResult#failed} when the broker refused it or never answered.
+     * Only an IO or shutdown failure throws.
+     *
+     * <p>That result used to be discarded here, and the consequence was message loss rather than a
+     * missing counter. {@code DefaultConsumer} acknowledges the original delivery on the strength
+     * of this dispatcher having republished it — correctly, since the message is meant to be
+     * elsewhere by then — so a hop that reached no queue was acknowledged into nothing. A
+     * dead-letter queue deleted by hand, or a rung queue that was never declared, silently ate
+     * every message routed to it, and the only visible trace was one queue draining.
+     */
+    private boolean landed(ConfirmResult result, String target) {
+        if (result.isConfirmed() && result.isRouted()) {
+            return true;
         }
+        String reason = result.detail() == null
+                ? (result.isConfirmed() ? "nothing was bound to receive it" : "the broker did not confirm it")
+                : result.detail();
+        telemetry.setAsideFailed(topology.sourceQueue(), target, reason);
+        log.error(
+                "a message from {} was not taken by {}: {}. It is going back to the broker rather"
+                        + " than being acknowledged into nothing",
+                topology.sourceQueue(),
+                target,
+                reason);
+        return false;
     }
 
     private static String describe(Throwable failure) {
@@ -289,6 +341,18 @@ final class RetryDispatcher {
         return failure.getClass().getSimpleName() + (message == null ? "" : ": " + message);
     }
 
+    /**
+     * What a rung queue did with a message, which is three things rather than two.
+     *
+     * <p>A missing rung and a rung that refused the message are not the same: the first is a
+     * topology that was never fully declared and the documented answer is to wait out the delay
+     * in this consumer, while the second is a broker that answered and declined, where waiting
+     * would hold a delivery whose copy may or may not be on the rung.
+     */
+    private enum RungResult {
+        LANDED, DECLINED, NO_RUNG
+    }
+
     /** What the dispatcher did with a failed delivery. */
     enum Outcome {
 
@@ -296,6 +360,16 @@ final class RetryDispatcher {
         RETRIED,
 
         /** Republished to the dead-letter queue; it will not come back on its own. */
-        DEAD_LETTERED
+        DEAD_LETTERED,
+
+        /**
+         * The republish did not land, so the original delivery must go back to the broker.
+         *
+         * <p>Reported when the broker answered and declined: nothing was bound to receive the
+         * message, or it refused to confirm it. The message is still only on the source queue, so
+         * acknowledging the original would be the moment it is lost — {@code DefaultConsumer}
+         * rejects it with requeue instead, and the next delivery tries the hop again.
+         */
+        NOT_REPUBLISHED
     }
 }

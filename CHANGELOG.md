@@ -8,6 +8,35 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A retry or dead-letter hop that did not land is no longer acknowledged into
+  nothing.** `TransportConnection.send` reports two of its three failures as return
+  values rather than exceptions — `ConfirmResult.unroutable` when nothing was bound to
+  receive the message, and `ConfirmResult.failed` when the broker refused it or never
+  answered — and `RetryDispatcher` discarded that result. Only an IO or shutdown
+  failure threw, and only that one was handled.
+
+  The consequence was message loss rather than a missing counter. `DefaultConsumer`
+  acknowledges the original delivery on the strength of the dispatcher having
+  republished it, which is right when the republish happened: the message is meant to
+  be elsewhere by then. A hop that reached no queue was therefore acknowledged into
+  nothing, so a dead-letter queue deleted by hand — or a rung queue that was never
+  declared — silently ate every message routed to it, and the only visible trace was
+  one queue draining.
+
+  The dispatcher now reports `Outcome.NOT_REPUBLISHED`, `acemq.messages.set.aside.failed`
+  is raised with the broker's reason, and the consumer rejects the delivery with
+  requeue so the next delivery tries the hop again. That is what the Go, Python and
+  .NET libraries do in the same place. A broker that keeps refusing produces a
+  redelivery loop, which is the right failure: loud, and recoverable the moment the
+  queue is declared.
+
+  `messageDeadLettered` is no longer raised for a dead letter that did not arrive. The
+  counter an operator reads to know a message reached the dead-letter queue must not
+  be raised by one that did not get there.
+
+
 ## [0.7.3] - 2026-09-21
 
 ### Added
