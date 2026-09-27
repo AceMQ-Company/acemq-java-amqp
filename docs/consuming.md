@@ -73,6 +73,22 @@ Consumers whose share of the deadline is already gone are still **stopped**; the
 are simply not waited for. Skipping them entirely would leave consumers taking
 new work while the rest of the application shut down around them.
 
+**The budget is spent on consumer groups, and only on them.** A consumer created
+with `mq.consume(...)` on its own is cancelled without being waited for, so
+`mq.close()` does not drain it and no part of the twenty seconds is set aside for
+it. That is deliberate — one consumer is one handler, and an application that
+wants it finished says so — but it does mean a plain consumer holding a message
+when the connection closes produces a redelivery. Drain it yourself first:
+
+```java
+consumer.drain(Duration.ofSeconds(5));   // stops taking work, waits for what it holds
+mq.close();
+```
+
+`drain` returns `false` if anything was still being handled when the time ran out,
+which is the answer to log rather than to ignore: those messages will be
+redelivered.
+
 ## Ordering
 
 Competing consumers process in parallel, which means out of order. When order
@@ -124,6 +140,20 @@ Two exceptions mean something specific:
 A payload that cannot be *decoded* never reaches your handler and is never
 retried: it goes to the parking lot with its original bytes intact, because a
 message that fails to parse will fail to parse on every attempt.
+
+**With no retry policy at all there is one attempt, and then the dead-letter
+queue.** A consumer keeps what it could not handle whether or not you configured a
+schedule: `{queue}.dlq` and `{queue}.parked` are declared by the consumer itself,
+and a message is published there rather than rejected back at the broker. Through
+the 0.7 line a consumer without a policy rejected instead, which dropped the
+message unless the queue carried its own `x-dead-letter-exchange` — so the default
+was to lose a message whose handler had failed once. Go, .NET, Python and Ruby have
+always kept it; this is Java catching up with them.
+
+What that costs: a consumer now declares those two queues and the two exchanges
+behind them on start-up, and a user whose credentials cannot configure them will
+see the consumer refuse to start rather than run and discard messages later.
+`requeueOnFailure()` still puts a failed message straight back, unchanged.
 
 ## Reading the envelope
 

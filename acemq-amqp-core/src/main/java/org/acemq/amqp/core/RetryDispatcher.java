@@ -207,8 +207,14 @@ final class RetryDispatcher {
      *
      * @param delivery the delivery
      * @param failure why decoding failed
+     * @return {@code true} when the parking lot has the message, so the caller may acknowledge
+     *     the original. {@code false} means the broker answered and declined it — the parking
+     *     lot is not there, or it refused the message — and this delivery is then the only copy
+     *     there is. Acknowledging on that answer is the moment the bytes nobody could read
+     *     become bytes nobody can look at either, which is the same defect the retry hop had
+     *     until 0.7.4 and was still here afterwards.
      */
-    void park(InboundDelivery delivery, Throwable failure) {
+    boolean park(InboundDelivery delivery, Throwable failure) {
         String reason = "could not be decoded: " + describe(failure);
         Map<String, Object> headers = new LinkedHashMap<>(delivery.headers());
         headers.put(AceHeaders.ERROR, reason);
@@ -221,7 +227,12 @@ final class RetryDispatcher {
                 .contentType(delivery.contentType())
                 .build();
 
-        send(message, topology.parkingLotQueue());
+        if (!send(message, topology.parkingLotQueue())) {
+            // Not counted as parked, because it was not. The counter an operator reads to know
+            // a message reached the parking lot must not be raised by one that did not get
+            // there, and the caller has to be told so it can leave the message on the broker.
+            return false;
+        }
         // The envelope is read from the headers rather than from the message, because the
         // message is the thing that would not decode. Headers survive a payload that does not,
         // so the type and the attempt count are still reportable.
@@ -237,6 +248,7 @@ final class RetryDispatcher {
                 delivery.queue(),
                 topology.parkingLotQueue(),
                 describe(failure));
+        return true;
     }
 
     /**

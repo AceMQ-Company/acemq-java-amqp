@@ -4,7 +4,7 @@
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-patterns</artifactId>
-  <version>0.7.4</version>
+  <version>0.7.5</version>
 </dependency>
 ```
 
@@ -136,9 +136,14 @@ meant to go is the worst of both.
 
 ## Idempotency
 
-At-least-once delivery means duplicates. An idempotency store is what turns
-"delivered at least once" into "processed exactly once", and it is the half of
-that guarantee the broker cannot provide.
+At-least-once delivery means duplicates. An idempotency store is what stops a
+duplicate being *handled* twice: the second delivery of a message whose first
+delivery was confirmed is acknowledged without running the handler. That is the
+half of "exactly once" the broker cannot provide, and it is not the whole of it —
+the claim is a lease rather than a fact, so a handler that dies mid-work has its
+claim expire and the message is handled again, which is the behaviour that stops
+a crash losing the work. What this buys is **effectively-once processing**, and
+what it costs is that a handler still has to be safe to run twice.
 
 ```java
 IdempotencyStore seen = new JdbcIdempotencyStore(dataSource);

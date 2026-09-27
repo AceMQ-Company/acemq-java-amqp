@@ -8,6 +8,59 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-27
+
+### Fixed
+
+- **A consumer with no retry policy no longer throws the message away.** This was the
+  default path — `ConsumerOptions.defaults()`, no `withRetry` — and it destroyed
+  messages. With no policy there was no retry dispatcher, so a failed handler was
+  rejected without requeue and an undecodable body was too. A rejected message reaches
+  a dead-letter exchange only if the *queue* carries one, and nothing here declares
+  that on a queue it did not create: so out of the box, a handler that threw once
+  deleted the message, silently, with `rejected` as the only trace.
+
+  The dispatcher is now built whether or not a policy was asked for, using
+  `RetryPolicy.none()` — one attempt, no rungs — so a consumer declares `{queue}.dlq`
+  and `{queue}.parked` for itself and publishes there instead of rejecting. Go, .NET,
+  Python and Ruby have always done exactly this; Java was the only one of the five
+  that did not, and no test had asked what happens to a message when nobody
+  configured anything.
+
+- **An undecodable message the parking lot refused was acknowledged anyway.** The same
+  defect 0.7.4 fixed on the retry hop, still present one method away: `park` ignored
+  what `send` reported, so a parking lot that was missing or refused the message was
+  indistinguishable from one that took it — and the original was acknowledged into
+  nothing. `park` now returns whether the message landed, and the consumer requeues
+  when it did not.
+
+### Changed
+
+- **A consumer declares two queues and two exchanges on start-up, whatever its
+  options.** Previously that happened only with a retry policy. A user whose
+  credentials cannot configure `{queue}.dlq`, `{queue}.parked` or the two AceMQ
+  exchanges will now see the consumer refuse to start, instead of running and
+  discarding failed messages later. That is the intended trade: Go says the same thing
+  in the same place, and a consumer that cannot set a message aside has no business
+  consuming.
+
+- `requeueOnFailure()` is unchanged where it was ever meaningful — a failed handler
+  goes straight back to the queue — and is still ignored when a retry policy is also
+  configured, exactly as before.
+
+### Documentation
+
+- **`patterns.md` no longer claims idempotency gives "processed exactly once".** The
+  page said so and then contradicted itself twenty-eight lines later explaining that
+  a claim is a lease which expires so a crashed handler's message is handled again.
+  It now says effectively-once, and says plainly that a handler still has to be safe
+  to run twice.
+
+- **`consuming.md` no longer implies `mq.close()` drains every consumer.** The twenty
+  second budget is spent on consumer groups; a consumer created on its own is
+  cancelled without being waited for, which the javadoc has always said and the page
+  did not. It now shows `drain` for that case and says what a `false` from it means.
+
 ## [0.7.4] - 2026-09-27
 
 ### Fixed

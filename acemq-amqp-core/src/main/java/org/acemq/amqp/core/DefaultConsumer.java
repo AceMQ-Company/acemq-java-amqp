@@ -28,6 +28,7 @@ import org.acemq.amqp.api.IdempotencyStore;
 import org.acemq.amqp.api.Message;
 import org.acemq.amqp.api.MessageHandler;
 import org.acemq.amqp.api.MetricNames;
+import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.Acknowledger;
 import org.acemq.amqp.transport.InboundDelivery;
@@ -66,7 +67,18 @@ final class DefaultConsumer<T> implements MessageConsumer {
     private final AtomicLong deadLettered = new AtomicLong();
     private final AtomicLong duplicates = new AtomicLong();
     private final @Nullable IdempotencyStore idempotency;
-    private final @Nullable RetryDispatcher retries;
+    private final RetryDispatcher retries;
+
+    /**
+     * Whether a failed handler should be requeued instead of going to the dead-letter queue.
+     *
+     * <p>Only when {@link ConsumerOptions#requeueOnFailure()} was asked for <em>and</em> no
+     * retry policy was: a policy has always won over this flag, and a message that takes the
+     * ladder must not also be requeued behind it. Narrowed to that pair deliberately, so
+     * building the dispatcher unconditionally changes what happens to a message nobody had a
+     * plan for and nothing else.
+     */
+    private final boolean requeueWithoutAPolicy;
     private final AtomicLong inFlight = new AtomicLong();
     private final java.util.concurrent.atomic.AtomicInteger prefetch;
     private final AtomicBoolean running = new AtomicBoolean();
@@ -103,13 +115,26 @@ final class DefaultConsumer<T> implements MessageConsumer {
         this.telemetry = telemetry;
         this.prefetch = new java.util.concurrent.atomic.AtomicInteger(options.prefetch());
         this.idempotency = options.idempotencyStore().orElse(null);
-        this.retries = options.retryPolicy()
-                .map(policy -> {
-                    RetryTopology topology = RetryTopology.forQueue(queue, policy);
-                    topology.declare(connection);
-                    return new RetryDispatcher(connection, topology, telemetry);
-                })
-                .orElse(null);
+        this.requeueWithoutAPolicy = !options.retryPolicy().isPresent() && options.isRequeueOnFailure();
+        // Built whether or not a policy was asked for, which is the fix for a default that
+        // threw messages away.
+        //
+        // Without a policy there used to be no dispatcher, and a failed handler or an
+        // undecodable body was rejected without requeue: the broker then dropped the message
+        // unless the queue itself carried an x-dead-letter-exchange, which nothing here
+        // declares. So the out-of-the-box behaviour of the one library in five that did this
+        // was to delete a message whose handler had failed once, silently, with `rejected` as
+        // the only trace. Go, .NET, Python and Ruby all publish it to {queue}.dlq instead, and
+        // all four declare that queue from the consumer for exactly this reason.
+        //
+        // RetryPolicy.none() is one attempt and no rungs, so this declares the two exchanges,
+        // {queue}.dlq and {queue}.parked, and nothing else — and a failure goes to the
+        // dead-letter queue on the first attempt, because there is no second one. That is
+        // Go's NoRetry() and .NET's null policy, spelled the same way.
+        RetryPolicy policy = options.retryPolicy().orElseGet(RetryPolicy::none);
+        RetryTopology topology = RetryTopology.forQueue(queue, policy);
+        topology.declare(connection);
+        this.retries = new RetryDispatcher(connection, topology, telemetry);
     }
 
     void start() {
@@ -215,17 +240,26 @@ final class DefaultConsumer<T> implements MessageConsumer {
             message = decode(delivery);
         } catch (Exception e) {
             // A payload that cannot be decoded will not decode on the next attempt either.
-            // Retrying it would occupy the queue forever, so it goes to the parking lot when
-            // one exists, keeping the original bytes for inspection, and is otherwise
-            // rejected without requeue.
+            // Retrying it would occupy the queue forever, so it goes to the parking lot,
+            // keeping the original bytes for inspection.
+            //
+            // The parking lot exists whether or not a retry policy was asked for. It did not
+            // before, and the undecodable message was rejected without requeue and dropped by
+            // the broker: the bytes nobody could read were also the bytes nobody could look at.
             rejected.incrementAndGet();
-            if (retries != null) {
-                retries.park(delivery, e);
-                acknowledger.accept();
-            } else {
-                log.warn("rejecting a message on {} that could not be decoded; it will not be retried", queue, e);
-                acknowledger.reject(false);
+            if (!retries.park(delivery, e)) {
+                // The parking lot declined it, so this delivery is the only copy. Requeued
+                // rather than acknowledged, which keeps the bytes on the broker for whoever
+                // declares the queue; it is the same answer the retry hop gives when its rung
+                // declines, and the same one Go, Python and .NET give here.
+                log.error(
+                        "could not park an undecodable message from {}; leaving it on the broker",
+                        queue,
+                        e);
+                acknowledger.reject(true);
+                return;
             }
+            acknowledger.accept();
             return;
         }
 
@@ -301,13 +335,14 @@ final class DefaultConsumer<T> implements MessageConsumer {
             // Go, Python and Ruby have always drawn the line here.
             scope.outcome(MetricNames.OUTCOME_REJECTED);
             log.warn("handler rejected {} as unprocessable: {}", message, e.getMessage());
-            if (retries != null) {
-                retries.onFailure(delivery, message.envelope(), e, true);
-                deadLettered.incrementAndGet();
-                acknowledger.accept();
-            } else {
-                acknowledger.reject(false);
+            if (retries.onFailure(delivery, message.envelope(), e, true) == RetryDispatcher.Outcome.NOT_REPUBLISHED) {
+                // The dead-letter queue declined it, so this delivery is the only copy there
+                // is. Requeued for the same reason the ordinary failure path requeues.
+                acknowledger.reject(true);
+                return;
             }
+            deadLettered.incrementAndGet();
+            acknowledger.accept();
         } catch (Exception e) {
             notifyFailure(context, e);
             rejected.incrementAndGet();
@@ -316,7 +351,16 @@ final class DefaultConsumer<T> implements MessageConsumer {
             // message is lost to a transient failure.
             releaseClaim(messageId);
             scope.failed(e);
-            if (retries != null) {
+            if (requeueWithoutAPolicy) {
+                // Asked for explicitly, and only when no policy was: shedding load onto another
+                // consumer is a thing somebody chooses, and it is the one case where putting the
+                // message straight back is what was wanted.
+                scope.outcome(MetricNames.OUTCOME_REJECTED);
+                log.warn("handler failed for {}; requeueing as asked", message, e);
+                acknowledger.reject(true);
+                return;
+            }
+            {
                 RetryDispatcher.Outcome outcome = retries.onFailure(delivery, message.envelope(), e, false);
                 if (outcome == RetryDispatcher.Outcome.NOT_REPUBLISHED) {
                     // The hop did not land: the broker answered and declined it, so this delivery
@@ -343,10 +387,6 @@ final class DefaultConsumer<T> implements MessageConsumer {
                 // The message has already been republished elsewhere, so the original copy is
                 // acknowledged rather than rejected into a requeue loop.
                 acknowledger.accept();
-            } else {
-                scope.outcome(MetricNames.OUTCOME_REJECTED);
-                log.warn("handler failed for {}", message, e);
-                acknowledger.reject(options.isRequeueOnFailure());
             }
         } catch (Throwable t) {
             // An Error means the process is in trouble, but the delivery still has to be
