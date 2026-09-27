@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-27
+
 ### Fixed
 
 - **A retry or dead-letter hop that did not land is no longer acknowledged into
