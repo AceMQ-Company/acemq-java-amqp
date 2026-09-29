@@ -8,6 +8,33 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-09-29
+
+### Fixed
+
+- **A duplicate no longer throws on a driver that does not report `SQLState`.**
+  `JdbcIdempotencyStore.claim` decided what counted as a duplicate by reading
+  `SQLState` and looking for class 23, the SQL standard's integrity-constraint
+  class. That is right on PostgreSQL, H2 and SQL Server, and it is not something a
+  driver is obliged to do: sqlite-jdbc reports `SQLState = null` with
+  `errorCode = 19` on a primary key violation, measured on 3.47.1.0.
+
+  So on SQLite a second claim of the same message threw instead of returning
+  `false`, and a consumer met an ordinary duplicate by sending it down the retry
+  ladder and into the dead-letter queue, which is the alarm this pattern exists to
+  avoid raising. SQLite is what people develop against even when production is
+  PostgreSQL, so it was most likely to be met on somebody's first afternoon.
+
+  The row is now asked instead of the driver: if an insert fails and a row for that
+  identifier exists, it was a duplicate whatever the driver called it. A failure
+  with no row is still raised, and that half matters as much. Treating every failed
+  insert as a duplicate would turn a lock timeout into "somebody already has this
+  message", and the caller would acknowledge a message nothing had handled. The
+  extra query runs only on the failure path.
+
+  Found while building `claim-lease-drill.sh`, which kills a process holding a
+  claim: the drill could not use SQLite for Java, and this was why.
+
 ## [0.7.5] - 2026-09-27
 
 ### Fixed

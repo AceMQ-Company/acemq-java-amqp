@@ -4,7 +4,7 @@
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-patterns</artifactId>
-  <version>0.7.5</version>
+  <version>0.7.6</version>
 </dependency>
 ```
 
@@ -173,6 +173,15 @@ The cost is the opposite failure: a process that dies after claiming and before
 working leaves a claim blocking a retry that should happen. Hence the **lease** —
 a claim not confirmed within `claimTimeout` expires and the message can be tried
 again. Set it comfortably above your slowest handler.
+
+**Any JDBC driver, including ones that report no `SQLState`.** A duplicate claim is
+decided by looking for the row, not by reading an error code, so it behaves the same
+on PostgreSQL, H2, SQL Server and SQLite. Through the 0.7 line it read `SQLState`
+for the standard's integrity-constraint class, which sqlite-jdbc does not set, so on
+SQLite a duplicate threw instead of returning `false` and an ordinary duplicate was
+dead-lettered rather than skipped. A failure that is *not* a duplicate is still
+raised: a lock timeout must not be mistaken for "somebody already has this", or the
+caller acknowledges a message nothing handled.
 
 | | |
 |---|---|

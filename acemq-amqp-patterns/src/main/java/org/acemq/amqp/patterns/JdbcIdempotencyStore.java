@@ -200,6 +200,30 @@ public final class JdbcIdempotencyStore implements IdempotencyStore {
         }
     }
 
+    /**
+     * Tries to take the claim by inserting it.
+     *
+     * <p>A duplicate is refused rather than thrown, and the driver does not get to decide what
+     * counts as one.
+     *
+     * <p>This used to inspect the {@code SQLState} instead and rethrow anything that was not
+     * class 23, the standard's integrity-constraint class. That reads well and works on
+     * PostgreSQL, H2 and SQL Server, and it fails on any driver that does not set the field:
+     * sqlite-jdbc reports {@code SQLState = null} with {@code errorCode = 19}, so a duplicate
+     * claim threw instead of returning false, and a consumer met a duplicate by dead-lettering
+     * it rather than skipping it. SQLite is what people develop against even when production is
+     * PostgreSQL, so that was most likely to be met on somebody's first afternoon.
+     *
+     * <p>So the row itself is asked. If the insert failed and a row for this identifier is there,
+     * it was a duplicate whatever the driver called it; if the insert failed and no row is there,
+     * something else went wrong and the exception is rethrown. That matters more than it looks:
+     * treating <em>every</em> failed insert as a duplicate would turn a lock timeout into
+     * "somebody already has this message", and the caller would acknowledge a message nothing had
+     * handled. A silent loss, arrived at while fixing one.
+     *
+     * <p>The extra query runs only on the failure path, and only until the first claim of an
+     * identifier succeeds.
+     */
     private boolean insertClaim(Connection connection, String messageId, Instant now) throws SQLException {
         String sql = "INSERT INTO " + table + " (message_id, state, claimed_by, recorded_at, expires_at)"
                 + " VALUES (?, ?, ?, ?, ?)";
@@ -211,10 +235,27 @@ public final class JdbcIdempotencyStore implements IdempotencyStore {
             statement.setObject(5, atUtc(now.plus(claimTimeout)));
             return statement.executeUpdate() == 1;
         } catch (SQLException e) {
-            if (isDuplicateKey(e)) {
+            // SQLState first, because it costs nothing and answers on every driver that sets it.
+            if (isDuplicateKey(e) || rowExists(connection, messageId)) {
                 return false;
             }
             throw e;
+        }
+    }
+
+    /**
+     * Whether a row for this identifier is there, asked only when an insert has already failed.
+     *
+     * <p>A row that appeared between the failed insert and this query belongs to somebody else,
+     * and answering {@code true} is right for that too: whoever wrote it has the claim.
+     */
+    private boolean rowExists(Connection connection, String messageId) throws SQLException {
+        String sql = "SELECT 1 FROM " + table + " WHERE message_id = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, messageId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next();
+            }
         }
     }
 
