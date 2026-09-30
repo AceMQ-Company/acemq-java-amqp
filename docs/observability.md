@@ -80,7 +80,7 @@ the applications where it is not.
 ```java
 try (AceMq mq = AceMq.connect("amqp://localhost");
      AceMqActuator actuator = AceMqActuator.start(mq)) {
-    // http://127.0.7.6:9464/acemq-metrics
+    // http://127.0.7.7:9464/acemq-metrics
 }
 ```
 
