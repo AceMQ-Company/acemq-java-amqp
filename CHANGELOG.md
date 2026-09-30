@@ -12,18 +12,27 @@ While the version is `0.x` the public API may change in any release.
 
 ### Security
 
-- **jackson-databind 2.18.9 to 2.18.10**, closing three advisories that reached users:
-  one **high** (unbounded `Duration`/`XMLGregorianCalendar` deserialization) and two
-  medium (`Path` deserialization missing a scheme allow-list, and `Comparable`
-  missing from the default base-type limiter). All three are runtime scope through
-  `acemq-amqp-codec-json`, so anything depending on this library inherited them.
+- **jackson-databind 2.18.9 to 2.18.11**, closing five advisories, all of them
+  runtime scope through `acemq-amqp-codec-json` — so anything depending on this
+  library inherited every one of them.
 
-  One property in the parent pom sets the version for `jackson-core`,
-  `jackson-annotations` and `jackson-databind` together, and the dependency tree was
-  checked afterwards: nothing pulls an older databind transitively, including the
+  Three were open when this started: one **high** (unbounded
+  `Duration`/`XMLGregorianCalendar` deserialization) and two medium (`Path`
+  deserialization missing a scheme allow-list, and `Comparable` missing from the
+  default base-type limiter). 2.18.10 closes all three.
+
+  Two more **high** advisories were published while that bump was in flight —
+  quadratic forward-reference handling, and unknown references being retained — and
+  both name `<= 2.18.10`, with 2.18.11 as the first patched version. So this went out
+  on 2.18.11 rather than shipping a release with two known highs in it.
+
+  One property in the parent pom moves `jackson-core`, `jackson-annotations` and
+  `jackson-databind` together, and the dependency tree was checked after each bump
+  rather than assumed: nothing resolves an older databind transitively, including the
   Avro codec, which brings a jackson-core of its own and is pinned for that reason.
 
   No API change and no behaviour change. 620 tests pass unchanged.
+
 
 ## [0.7.6] - 2026-09-29
 
