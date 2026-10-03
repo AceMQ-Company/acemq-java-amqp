@@ -242,6 +242,27 @@ class SchemaCodecTest {
         }
 
         @Test
+        void reads_nested_records_and_enums_without_widening_avros_class_allowlist() {
+            // Avro 1.12.1 refuses to load any class by name that its global allowlist does not
+            // name, and the default names only java.lang and java.math -- so every generated
+            // record failed. The codec trusts the types compiled into the caller's own class
+            // instead, nested ones included, and must not do it by loosening the JVM-wide list.
+            org.apache.avro.util.ClassSecurityValidator.ClassSecurityPredicate before = org.apache.avro.util.ClassSecurityValidator
+                    .getGlobal();
+            Codec codec = AvroCodec.of(org.acemq.amqp.test.avro.TestShipment.class);
+
+            byte[] encoded = codec.encode(new org.acemq.amqp.test.avro.TestShipment(
+                    new org.acemq.amqp.test.avro.TestOrder("o-9", 90),
+                    org.acemq.amqp.test.avro.TestPriority.HIGH));
+            org.acemq.amqp.test.avro.TestShipment decoded = codec.decode(encoded,
+                    org.acemq.amqp.test.avro.TestShipment.class);
+
+            assertThat(decoded.order().id()).isEqualTo("o-9");
+            assertThat(decoded.priority()).isEqualTo(org.acemq.amqp.test.avro.TestPriority.HIGH);
+            assertThat(org.apache.avro.util.ClassSecurityValidator.getGlobal()).isSameAs(before);
+        }
+
+        @Test
         void takes_its_schema_from_the_class_rather_than_being_told_one() {
             Codec fromClass = AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.class);
             Codec fromSchema = AvroCodec.of(org.acemq.amqp.test.avro.TestOrder.SCHEMA$);

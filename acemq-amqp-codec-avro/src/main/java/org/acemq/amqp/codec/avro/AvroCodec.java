@@ -17,9 +17,11 @@ package org.acemq.amqp.codec.avro;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.acemq.amqp.api.AceMqException;
@@ -91,6 +93,9 @@ public final class AvroCodec implements Codec {
      * changes: an identifier stands for one schema forever.
      */
     private final Map<Integer, Schema> parsed = new ConcurrentHashMap<>();
+
+    /** One model per generated class, built once: see {@link CallerTrustedData}. */
+    private final Map<Class<?>, SpecificData> models = new ConcurrentHashMap<>();
 
     private final @Nullable Schema fixedSchema;
     private final @Nullable SchemaRegistry registry;
@@ -179,7 +184,7 @@ public final class AvroCodec implements Codec {
                 out.write(id & 0xFF);
             }
             BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(out, null);
-            writerFor(schema).write(payload, encoder);
+            writerFor(schema, payload.getClass()).write(payload, encoder);
             encoder.flush();
             return out.toByteArray();
         } catch (IOException | RuntimeException e) {
@@ -267,7 +272,7 @@ public final class AvroCodec implements Codec {
                     // container or a Spring Boot fat jar is not the one that has the generated
                     // class, and the miss is silent: SpecificDatumReader falls back to a
                     // GenericData.Record and the cast fails exactly as it did before.
-                    ? new SpecificDatumReader<>(writerSchema, readerSchema, new SpecificData(target.getClassLoader()))
+                    ? new SpecificDatumReader<>(writerSchema, readerSchema, modelFor(target, readerSchema))
                     : new GenericDatumReader<>(writerSchema, readerSchema);
             BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(body, offset, body.length - offset, null);
             Object decoded = reader.read(null, decoder);
@@ -360,8 +365,83 @@ public final class AvroCodec implements Codec {
         return fixedSchema != null ? fixedSchema : writerSchema;
     }
 
-    private DatumWriter<Object> writerFor(Schema schema) {
-        return specific ? new SpecificDatumWriter<>(schema) : new GenericDatumWriter<>(schema);
+    private DatumWriter<Object> writerFor(Schema schema, Class<?> payloadType) {
+        return specific
+                ? new SpecificDatumWriter<>(schema, modelFor(payloadType, schema))
+                : new GenericDatumWriter<>(schema);
+    }
+
+    private SpecificData modelFor(Class<?> type, Schema schema) {
+        return models.computeIfAbsent(type, t -> new CallerTrustedData(t.getClassLoader(), schema));
+    }
+
+    /**
+     * Resolves the named types of a schema compiled into a class the caller handed us, without
+     * asking Avro's global class allowlist.
+     *
+     * <p>From 1.12.1 Avro checks every class it loads by name against {@code ClassSecurityValidator},
+     * whose default trusts only {@code java.lang} and {@code java.math}. That closes a real hole --
+     * a schema read off the wire naming a class to instantiate -- but it also refuses every
+     * generated record, so a plain {@code SpecificDatumReader} on an application's own class fails
+     * unless the whole JVM is told to trust its package. Setting that from a library would widen it
+     * for everyone else in the process.
+     *
+     * <p>The names trusted here are the record, enum and fixed types of the schema compiled into the
+     * caller's class: text that shipped in their own jar, not text that arrived in a message. Avro
+     * resolves a specific record against the reader's schema, so these are the only names it asks
+     * for. Anything else falls through to Avro's own check, unchanged.
+     */
+    private static final class CallerTrustedData extends SpecificData {
+        private final Set<String> trusted = new HashSet<>();
+        private final Map<String, Class<?>> resolved = new ConcurrentHashMap<>();
+
+        CallerTrustedData(ClassLoader loader, Schema root) {
+            super(loader);
+            collectNamed(root, trusted);
+        }
+
+        @Override
+        public Class getClass(Schema schema) {
+            String name = schema.getFullName();
+            if (name != null && trusted.contains(name)) {
+                Class<?> c = resolved.computeIfAbsent(name, n -> {
+                    try {
+                        return Class.forName(getClassName(schema), false, getClassLoader());
+                    } catch (ClassNotFoundException e) {
+                        return null; // nested-namespace forms are left to Avro below
+                    }
+                });
+                if (c != null) {
+                    return c;
+                }
+            }
+            return super.getClass(schema);
+        }
+
+        private static void collectNamed(Schema schema, Set<String> into) {
+            switch (schema.getType()) {
+                case RECORD :
+                    if (into.add(schema.getFullName())) {
+                        schema.getFields().forEach(f -> collectNamed(f.schema(), into));
+                    }
+                    break;
+                case ENUM :
+                case FIXED :
+                    into.add(schema.getFullName());
+                    break;
+                case ARRAY :
+                    collectNamed(schema.getElementType(), into);
+                    break;
+                case MAP :
+                    collectNamed(schema.getValueType(), into);
+                    break;
+                case UNION :
+                    schema.getTypes().forEach(t -> collectNamed(t, into));
+                    break;
+                default :
+                    break;
+            }
+        }
     }
 
     @Override

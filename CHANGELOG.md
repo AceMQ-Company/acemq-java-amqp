@@ -15,6 +15,19 @@ While the version is `0.x` the public API may change in any release.
   the base classes of `jackson-core` and `jackson-databind` 2.22.3 are Java 8 (class-file
   major 52), with Java 9+ only in multi-release overlays, so the Java 11 baseline
   (ADR-015, Spring Boot 2.7) still holds.
+- **Avro 1.12.2** (from 1.12.0) and **slf4j 2.0.18** (from 2.0.16), which Avro 1.12.2
+  requires and the enforcer would otherwise refuse as a downgrade.
+
+### Fixed
+
+- **`AvroCodec` reads and writes generated records on Avro 1.12.1 and later.** From 1.12.1
+  Avro checks every class it loads by name against a JVM-wide allowlist
+  (`ClassSecurityValidator`) that trusts only `java.lang` and `java.math` by default, so
+  every `SpecificRecord` failed with `SecurityException: Forbidden ...` beneath the codec's
+  "could not encode" error. The codec now resolves exactly the record, enum and fixed types
+  compiled into the class the caller handed it, nested ones included, and leaves
+  everything else to Avro's check. It does not widen the global allowlist, and
+  applications need not set `org.apache.avro.SERIALIZABLE_PACKAGES`.
 
 ## [0.7.8] - 2026-10-03
 
