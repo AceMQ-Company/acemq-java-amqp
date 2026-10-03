@@ -8,6 +8,14 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+
+- **Jackson 2.22.3** (from 2.18.11), through `jackson-bom`, which resolves
+  `jackson-annotations` to its two-segment `2.22`. The bytecode floor is unchanged:
+  the base classes of `jackson-core` and `jackson-databind` 2.22.3 are Java 8 (class-file
+  major 52), with Java 9+ only in multi-release overlays, so the Java 11 baseline
+  (ADR-015, Spring Boot 2.7) still holds.
+
 ## [0.7.8] - 2026-10-03
 
 No library change. Build and test dependencies only, and two dependency-management
