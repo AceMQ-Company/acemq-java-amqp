@@ -20,7 +20,7 @@ Add it as a test dependency:
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-test</artifactId>
-  <version>0.7.7</version>
+  <version>0.7.8</version>
   <scope>test</scope>
 </dependency>
 ```
