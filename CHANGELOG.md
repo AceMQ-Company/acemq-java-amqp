@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-10-03
+
 ### Changed
 
 - **Jackson 2.22.3** (from 2.18.11), through `jackson-bom`, which resolves
