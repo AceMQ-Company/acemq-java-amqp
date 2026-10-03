@@ -8,6 +8,37 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-10-03
+
+No library change. Build and test dependencies only, and two dependency-management
+fixes that were blocking every future upgrade in their families.
+
+### Changed
+
+- **The Jackson family is managed by `jackson-bom`** instead of seven artifacts each
+  pinned to one property. The family stopped sharing a version line — `jackson-databind`
+  and `jackson-core` publish 2.22.x while `jackson-annotations` does not exist at 2.22.x
+  at all — so a single property capped this project at 2.19.0 and anything past it
+  produced a build that could not resolve. The BOM maps one release train onto the right
+  version of each artifact. Resolution is unchanged at 2.18.11.
+- **Testcontainers 2.0.5**, which renamed every module: `rabbitmq` is now
+  `testcontainers-rabbitmq`, `junit-jupiter` is `testcontainers-junit-jupiter`,
+  `postgresql` is `testcontainers-postgresql`. The old coordinates stop at 1.x, which is
+  why a bare version bump could not be read by Maven at all. The reason the old pin was
+  1.21.4 rather than Spring Boot's 1.21.3 — 1.21.3 fails Docker Desktop's minimum API
+  version — is recorded where the property lives.
+- **JUnit 6.1.3**, with no source changes: the suites use plain Jupiter APIs. Its Java 17
+  baseline affects tests only; the published bytecode is still Java 11 (ADR-015).
+- h2 2.4.240, nullaway 0.14.1, spotless 3.10.3, mockito 5.24.0, awaitility 4.3.0,
+  assertj 3.27.7, native-maven-plugin 1.1.14, the build-plugins group, and the GitHub
+  Actions group.
+- `.github/dependabot.yml` splits the testing group by semver level, so a major can no
+  longer hold routine minors hostage. One grouped pull request had carried mockito and
+  awaitility together with JUnit 6 and Testcontainers 2 and could not be merged in any
+  form, so none of the four moved for a week.
+
+Verified with integration tests against real brokers: 1,366 tests, 0 failures.
+
 ## [0.7.7] - 2026-09-30
 
 ### Security
