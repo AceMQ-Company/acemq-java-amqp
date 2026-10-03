@@ -107,10 +107,22 @@
     <protobuf.version>4.29.3</protobuf.version>
 
     <!-- test versions -->
-    <junit.version>5.11.4</junit.version>
+    <junit.version>6.1.3</junit.version>
     <assertj.version>3.27.7</assertj.version>
     <mockito.version>5.24.0</mockito.version>
-    <testcontainers.version>1.21.4</testcontainers.version>
+    <!-- Testcontainers 2.x renamed every module: `rabbitmq` became
+         `testcontainers-rabbitmq`, `junit-jupiter` became
+         `testcontainers-junit-jupiter`, and so on. The old coordinates stop at 1.x —
+         404 in Central at 2.0.5 — which is why a bare version bump could not even be
+         read by Maven: the BOM no longer supplies a version for a module nobody
+         publishes, so three dependencies resolved to no version at all.
+
+         The 1.x pin was deliberate and its reason is now moot: 1.21.4 rather than the
+         1.21.3 Spring Boot managed, because 1.21.3 fails Docker Desktop's minimum API
+         version. 2.0.5 is well past both. The BOM still has to be imported before
+         anything else has a say about these versions, which is what the import below
+         does. WorkloadIT is the suite that notices if that stops being true. -->
+    <testcontainers.version>2.0.5</testcontainers.version>
     <awaitility.version>4.3.0</awaitility.version>
     <logback.version>1.5.15</logback.version>
     <!-- Databases for the outbox tests. H2 answers "is the SQL correct?" in
