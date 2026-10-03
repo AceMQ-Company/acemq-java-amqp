@@ -24,6 +24,17 @@ updates:
       jackson:
         patterns:
           - "com.fasterxml.jackson*"
+      # Split by semver level, because one group held four upgrades hostage to two.
+      # The first grouped testing pull request carried mockito 5.24 and awaitility
+      # 4.3 -- both routine -- together with junit 6 and testcontainers 2, and the
+      # whole thing could not even be read by Maven: testcontainers 2.x gets its
+      # module versions from a BOM whose coordinates changed, so `rabbitmq`,
+      # `junit-jupiter` and `postgresql` resolved to no version at all and the build
+      # failed before compiling. Nothing in that pull request was mergeable, so
+      # nothing in it merged, for a week.
+      #
+      # Majors now arrive on their own and can be taken, held or closed on their own
+      # evidence. The minors stop waiting for them.
       testing:
         patterns:
           - "org.junit*"
@@ -31,6 +42,18 @@ updates:
           - "org.testcontainers:*"
           - "org.awaitility:*"
           - "org.mockito:*"
+        update-types:
+          - "minor"
+          - "patch"
+      testing-majors:
+        patterns:
+          - "org.junit*"
+          - "org.assertj:*"
+          - "org.testcontainers:*"
+          - "org.awaitility:*"
+          - "org.mockito:*"
+        update-types:
+          - "major"
       build-plugins:
         patterns:
           - "org.apache.maven.plugins:*"
