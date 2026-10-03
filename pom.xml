@@ -288,43 +288,32 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
-      <!-- Pinned as well as databind. Avro brings an older jackson-core of its own,
-           and the enforcer is right to refuse the mismatch: two Jackson artifacts from
-           different releases on one classpath fail at runtime, not at build time. -->
+      <!-- The whole Jackson family from one import, rather than seven artifacts each
+           pinned to ${jackson.version}.
+
+           Why it has to be the BOM: the family stopped sharing a version line.
+           jackson-databind and jackson-core publish 2.22.x; jackson-annotations does
+           not exist at 2.22.x at all (404 in Central, where the other two are 200). So
+           one property applied to every artifact caps this project at 2.19.0 whatever
+           is proposed, and proposing more produces a build that cannot resolve —
+           Dependabot asked for `jackson-databind:2.22`, which does not exist in any
+           form, and the attempt failed before compiling.
+
+           The BOM is what maps one release train onto the right version of each
+           artifact, including the ones that have stopped moving in step. It also keeps
+           the property for anyone who wants to see which train is in use, and leaves
+           Dependabot one version to bump instead of seven to get wrong.
+
+           The pinning this replaces was there for a real reason, which the BOM keeps:
+           Avro brings an older jackson-core of its own, and the enforcer is right to
+           refuse the mismatch, because two Jackson artifacts from different releases on
+           one classpath fail at runtime rather than at build time. -->
       <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-core</artifactId>
+        <groupId>com.fasterxml.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
         <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-annotations</artifactId>
-        <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.datatype</groupId>
-        <artifactId>jackson-datatype-jsr310</artifactId>
-        <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.dataformat</groupId>
-        <artifactId>jackson-dataformat-xml</artifactId>
-        <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.dataformat</groupId>
-        <artifactId>jackson-dataformat-yaml</artifactId>
-        <version>${jackson.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.dataformat</groupId>
-        <artifactId>jackson-dataformat-toml</artifactId>
-        <version>${jackson.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>org.apache.avro</groupId>
