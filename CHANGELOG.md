@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-10-04
+
 ### Added
 
 - **`outcome="refused"` on publish telemetry** (`MetricNames.OUTCOME_REFUSED`), for a
