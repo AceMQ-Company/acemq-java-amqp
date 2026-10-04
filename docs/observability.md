@@ -172,7 +172,7 @@ every port reports the same series and one dashboard serves all of them.
 | | |
 |---|---|
 | `acemq.publish.duration` | Time to a confirm — not time to a socket write |
-| `acemq.publish.total` | `outcome`: `confirmed`, `unroutable`, `failed` |
+| `acemq.publish.total` | `outcome`: `confirmed`, `unroutable`, `failed`, `refused` |
 | `acemq.consume.duration` | Handler time |
 | `acemq.consume.total` | `outcome`: `acked`, `retried`, `dead_lettered`, `rejected` |
 | `acemq.consume.attempts` | Distribution of attempt numbers |
@@ -184,6 +184,24 @@ every port reports the same series and one dashboard serves all of them.
 
 Tags: `exchange`, `routing.key`, `queue`, `transport`, `message.type`, `outcome`,
 `target`, `rung`.
+
+### `refused` and `failed` are different events
+
+Both throw, and only one can have lost a message:
+
+- **`failed`** — the message may be gone: the broker nacked it, never confirmed
+  it, or the write broke. Also a `ConnectionBlockedException` whose
+  `mayHaveBeenPublished()` is `true`: it was written, then the alarm was found.
+- **`refused`** — the library declined to send it and nothing reached the broker.
+  `PublishingPausedException` (publishing is paused for a cutover or by back
+  pressure), and a `ConnectionBlockedException` whose `mayHaveBeenPublished()` is
+  `false` (the connection was already known to be blocked). The caller still
+  holds the message.
+
+Alert on `failed`; graph `refused` against broker alarms and your pause
+windows. The span carries the same word in `messaging.acemq.outcome`, with
+an error status, because the caller did get an exception. Go, .NET, Python and
+Ruby use the same value.
 
 ### `rejected` and `dead_lettered` are different events
 

@@ -242,6 +242,23 @@ class TracingTest {
                 .isEqualTo(MetricNames.OUTCOME_FAILED);
     }
 
+    @Test
+    @Timeout(20)
+    void a_paused_publish_leaves_a_span_that_says_refused() {
+        // Nothing was sent, so the span must not read as a possible loss. Without a span at
+        // all, the trace backend never saw the refusal the caller got an exception for.
+        connect("tracing-refused");
+        mq.pausePublishing();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> mq.publisher("orders", "order.placed").send("payload"))
+                .isInstanceOf(org.acemq.amqp.api.PublishingPausedException.class);
+
+        SpanData span = spanNamed("orders publish");
+        assertThat(attribute(span, "messaging.acemq.outcome")).isEqualTo(MetricNames.OUTCOME_REFUSED);
+        assertThat(span.getStatus().getStatusCode()).isEqualTo(io.opentelemetry.api.trace.StatusCode.ERROR);
+    }
+
     private SpanData spanNamed(String name) {
         return spans.getFinishedSpanItems().stream()
                 .filter(span -> span.getName().equals(name))

@@ -31,6 +31,7 @@ import org.acemq.amqp.api.PublishResult;
 import org.acemq.amqp.api.Publisher;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.transport.ConfirmResult;
+import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.TransportConnection;
 import org.slf4j.Logger;
@@ -271,7 +272,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         try {
             confirm = connection.sendAsync(toMessage(prepared));
         } catch (RuntimeException e) {
-            scope.failed(e);
+            failed(scope, e);
             scope.close();
             interceptors.onPublishError(prepared.context, e);
             throw e;
@@ -279,7 +280,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         return confirm.handle((result, failure) -> {
             try {
                 if (failure != null) {
-                    scope.failed(failure);
+                    failed(scope, failure);
                     interceptors.onPublishError(prepared.context, failure);
                     throw failure instanceof RuntimeException
                             ? (RuntimeException) failure
@@ -346,7 +347,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             try {
                 result = connection.send(toMessage(prepared));
             } catch (RuntimeException e) {
-                scope.failed(e);
+                failed(scope, e);
                 interceptors.onPublishError(prepared.context, e);
                 throw e;
             }
@@ -368,9 +369,15 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         if (publishingPaused.getAsBoolean()) {
             // Checked before anything is encoded or sent, so a paused connection costs nothing
             // and leaves no half-finished work to reason about.
-            throw new org.acemq.amqp.api.PublishingPausedException("publishing is paused on this connection, so"
-                    + " nothing was sent to " + exchange + "/" + routingKey + ". Resume it, or retry once the"
-                    + " cutover is finished.");
+            org.acemq.amqp.api.PublishingPausedException refused = new org.acemq.amqp.api.PublishingPausedException(
+                    "publishing is paused on this connection, so nothing was sent to " + exchange + "/"
+                            + routingKey + ". Resume it, or retry once the cutover is finished.");
+            // Recorded, because a refusal the caller got an exception for and no dashboard saw
+            // is invisible back pressure. As refused, not failed: nothing can have been lost.
+            try (Telemetry.Scope scope = telemetry.publishStarted(exchange, routingKey, envelope)) {
+                failed(scope, refused);
+            }
+            throw refused;
         }
         if (payload == null) {
             throw new IllegalArgumentException("payload must not be null");
@@ -434,6 +441,23 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             outbound.allowUnroutable();
         }
         return outbound.build();
+    }
+
+    /**
+     * Records a publish that threw, as {@code refused} when nothing was written and as
+     * {@code failed} when the message may have been lost.
+     *
+     * <p>Only two refusals are certain to have written nothing: a paused connection, checked
+     * before encoding, and a connection already known to be blocked. A block discovered after
+     * the write ({@code mayHaveBeenPublished()}) is an ordinary may-have-been-lost failure.
+     */
+    private static void failed(Telemetry.Scope scope, Throwable failure) {
+        if (failure instanceof org.acemq.amqp.api.PublishingPausedException
+                || (failure instanceof ConnectionBlockedException
+                        && !((ConnectionBlockedException) failure).mayHaveBeenPublished())) {
+            scope.outcome(MetricNames.OUTCOME_REFUSED);
+        }
+        scope.failed(failure);
     }
 
     /** Turns the broker's answer into a result or the right failure, for both paths. */

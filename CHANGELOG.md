@@ -8,6 +8,19 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- **`outcome="refused"` on publish telemetry** (`MetricNames.OUTCOME_REFUSED`), for a
+  publish the library declined to send: `PublishingPausedException`, and a
+  `ConnectionBlockedException` whose `mayHaveBeenPublished()` is `false`. Nothing reached
+  the broker, so it is no longer counted beside losses. `acemq.publish.total`,
+  `acemq.publish.duration` and the publish span's `messaging.acemq.outcome` all carry it;
+  the span keeps an error status and the exception. `failed` is unchanged and still means
+  a message that may have been lost (nack, no confirm, unroutable is its own value, I/O
+  error, or blocked after the write). A paused publish used to record nothing at all — no
+  counter and no span — because the pause was checked before the telemetry scope opened.
+  The same value is used by Go, .NET, Python and Ruby.
+
 ## [0.7.9] - 2026-10-03
 
 ### Changed

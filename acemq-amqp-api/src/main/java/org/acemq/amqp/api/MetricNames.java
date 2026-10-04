@@ -133,8 +133,8 @@ public final class MetricNames {
     public static final String TAG_RUNG = "rung";
 
     /**
-     * What happened. One of {@code confirmed}, {@code unroutable}, {@code failed} for a
-     * publish; {@code acked}, {@code retried}, {@code dead_lettered}, {@code parked},
+     * What happened. One of {@code confirmed}, {@code unroutable}, {@code failed},
+     * {@code refused} for a publish; {@code acked}, {@code retried}, {@code dead_lettered}, {@code parked},
      * {@code rejected} for a delivery.
      */
     public static final String TAG_OUTCOME = "outcome";
@@ -144,6 +144,17 @@ public final class MetricNames {
     public static final String OUTCOME_CONFIRMED = "confirmed";
     public static final String OUTCOME_UNROUTABLE = "unroutable";
     public static final String OUTCOME_FAILED = "failed";
+
+    /**
+     * A publish the library declined to send: nothing was written to the broker.
+     *
+     * <p>Distinct from {@link #OUTCOME_FAILED}, which means a message that may have been lost
+     * (nacked, never confirmed, unwritable). A refused publish cannot have been lost, because the
+     * caller still holds it. It is recorded for {@link PublishingPausedException}, and for a
+     * {@code ConnectionBlockedException} whose {@code mayHaveBeenPublished()} is {@code false}.
+     * Sharing one value put deliberate back pressure on the same graph as data loss.
+     */
+    public static final String OUTCOME_REFUSED = "refused";
     public static final String OUTCOME_ACKED = "acked";
     public static final String OUTCOME_RETRIED = "retried";
     public static final String OUTCOME_DEAD_LETTERED = "dead_lettered";

@@ -276,6 +276,9 @@ final class OpenTelemetryTelemetry implements Telemetry {
             span.setAttribute(OUTCOME, outcome);
             if (MetricNames.OUTCOME_UNROUTABLE.equals(outcome)
                     || MetricNames.OUTCOME_FAILED.equals(outcome)
+                    // The caller was handed an exception, so the span reads as one, even though
+                    // nothing was sent and nothing can have been lost.
+                    || MetricNames.OUTCOME_REFUSED.equals(outcome)
                     || MetricNames.OUTCOME_DEAD_LETTERED.equals(outcome)
                     // A handler that gave up on a message ends in the same place as one the
                     // engine gave up on, and the span has to read as an error for both. Left
