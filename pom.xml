@@ -84,7 +84,7 @@
     <build.jdk.min>17</build.jdk.min>
 
     <!-- dependency versions -->
-    <slf4j.version>2.0.18</slf4j.version>
+    <slf4j.version>2.0.20</slf4j.version>
     <!-- 5.34.0 at the earliest because of CVE-2026-75516 (GHSA-jh4v-gfqj-7rhx),
          an unbounded frame allocation when connection.tune negotiates an
          unlimited frame_max. 5.36.0 is the head of the line and adds two further
