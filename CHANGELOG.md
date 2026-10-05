@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-10-05
+
 ### Changed
 
 - **A claim in progress is no longer acknowledged as a duplicate.** A redelivery whose
