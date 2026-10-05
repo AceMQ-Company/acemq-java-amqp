@@ -129,7 +129,7 @@
          milliseconds; PostgreSQL in a container answers "does the claim hold
          under two relays?", which H2 cannot be trusted to reproduce. -->
     <h2.version>2.4.240</h2.version>
-    <postgresql.version>42.7.12</postgresql.version>
+    <postgresql.version>42.7.13</postgresql.version>
 
     <!-- plugin versions -->
     <maven.compiler.plugin.version>3.16.0</maven.compiler.plugin.version>
