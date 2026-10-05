@@ -127,6 +127,17 @@ class CodecRegistryTest {
         }
 
         @Test
+        void answers_to_string_as_well_as_text_for_the_text_codec() {
+            // .NET and Ruby call it "string". Same codec, and "text" stays the canonical name.
+            Codec text = Codecs.byName("text");
+            Codec string = Codecs.byName("string");
+            assertThat(string.getClass()).isEqualTo(text.getClass());
+            assertThat(string.contentType()).isEqualTo(text.contentType());
+            assertThat(Codecs.byName("STRING").getClass()).isEqualTo(text.getClass());
+            assertThat(Codecs.names()).contains("text").doesNotContain("string");
+        }
+
+        @Test
         void names_the_artifact_to_add_for_a_format_that_is_not_there() {
             assertThatThrownBy(() -> Codecs.byName("csv"))
                     .isInstanceOf(AceMqException.class)

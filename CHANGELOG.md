@@ -28,6 +28,8 @@ While the version is `0.x` the public API may change in any release.
   (`CLAIMED`, `ALREADY_CONFIRMED`, `IN_PROGRESS`). A default method built from `claim`
   and `isConfirmed`, so existing stores keep working.
 - **`InMemoryIdempotencyStore(Duration retention, int maxEntries, Duration claimTimeout)`.**
+- **`string` as another name for the `text` codec** in `Codecs.byName`, matching .NET and
+  Ruby. `text` stays canonical.
 
 ## [0.7.10] - 2026-10-04
 

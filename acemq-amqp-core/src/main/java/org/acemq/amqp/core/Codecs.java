@@ -47,18 +47,26 @@ public final class Codecs {
     /** The format published in unless the application says otherwise. */
     public static final String DEFAULT_FORMAT = "json";
 
+    /** Another name for {@code text}, the one the .NET and Ruby libraries use. */
+    private static final String TEXT_ALIAS = "string";
+
     private Codecs() {
         throw new AssertionError("Codecs is a static holder and must not be instantiated");
     }
 
     /**
+     * <p>{@code string} is accepted as another name for {@code text}, which stays the canonical
+     * one: it is what the .NET and Ruby libraries call the same codec, and a name copied from
+     * one of them should not fail here.
+     *
      * @param name short format name, such as {@code json} or {@code xml}
      * @return a codec for that format
      * @throws AceMqException if no module on the classpath provides it
      */
     public static Codec byName(String name) {
+        String wanted = TEXT_ALIAS.equalsIgnoreCase(name) ? "text" : name;
         for (CodecProvider provider : providers()) {
-            if (provider.name().equalsIgnoreCase(name)) {
+            if (provider.name().equalsIgnoreCase(wanted)) {
                 return provider.create();
             }
         }

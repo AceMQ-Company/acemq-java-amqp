@@ -36,6 +36,11 @@ mq.publisher("events", "order", Order.class).as(new AvroCodec(registry));
 Each returns a **new** publisher; the original is untouched. A long-lived object
 that quietly changes what it writes is worse than one that does not.
 
+Names for `Codecs.byName`: `json`, `text`, `bytes`, plus `xml`, `yaml`, `toml` when
+their modules are on the classpath. `string` is accepted as another name for `text`,
+which is what .NET and Ruby call the same codec; `text` stays the canonical name and
+is the only one `Codecs.names()` lists.
+
 Add the module for anything beyond JSON:
 
 | Format | Artifact |
