@@ -53,6 +53,9 @@ final class DefaultConsumer<T> implements MessageConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultConsumer.class);
 
+    /** How long a delivery whose claim is in progress waits before going back to its queue. */
+    private static final java.time.Duration IN_PROGRESS_PAUSE = java.time.Duration.ofSeconds(1);
+
     private final TransportConnection connection;
     private final Codec codec;
     private final String queue;
@@ -289,14 +292,39 @@ final class DefaultConsumer<T> implements MessageConsumer {
             Telemetry.Scope scope, Message<T> message, InboundDelivery delivery, Acknowledger acknowledger) {
         String messageId = message.envelope().id();
 
-        if (idempotency != null && !idempotency.claim(messageId)) {
-            // Already handled, or being handled right now by someone else. Acknowledging is
-            // correct rather than merely convenient: the work is done or in hand, and leaving
-            // the delivery unsettled would only cause it to be redelivered again later.
+        IdempotencyStore.ClaimResult claim = idempotency == null
+                ? IdempotencyStore.ClaimResult.CLAIMED
+                : idempotency.tryClaim(messageId);
+        if (claim == IdempotencyStore.ClaimResult.ALREADY_CONFIRMED) {
+            // Already handled. Acknowledging is correct rather than merely convenient: the work
+            // is done, and leaving the delivery unsettled would only bring it back again.
             duplicates.incrementAndGet();
             scope.outcome(MetricNames.OUTCOME_ACKED);
             log.debug("skipping {}: already handled", messageId);
             acknowledger.accept();
+            return;
+        }
+        if (claim == IdempotencyStore.ClaimResult.IN_PROGRESS) {
+            // Claimed and not confirmed: somebody is working on it, or somebody died working on
+            // it and could not release the claim. Acknowledging here used to be the moment the
+            // second kind was lost. It goes back to the queue instead, without spending an
+            // attempt, and comes round until the claim is confirmed (then it is a duplicate) or
+            // its lease runs out (then it is taken over and handled).
+            scope.outcome(MetricNames.OUTCOME_IN_PROGRESS);
+            log.debug("{} is claimed by another consumer and not yet confirmed; trying it again later", messageId);
+            boolean landed;
+            try {
+                landed = retries.deferInProgress(delivery, message.envelope(), IN_PROGRESS_PAUSE);
+            } catch (RuntimeException e) {
+                log.warn("could not put {} back while its claim is in progress; requeueing it", messageId, e);
+                landed = false;
+            }
+            if (landed) {
+                acknowledger.accept();
+            } else {
+                // The copy did not land, so this delivery is the only one: back to the broker.
+                acknowledger.reject(true);
+            }
             return;
         }
 

@@ -8,6 +8,27 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A claim in progress is no longer acknowledged as a duplicate.** A redelivery whose
+  idempotency claim is live but unconfirmed used to be acked without running the handler,
+  so a handler that died after its release also failed lost the message. Now only a
+  confirmed claim is a duplicate. An in-progress one is neither handled nor acked: after a
+  one-second pause it is republished to its own queue with the envelope unchanged, so it
+  spends no retry attempt and is never dead-lettered for waiting (republished rather than
+  requeued, so a quorum queue's delivery limit does not drop it). An expired lease is
+  taken over and handled, as before. Telemetry records the trip as
+  `outcome="in_progress"` (`MetricNames.OUTCOME_IN_PROGRESS`).
+- **`InMemoryIdempotencyStore` claims are leases** (default five minutes, capped at the
+  retention), like `JdbcIdempotencyStore`'s. A claim used to hold for the whole retention.
+
+### Added
+
+- **`IdempotencyStore.tryClaim(String)`** returning `IdempotencyStore.ClaimResult`
+  (`CLAIMED`, `ALREADY_CONFIRMED`, `IN_PROGRESS`). A default method built from `claim`
+  and `isConfirmed`, so existing stores keep working.
+- **`InMemoryIdempotencyStore(Duration retention, int maxEntries, Duration claimTimeout)`.**
+
 ## [0.7.10] - 2026-10-04
 
 ### Added

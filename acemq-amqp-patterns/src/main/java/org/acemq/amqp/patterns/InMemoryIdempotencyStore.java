@@ -42,9 +42,13 @@ public final class InMemoryIdempotencyStore implements IdempotencyStore {
 
     private static final int DEFAULT_MAX_ENTRIES = 100_000;
 
+    /** The same lease {@link JdbcIdempotencyStore} defaults to. */
+    private static final Duration DEFAULT_CLAIM_TIMEOUT = Duration.ofMinutes(5);
+
     private final Map<String, Entry> entries = new ConcurrentHashMap<>();
     private final Duration retention;
     private final int maxEntries;
+    private final Duration claimTimeout;
     private final AtomicLong evictions = new AtomicLong();
 
     /**
@@ -60,6 +64,21 @@ public final class InMemoryIdempotencyStore implements IdempotencyStore {
      * @param maxEntries hard cap on remembered identifiers
      */
     public InMemoryIdempotencyStore(Duration retention, int maxEntries) {
+        this(retention, maxEntries, retention.compareTo(DEFAULT_CLAIM_TIMEOUT) < 0 ? retention : DEFAULT_CLAIM_TIMEOUT);
+    }
+
+    /**
+     * @param retention how long a confirmed identifier is remembered
+     * @param maxEntries hard cap on remembered identifiers
+     * @param claimTimeout how long a claim that was never confirmed or released holds the
+     *     identifier before another delivery may take it over. While it holds, redeliveries are
+     *     sent back to the queue as in progress rather than handled or acknowledged
+     */
+    public InMemoryIdempotencyStore(Duration retention, int maxEntries, Duration claimTimeout) {
+        if (claimTimeout.isNegative() || claimTimeout.isZero()) {
+            throw new IllegalArgumentException("claimTimeout must be positive, was " + claimTimeout);
+        }
+        this.claimTimeout = claimTimeout;
         if (retention.isNegative() || retention.isZero()) {
             throw new IllegalArgumentException("retention must be positive, was " + retention);
         }
@@ -95,8 +114,8 @@ public final class InMemoryIdempotencyStore implements IdempotencyStore {
             // a racing caller cannot also conclude it won.
             return entries.replace(messageId, existing, Entry.claimed(now));
         }
-        // Either confirmed already, or claimed by someone still working on it. Both mean this
-        // delivery is a duplicate as far as this consumer is concerned.
+        // Either confirmed already, or claimed by someone still working on it. tryClaim tells
+        // the two apart, because only the first is a duplicate.
         return false;
     }
 
@@ -127,7 +146,9 @@ public final class InMemoryIdempotencyStore implements IdempotencyStore {
     }
 
     private boolean isExpired(Entry entry, Instant now) {
-        return entry.recordedAt.plus(retention).isBefore(now);
+        // A claim is a lease, not a hold for the whole retention: one that was never confirmed
+        // or released means a handler that died, and its message must become claimable again.
+        return entry.recordedAt.plus(entry.confirmed ? retention : claimTimeout).isBefore(now);
     }
 
     /** @return how many identifiers are currently remembered */

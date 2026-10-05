@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.IdempotencyStore;
+import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.Telemetry;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
@@ -154,6 +156,73 @@ class SharedIdempotencyIT {
                 .as("the same identifier must be handled once across both consumers, whichever one gets it")
                 .hasSize(1);
         assertThat(firstStore.isConfirmed("order-42")).isTrue();
+    }
+
+    @Test
+    @Timeout(120)
+    @DisplayName("a handler that dies holding a claim it could not release costs a wait, not the message")
+    void aDeadHandlersUnreleasedClaimDoesNotLoseTheMessage() throws Exception {
+        String queue = "orders.dead-handler";
+        JdbcIdempotencyStore table = newStore(Duration.ofHours(1), Duration.ofSeconds(3));
+        AtomicInteger releasesRefused = new AtomicInteger();
+        // The store goes away just as the handler dies: the claim cannot be released and stays
+        // in the table, live and unconfirmed, until its lease runs out.
+        IdempotencyStore releaseFails = new IdempotencyStore() {
+            @Override
+            public boolean claim(String messageId) {
+                return table.claim(messageId);
+            }
+
+            @Override
+            public void confirm(String messageId) {
+                table.confirm(messageId);
+            }
+
+            @Override
+            public void release(String messageId) {
+                releasesRefused.incrementAndGet();
+                throw new IllegalStateException("the idempotency database is unreachable");
+            }
+
+            @Override
+            public boolean isConfirmed(String messageId) {
+                return table.isConfirmed(messageId);
+            }
+        };
+
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger completed = new AtomicInteger();
+        AceMq mq = connectBroker(queue);
+        // Two attempts: the one that dies and the one that succeeds. Had waiting on the claim
+        // spent an attempt, the message would be dead-lettered before the lease ran out.
+        MessageConsumer consumer = mq.consume(
+                queue,
+                String.class,
+                ConsumerOptions.prefetch(1)
+                        .withRetry(RetryPolicy.fixed(2, Duration.ofMillis(100)).withJitter(0))
+                        .idempotent(releaseFails),
+                message -> {
+                    if (attempts.incrementAndGet() == 1) {
+                        throw new IllegalStateException("the handler died mid-work");
+                    }
+                    completed.incrementAndGet();
+                });
+        opened.add(consumer);
+
+        Envelope envelope = Envelope.of("order.placed").id("order-dead-handler").build();
+        mq.publisher("orders", "order.placed", String.class).send("{\"id\":7}", envelope);
+
+        // Before the fix the retry found the dead handler's claim, took it for a duplicate and
+        // acknowledged it: the message was gone and the handler had never finished it.
+        await().atMost(Duration.ofSeconds(60)).until(() -> completed.get() == 1);
+        Thread.sleep(2_000);
+
+        assertThat(releasesRefused).hasValue(1);
+        assertThat(completed).as("processed exactly once, never lost").hasValue(1);
+        assertThat(attempts).as("the handler did not run while the claim was in progress").hasValue(2);
+        assertThat(consumer.deadLettered()).isZero();
+        assertThat(consumer.duplicates()).isZero();
+        assertThat(table.isConfirmed("order-dead-handler")).isTrue();
     }
 
     @Test

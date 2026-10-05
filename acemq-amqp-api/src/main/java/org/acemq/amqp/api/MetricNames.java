@@ -135,7 +135,7 @@ public final class MetricNames {
     /**
      * What happened. One of {@code confirmed}, {@code unroutable}, {@code failed},
      * {@code refused} for a publish; {@code acked}, {@code retried}, {@code dead_lettered}, {@code parked},
-     * {@code rejected} for a delivery.
+     * {@code rejected}, {@code in_progress} for a delivery.
      */
     public static final String TAG_OUTCOME = "outcome";
 
@@ -172,6 +172,16 @@ public final class MetricNames {
     public static final String OUTCOME_PARKED = "parked";
 
     public static final String OUTCOME_REJECTED = "rejected";
+
+    /**
+     * A delivery whose identifier another consumer has claimed and not yet confirmed.
+     *
+     * <p>Neither acknowledged nor handled: it goes back to the source queue, its attempt counter
+     * untouched, to be tried again once the claim is confirmed or its lease runs out. Distinct
+     * from {@link #OUTCOME_ACKED}, which a duplicate of confirmed work records, because this
+     * message has not been handled by anyone yet.
+     */
+    public static final String OUTCOME_IN_PROGRESS = "in_progress";
     public static final String OUTCOME_ANSWERED = "answered";
     public static final String OUTCOME_TIMED_OUT = "timed_out";
     public static final String OUTCOME_PUBLISHED = "published";

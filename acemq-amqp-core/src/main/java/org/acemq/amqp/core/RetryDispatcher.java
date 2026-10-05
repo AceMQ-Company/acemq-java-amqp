@@ -203,6 +203,33 @@ final class RetryDispatcher {
     }
 
     /**
+     * Puts back a message another consumer has claimed and not yet confirmed, without spending
+     * an attempt on it.
+     *
+     * <p>Republished rather than requeued, for the reason everything else here is: a quorum queue
+     * counts every requeue against its delivery limit (twenty by default on RabbitMQ 4), so a
+     * message bounced while a five-minute lease runs out would be dropped or dead-lettered by the
+     * broker long before the lease ended. A republished copy starts a fresh count. The envelope
+     * goes out unchanged, so the attempt counter is not advanced and the policy never sees this as
+     * a failure: a claim in progress can never be what dead-letters a message.
+     *
+     * <p>The pause first is what keeps it from becoming a hot loop between one consumer and the
+     * queue while the lease runs.
+     *
+     * @return {@code true} when the copy landed and the original may be acknowledged
+     */
+    boolean deferInProgress(InboundDelivery delivery, Envelope envelope, Duration pause) {
+        // ponytail: waits in this consumer, holding a prefetch slot for the pause. A claim in
+        // progress is rare and the pause is short; a broker-side rung would free the slot.
+        try {
+            Thread.sleep(pause.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return publish(topology.sourceQueue(), delivery, envelope, null, false);
+    }
+
+    /**
      * Sends a delivery whose payload could not be decoded straight to the parking lot.
      *
      * @param delivery the delivery

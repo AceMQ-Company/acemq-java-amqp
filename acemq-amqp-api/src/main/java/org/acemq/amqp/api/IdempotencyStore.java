@@ -40,8 +40,8 @@ public interface IdempotencyStore {
      *
      * @param messageId the identifier, normally {@link Envelope#id()}
      * @return {@code true} when the caller now owns this identifier and should do the work;
-     *     {@code false} when it is already confirmed or claimed elsewhere, and the delivery
-     *     should be treated as a duplicate
+     *     {@code false} when it is already confirmed or claimed elsewhere. Which of the two it is
+     *     matters — only a confirmed one is a duplicate — so consumers call {@link #tryClaim}
      */
     boolean claim(String messageId);
 
@@ -71,4 +71,45 @@ public interface IdempotencyStore {
      * @return whether the work for this identifier is already known to have completed
      */
     boolean isConfirmed(String messageId);
+
+    /**
+     * Takes ownership of a message identifier, and says why not when it cannot.
+     *
+     * <p>{@link #claim} answers {@code false} for two different situations, and a consumer must
+     * not treat them alike. A confirmed identifier is finished work, and a redelivery of it is a
+     * duplicate to acknowledge. A claimed but unconfirmed identifier is work nobody has finished:
+     * acknowledging that redelivery loses the message whenever the first handler died and its
+     * release failed too. So the consumer acknowledges only {@link ClaimResult#ALREADY_CONFIRMED},
+     * and sends {@link ClaimResult#IN_PROGRESS} back to the queue to be tried again.
+     *
+     * <p>The default asks {@link #claim} and then {@link #isConfirmed}, which suits every store
+     * written against the two-state contract. The two calls are not one atomic step, and both
+     * races resolve safely: a confirmation landing in between reads as a duplicate, which it is,
+     * and a confirmation expiring in between reads as in progress, which only costs a retry.
+     *
+     * @param messageId the identifier, normally {@link Envelope#id()}
+     * @return whether the caller now owns the identifier, or why it does not
+     */
+    default ClaimResult tryClaim(String messageId) {
+        if (claim(messageId)) {
+            return ClaimResult.CLAIMED;
+        }
+        return isConfirmed(messageId) ? ClaimResult.ALREADY_CONFIRMED : ClaimResult.IN_PROGRESS;
+    }
+
+    /** What {@link #tryClaim} found. */
+    enum ClaimResult {
+
+        /** The caller owns the identifier and should do the work. */
+        CLAIMED,
+
+        /** The work is done; the delivery is a duplicate and may be acknowledged. */
+        ALREADY_CONFIRMED,
+
+        /**
+         * Someone holds a live claim and has not confirmed it. The delivery must be neither
+         * handled nor acknowledged, but tried again later.
+         */
+        IN_PROGRESS
+    }
 }

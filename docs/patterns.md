@@ -159,10 +159,34 @@ ladder unchanged.
 ### Claim, then work, then confirm
 
 ```java
-store.claim(id);      // before the handler. false means somebody has it
+store.tryClaim(id);   // before the handler: CLAIMED, ALREADY_CONFIRMED or IN_PROGRESS
 store.confirm(id);    // after it returns
 store.release(id);    // after it throws
 ```
+
+What the consumer does with each answer:
+
+| `tryClaim` | Meaning | The delivery |
+|---|---|---|
+| `CLAIMED` | Nobody holds it, or the last lease ran out | The handler runs |
+| `ALREADY_CONFIRMED` | The work is done | Acknowledged as a duplicate; the handler does not run |
+| `IN_PROGRESS` | Claimed, lease live, not confirmed | Neither handled nor acknowledged: put back on its queue to be tried again |
+
+**A claim in progress is not a duplicate.** Until the 0.7 line it was treated as
+one and acknowledged, which lost the message whenever the handler holding the claim
+had died and its release had failed too. Now the delivery waits a second and is
+republished to its own queue with the envelope unchanged: **no attempt is spent**,
+the retry policy never sees it, and it is never dead-lettered for it. Republished
+rather than requeued because a quorum queue counts every requeue against its
+delivery limit (twenty by default on RabbitMQ 4), which would drop the message long
+before a five-minute lease ran out. It comes round until the claim is confirmed (and
+it is acknowledged as a duplicate) or the lease expires (and it is taken over and
+handled). Telemetry records `outcome="in_progress"` for each trip.
+
+`claim` still answers `true`/`false`. `tryClaim` is a default method built from
+`claim` and `isConfirmed`, so a store written against the older contract works
+unchanged. The in-memory store's claims are leases too now (`claimTimeout`, five
+minutes by default, never longer than the retention).
 
 **The claim is taken before the work, not after.** Recording afterwards leaves a
 window — the process dies between the charge and the record — in which the work

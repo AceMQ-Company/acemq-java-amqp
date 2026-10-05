@@ -174,7 +174,7 @@ every port reports the same series and one dashboard serves all of them.
 | `acemq.publish.duration` | Time to a confirm — not time to a socket write |
 | `acemq.publish.total` | `outcome`: `confirmed`, `unroutable`, `failed`, `refused` |
 | `acemq.consume.duration` | Handler time |
-| `acemq.consume.total` | `outcome`: `acked`, `retried`, `dead_lettered`, `rejected` |
+| `acemq.consume.total` | `outcome`: `acked`, `retried`, `dead_lettered`, `rejected`, `in_progress` |
 | `acemq.consume.attempts` | Distribution of attempt numbers |
 | `acemq.consume.in.flight` | Handlers running now |
 | `acemq.messages.retried.total` | |

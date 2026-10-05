@@ -165,6 +165,12 @@ duplicate. One crash becomes silent message loss. So a claim is a *lease*
 comfortably above your slowest handler: too short and two consumers work the same
 message at once; too long and a crash stalls that message.
 
+A redelivery that finds a live, unconfirmed claim is **in progress**, not a
+duplicate: it is neither handled nor acknowledged but put back on its queue, without
+spending a retry attempt, until the claim is confirmed or the lease runs out. Only a
+confirmed claim is acknowledged as a duplicate. See
+[Idempotency](patterns.md#idempotency).
+
 Schedule `purgeExpired()`. Nothing on the message path deletes rows, because a
 store that tidies up on the hot path makes every message pay for it.
 

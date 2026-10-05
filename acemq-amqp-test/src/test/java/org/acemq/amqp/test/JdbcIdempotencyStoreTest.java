@@ -30,6 +30,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.acemq.amqp.api.IdempotencyStore.ClaimResult;
 import org.acemq.amqp.patterns.JdbcIdempotencyStore;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -191,6 +192,22 @@ class JdbcIdempotencyStoreTest {
     @Nested
     @DisplayName("expiry")
     class Expiry {
+
+        @Test
+        @DisplayName("tryClaim tells a claim in progress from finished work, and retakes an expired one")
+        void tryClaimIsTriState() throws Exception {
+            JdbcIdempotencyStore leased = newStore(Duration.ofHours(24), Duration.ofMillis(200));
+            assertThat(leased.tryClaim("m-tri")).isEqualTo(ClaimResult.CLAIMED);
+            assertThat(leased.tryClaim("m-tri"))
+                    .as("claimed and unconfirmed is work nobody has finished, not a duplicate")
+                    .isEqualTo(ClaimResult.IN_PROGRESS);
+
+            Thread.sleep(300);
+            assertThat(leased.tryClaim("m-tri")).as("an expired lease is retaken").isEqualTo(ClaimResult.CLAIMED);
+
+            leased.confirm("m-tri");
+            assertThat(leased.tryClaim("m-tri")).isEqualTo(ClaimResult.ALREADY_CONFIRMED);
+        }
 
         @Test
         @DisplayName("a claim left by a dead consumer can be taken over")

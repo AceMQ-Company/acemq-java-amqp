@@ -217,6 +217,75 @@ class IdempotentConsumerTest {
     }
 
     @Nested
+    @DisplayName("a claim in progress")
+    class InProgress {
+
+        @Test
+        @Timeout(30)
+        void is_neither_handled_nor_acknowledged_and_counts_as_a_duplicate_once_confirmed() throws Exception {
+            connect("idem-in-progress");
+            AtomicInteger handled = new AtomicInteger();
+            InMemoryIdempotencyStore store = InMemoryIdempotencyStore.forOneDay();
+            Envelope envelope = Envelope.of("order.placed").build();
+            // Another consumer holds the claim and has neither confirmed nor released it.
+            assertThat(store.claim(envelope.id())).isTrue();
+
+            try (MessageConsumer consumer = mq.consume(
+                    "orders.new",
+                    String.class,
+                    ConsumerOptions.prefetch(1).idempotent(store),
+                    message -> handled.incrementAndGet())) {
+
+                mq.publisher("orders", "order.placed").send("payload", envelope);
+
+                // Long enough for several trips round the queue.
+                Thread.sleep(3_000);
+                assertThat(handled).as("the handler must not run while the claim is held").hasValue(0);
+                assertThat(consumer.duplicates())
+                        .as("acknowledging it as a duplicate is how it used to be lost")
+                        .isZero();
+                assertThat(consumer.acknowledged()).isZero();
+
+                // The first consumer finishes. The message is still on the broker, and the next
+                // trip finds it confirmed and settles it as a duplicate.
+                store.confirm(envelope.id());
+                await().atMost(Duration.ofSeconds(10)).until(() -> consumer.duplicates() == 1);
+                assertThat(handled).hasValue(0);
+                assertThat(consumer.deadLettered()).isZero();
+            }
+        }
+
+        @Test
+        @Timeout(30)
+        void is_taken_over_and_handled_once_the_lease_runs_out_without_spending_attempts() {
+            connect("idem-lease-expiry");
+            AtomicInteger handled = new AtomicInteger();
+            InMemoryIdempotencyStore store = new InMemoryIdempotencyStore(Duration.ofHours(1), 1_000,
+                    Duration.ofSeconds(3));
+            Envelope envelope = Envelope.of("order.placed").build();
+            // Claimed by a handler that died, and whose release failed too.
+            assertThat(store.claim(envelope.id())).isTrue();
+
+            try (MessageConsumer consumer = mq.consume(
+                    "orders.new",
+                    String.class,
+                    // One attempt and no retries: had waiting on the claim spent an attempt, the
+                    // first trip round would have dead-lettered the message.
+                    ConsumerOptions.prefetch(1).withRetry(RetryPolicy.none()).idempotent(store),
+                    message -> handled.incrementAndGet())) {
+
+                mq.publisher("orders", "order.placed").send("payload", envelope);
+
+                await().atMost(Duration.ofSeconds(15)).until(() -> consumer.acknowledged() == 1);
+                assertThat(handled).hasValue(1);
+                assertThat(consumer.deadLettered()).isZero();
+                assertThat(consumer.duplicates()).isZero();
+                assertThat(store.isConfirmed(envelope.id())).isTrue();
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("the store itself")
     class Store {
 
@@ -226,6 +295,26 @@ class IdempotentConsumerTest {
 
             assertThat(store.claim("m-1")).isTrue();
             assertThat(store.claim("m-1")).isFalse();
+        }
+
+        @Test
+        void try_claim_tells_a_claim_in_progress_from_finished_work() throws Exception {
+            InMemoryIdempotencyStore store = new InMemoryIdempotencyStore(Duration.ofHours(1), 100,
+                    Duration.ofMillis(100));
+
+            assertThat(store.tryClaim("m-1")).isEqualTo(IdempotencyStore.ClaimResult.CLAIMED);
+            assertThat(store.tryClaim("m-1")).isEqualTo(IdempotencyStore.ClaimResult.IN_PROGRESS);
+
+            // The claim is a lease, not a hold for the whole retention: a handler that died
+            // without releasing must not keep the message out of reach for a day.
+            Thread.sleep(150);
+            assertThat(store.tryClaim("m-1")).isEqualTo(IdempotencyStore.ClaimResult.CLAIMED);
+
+            store.confirm("m-1");
+            Thread.sleep(150);
+            assertThat(store.tryClaim("m-1"))
+                    .as("a confirmation lasts the retention, not the lease")
+                    .isEqualTo(IdempotencyStore.ClaimResult.ALREADY_CONFIRMED);
         }
 
         @Test
