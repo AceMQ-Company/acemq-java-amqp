@@ -440,6 +440,9 @@ public final class DefaultPublisher<T> implements Publisher<T> {
         if (!options.mandatory()) {
             outbound.allowUnroutable();
         }
+        if (options.isAlwaysConfirmed()) {
+            outbound.alwaysConfirmed();
+        }
         return outbound.build();
     }
 

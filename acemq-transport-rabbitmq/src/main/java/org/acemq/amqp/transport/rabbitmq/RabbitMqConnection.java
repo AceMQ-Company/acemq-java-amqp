@@ -70,6 +70,26 @@ final class RabbitMqConnection implements TransportConnection {
     private final ConnectionConfig config;
     private final Channel publishChannel;
     private final Object publishLock = new Object();
+
+    /**
+     * What a return on {@link #publishChannel} said about the publish in flight on it.
+     *
+     * <p>A synchronous publish holds the channel's lock until its confirm arrives, and the broker
+     * sends a return before the confirm for the same message, so any return seen in that window
+     * is this publish's. Matching by message id instead missed every message without one: a
+     * parked or replayed foreign message came back unroutable and was reported as routed.
+     */
+    private final java.util.concurrent.atomic.AtomicReference<@Nullable String> publishReturned = new java.util.concurrent.atomic.AtomicReference<>();
+
+    /**
+     * The channel confirmed publishes go out on: {@link #publishChannel} when the connection has
+     * confirms, and a channel of its own when it was made without them, which then carries only
+     * {@link OutboundMessage#alwaysConfirmed()} publishes — what the library sends on a caller's
+     * behalf. Recovered with the connection like any other channel, in confirm mode again.
+     */
+    private final Channel confirmedChannel;
+    private final Object confirmedLock;
+    private final java.util.concurrent.atomic.AtomicReference<@Nullable String> confirmedReturned;
     private final List<Channel> consumerChannels = new CopyOnWriteArrayList<>();
     private final Map<String, String> returnedMessages = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -123,18 +143,17 @@ final class RabbitMqConnection implements TransportConnection {
             this.publishChannel = connection.createChannel();
             if (config.publisherConfirms()) {
                 this.publishChannel.confirmSelect();
+                this.confirmedChannel = publishChannel;
+                this.confirmedLock = publishLock;
+                this.confirmedReturned = publishReturned;
+            } else {
+                this.confirmedChannel = connection.createChannel();
+                this.confirmedChannel.confirmSelect();
+                this.confirmedLock = new Object();
+                this.confirmedReturned = new java.util.concurrent.atomic.AtomicReference<>();
+                watchReturns(confirmedChannel, confirmedReturned);
             }
-            // A returned message means the broker accepted it but nothing was bound to
-            // receive it. The confirm still arrives, so the return has to be recorded here
-            // and correlated by message id when the confirm lands.
-            this.publishChannel.addReturnListener((replyCode, replyText, exchange, routingKey, properties, body) -> {
-                String id = properties == null ? null : properties.getMessageId();
-                if (id != null) {
-                    returnedMessages.put(id, replyCode + " " + replyText);
-                }
-                log.warn("message returned as unroutable: exchange={} routingKey={} reason={} {}",
-                        exchange, routingKey, replyCode, replyText);
-            });
+            watchReturns(publishChannel, publishReturned);
         } catch (IOException e) {
             throw new TransportException("could not open the publishing channel", e);
         }
@@ -179,6 +198,19 @@ final class RabbitMqConnection implements TransportConnection {
                     }
                     log.info("the broker has unblocked this connection; publishing resumes");
                 });
+    }
+
+    /**
+     * A returned message means the broker accepted it but nothing was bound to receive it. The
+     * confirm still arrives, so the return has to be recorded here and read when it lands.
+     */
+    private static void watchReturns(Channel channel,
+            java.util.concurrent.atomic.AtomicReference<@Nullable String> slot) {
+        channel.addReturnListener((replyCode, replyText, exchange, routingKey, properties, body) -> {
+            slot.set(replyCode + " " + replyText);
+            log.warn("message returned as unroutable: exchange={} routingKey={} reason={} {}",
+                    exchange, routingKey, replyCode, replyText);
+        });
     }
 
     @Override
@@ -285,19 +317,26 @@ final class RabbitMqConnection implements TransportConnection {
         AMQP.BasicProperties properties = properties(message);
         long startedAt = System.nanoTime();
 
-        synchronized (publishLock) {
+        // What the library publishes on a caller's behalf is confirmed whatever the connection
+        // was made with: each settles something on the answer, and without a confirm the
+        // answer can only ever be "routed". The caller's own publishes keep their mode.
+        boolean confirm = config.publisherConfirms() || message.alwaysConfirmed();
+        Channel channel = confirm ? confirmedChannel : publishChannel;
+        java.util.concurrent.atomic.AtomicReference<@Nullable String> returnSlot = confirm
+                ? confirmedReturned
+                : publishReturned;
+
+        synchronized (confirm ? confirmedLock : publishLock) {
             try {
-                if (message.messageId() != null) {
-                    returnedMessages.remove(message.messageId());
-                }
-                publishChannel.basicPublish(
+                returnSlot.set(null);
+                channel.basicPublish(
                         message.exchange(), message.routingKey(), message.mandatory(), properties, message.body());
 
-                if (!config.publisherConfirms()) {
+                if (!confirm) {
                     return ConfirmResult.confirmed(elapsedSince(startedAt));
                 }
 
-                boolean acked = awaitConfirm(message);
+                boolean acked = awaitConfirm(channel, message);
                 Duration latency = elapsedSince(startedAt);
                 if (!acked) {
                     return ConfirmResult.failed(latency, "the broker rejected the message");
@@ -305,7 +344,7 @@ final class RabbitMqConnection implements TransportConnection {
 
                 // waitForConfirms returning true only means the broker took the message. If
                 // it was also returned as unroutable, that return has already arrived.
-                String returned = message.messageId() == null ? null : returnedMessages.remove(message.messageId());
+                String returned = returnSlot.getAndSet(null);
                 return returned == null
                         ? ConfirmResult.confirmed(latency)
                         : ConfirmResult.unroutable(latency, returned);
@@ -335,7 +374,7 @@ final class RabbitMqConnection implements TransportConnection {
      * under an alarm is not a slow broker and failing the message would not help it recover. The
      * total wait is bounded by {@code blockedTimeout} instead.
      */
-    private boolean awaitConfirm(OutboundMessage message)
+    private boolean awaitConfirm(Channel channel, OutboundMessage message)
             throws InterruptedException, java.util.concurrent.TimeoutException {
         long blockedDeadline = System.nanoTime() + config.blockedTimeout().toNanos();
         while (true) {
@@ -352,7 +391,7 @@ final class RabbitMqConnection implements TransportConnection {
                 confirmWaitMillis = Math.min(confirmWaitMillis, remainingMillis);
             }
             try {
-                return publishChannel.waitForConfirms(Math.max(1L, confirmWaitMillis));
+                return channel.waitForConfirms(Math.max(1L, confirmWaitMillis));
             } catch (java.util.concurrent.TimeoutException e) {
                 // A plain late confirm is not this method's problem: report it as it always was.
                 if (!isBlocked()) {
@@ -513,6 +552,9 @@ final class RabbitMqConnection implements TransportConnection {
         }
         consumerChannels.clear();
         closeQuietly(publishChannel);
+        if (confirmedChannel != publishChannel) {
+            closeQuietly(confirmedChannel);
+        }
         try {
             connection.close();
         } catch (IOException e) {

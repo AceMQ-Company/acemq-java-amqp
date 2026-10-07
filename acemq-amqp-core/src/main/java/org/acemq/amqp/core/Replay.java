@@ -238,6 +238,7 @@ public final class Replay {
                 .headers(replayHeaders(delivery))
                 .messageId(delivery.messageId())
                 .contentType(delivery.contentType())
+                .alwaysConfirmed()
                 .build();
 
         ConfirmResult result;

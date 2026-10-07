@@ -27,6 +27,32 @@ While the version is `0.x` the public API may change in any release.
   the handler's failure path, so a reader settling an in-flight entry as the
   connection went down stopped itself instead of resuming after the reconnect. It is
   now logged like any other failed acknowledgement; the entry is delivered again.
+- **What the library publishes on your behalf is confirmed, even without confirms.**
+  On a connection made `withoutPublisherConfirms()` the transport reported every publish
+  as routed, because without a confirm a return can never be ruled out. A retry hop or
+  rung, a move to `{queue}.dlq` or `{queue}.parked`, a replay, a pipeline or routing-slip
+  hop, the scheduler's hop and delivery, the outbox relay and a responder's reply each
+  acknowledged a message or marked a record done on that answer, so a message sent
+  somewhere that did not exist was deleted. Reproduced against RabbitMQ 4 for every one
+  of them. They now go out on a channel in confirm mode, watched for returns, whatever
+  the connection was made with: the existing channel when confirms are on, and one more
+  channel when they are off. The caller's own publishers keep the mode they chose. The
+  in-memory transport honours `withoutPublisherConfirms()` the same way.
+- **A message without a message id is no longer reported routed when it was returned.**
+  Returns were matched to their publish by message id, so a message from a publisher that
+  set none — parked because it would not decode, or replayed from `{queue}.parked` —
+  was reported as routed when it came back unroutable, and the delivery it was copied
+  from was acknowledged. A synchronous publish now takes the return that arrives on its
+  channel while it waits for the confirm, which is always its own.
+- The javadoc for `ConnectionConfig.Builder.withoutPublisherConfirms()` had been attached
+  to `security(...)`; it is back on the method it describes, and says what stays confirmed.
+
+### Added
+
+- `PublishOptions.alwaysConfirmed()`: a publisher whose sends are confirmed and checked
+  for a return even on a connection made `withoutPublisherConfirms()`, which is what the
+  library now uses for its own. `OutboundMessage.alwaysConfirmed()` carries it to the
+  transport.
 
 ## [0.7.12] - 2026-10-07
 

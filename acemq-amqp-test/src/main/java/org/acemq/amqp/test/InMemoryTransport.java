@@ -119,7 +119,8 @@ public final class InMemoryTransport implements Transport {
 
     @Override
     public TransportConnection connect(ConnectionConfig config) {
-        return new InMemoryConnection(InMemoryBroker.named(brokerName(config.url())), config.blockedTimeout());
+        return new InMemoryConnection(
+                InMemoryBroker.named(brokerName(config.url())), config.blockedTimeout(), config.publisherConfirms());
     }
 
     /** Extracts the broker name from {@code memory://name}, defaulting to {@code default}. */

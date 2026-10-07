@@ -123,6 +123,11 @@ public final class ConnectionConfig {
         return maxOutstandingPublishes;
     }
 
+    /**
+     * @return whether the caller's own publishes wait for a publisher confirm; what the library
+     *     publishes on the caller's behalf always does
+     * @see Builder#withoutPublisherConfirms()
+     */
     public boolean publisherConfirms() {
         return publisherConfirms;
     }
@@ -204,12 +209,6 @@ public final class ConnectionConfig {
         }
 
         /**
-         * Turns publisher confirms off.
-         *
-         * <p>Named rather than boolean-flagged, because losing messages silently should
-         * require saying so out loud.
-         */
-        /**
          * @param security how the connection is protected
          * @return this builder
          */
@@ -218,6 +217,21 @@ public final class ConnectionConfig {
             return this;
         }
 
+        /**
+         * Turns publisher confirms off for the caller's own publishers.
+         *
+         * <p>Named rather than boolean-flagged, because losing messages silently should
+         * require saying so out loud: without a confirm a publish is reported as routed
+         * whether or not anything received it.
+         *
+         * <p>What the library publishes on the caller's behalf is still confirmed and checked
+         * for a return — a retry hop, a move to {@code {queue}.dlq} or {@code {queue}.parked},
+         * a replay, a pipeline hop, a scheduled delivery, an outbox record, a reply — because
+         * each acknowledges a message or marks a record done on the strength of the answer. On
+         * RabbitMQ that takes one more channel, in confirm mode, used for nothing else.
+         *
+         * @return this builder
+         */
         public Builder withoutPublisherConfirms() {
             this.publisherConfirms = false;
             return this;

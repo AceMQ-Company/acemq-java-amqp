@@ -100,7 +100,7 @@ public final class Responder implements AutoCloseable {
             // happened counted as an answer -- does not exist either.
             answered.incrementAndGet();
             try {
-                mq.<A>publisher("", replyTo).send(answer, reply);
+                mq.<A>publisher("", replyTo).with(PublishOptions.defaults().alwaysConfirmed()).send(answer, reply);
             } catch (RuntimeException | Error failed) {
                 answered.decrementAndGet();
                 throw failed;

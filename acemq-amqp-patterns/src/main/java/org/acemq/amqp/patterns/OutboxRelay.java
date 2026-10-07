@@ -65,6 +65,13 @@ public final class OutboxRelay implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
+    /**
+     * Confirmed and checked for a return whatever the connection was made with: what is done
+     * next is decided on this publish's answer, and without a confirm it is always "routed".
+     */
+    private static final org.acemq.amqp.core.PublishOptions ALWAYS_CONFIRMED = org.acemq.amqp.core.PublishOptions
+            .defaults().alwaysConfirmed();
+
     private static final int DEFAULT_BATCH_SIZE = 100;
     private static final Duration DEFAULT_POLL_INTERVAL = Duration.ofSeconds(1);
     private static final Duration DEFAULT_LEASE = Duration.ofMinutes(1);
@@ -234,7 +241,7 @@ public final class OutboxRelay implements AutoCloseable {
         // able to read the queue is one taking String and parsing it by hand.
         return publishers.computeIfAbsent(
                 exchange + ' ' + routingKey,
-                key -> mq.publisher(exchange, routingKey, String.class).as(VERBATIM));
+                key -> mq.publisher(exchange, routingKey, String.class, ALWAYS_CONFIRMED).as(VERBATIM));
     }
 
     /**

@@ -42,6 +42,7 @@ public final class OutboundMessage {
     private final @Nullable Duration expiration;
     private final @Nullable Integer priority;
     private final @Nullable String replyTo;
+    private final boolean alwaysConfirmed;
 
     private OutboundMessage(Builder builder) {
         this.exchange = builder.exchange == null ? "" : builder.exchange;
@@ -55,6 +56,7 @@ public final class OutboundMessage {
         this.expiration = builder.expiration;
         this.priority = builder.priority;
         this.replyTo = builder.replyTo;
+        this.alwaysConfirmed = builder.alwaysConfirmed;
     }
 
     /**
@@ -132,6 +134,22 @@ public final class OutboundMessage {
         return java.util.Optional.ofNullable(replyTo);
     }
 
+    /**
+     * Whether this must be confirmed and checked for a return even on a connection made
+     * without publisher confirms.
+     *
+     * <p>Set on everything the library publishes on a caller's behalf: a retry hop, a move to
+     * {@code {queue}.dlq} or {@code {queue}.parked}, a replay, a pipeline or routing-slip hop, a
+     * scheduled hop or delivery, an outbox record, a reply. Each acknowledges a message or marks
+     * a record done once the send returns, and an unconfirmed publish can only ever be reported
+     * as routed. A caller's own publishes keep the mode the connection was made with.
+     *
+     * @return whether the transport must confirm this publish whatever the connection's mode
+     */
+    public boolean alwaysConfirmed() {
+        return alwaysConfirmed;
+    }
+
     @Override
     public String toString() {
         return "OutboundMessage{exchange=" + exchange + ", routingKey=" + routingKey + ", bytes="
@@ -152,6 +170,7 @@ public final class OutboundMessage {
         private @Nullable Duration expiration;
         private @Nullable Integer priority;
         private @Nullable String replyTo;
+        private boolean alwaysConfirmed;
 
         public Builder exchange(String exchange) {
             this.exchange = exchange;
@@ -240,6 +259,18 @@ public final class OutboundMessage {
          */
         public Builder replyTo(@Nullable String replyTo) {
             this.replyTo = replyTo;
+            return this;
+        }
+
+        /**
+         * Confirms this publish and checks it for a return even on a connection made without
+         * publisher confirms.
+         *
+         * @return this builder
+         * @see OutboundMessage#alwaysConfirmed()
+         */
+        public Builder alwaysConfirmed() {
+            this.alwaysConfirmed = true;
             return this;
         }
 

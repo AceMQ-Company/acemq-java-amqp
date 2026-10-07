@@ -252,6 +252,7 @@ final class RetryDispatcher {
                 .headers(headers)
                 .messageId(delivery.messageId())
                 .contentType(delivery.contentType())
+                .alwaysConfirmed()
                 .build();
 
         if (!send(message, topology.parkingLotQueue())) {
@@ -335,6 +336,7 @@ final class RetryDispatcher {
                 .headers(headers)
                 .messageId(outgoing.id())
                 .contentType(delivery.contentType())
+                .alwaysConfirmed()
                 .build();
 
         return setAside ? send(message, queue) : landed(connection.send(message), queue);

@@ -255,7 +255,8 @@ public final class Pipeline<T> implements AutoCloseable {
                 .causationId(message.envelope().id())
                 .header(Itinerary.HEADER, advanced.toHeader())
                 .build();
-        mq.publisher(stop.exchange(), stop.routingKey(), (Class<Object>) (Class<?>) Object.class)
+        mq.publisher(stop.exchange(), stop.routingKey(), (Class<Object>) (Class<?>) Object.class,
+                PublishOptions.defaults().alwaysConfirmed())
                 .send(next, carrying);
     }
 
@@ -316,7 +317,9 @@ public final class Pipeline<T> implements AutoCloseable {
         // Publishers are meant to be long lived, and a pipeline publishes to the same handful
         // of routing keys forever.
         return publishers.computeIfAbsent(destination, key -> {
-            DefaultPublisher<Object> publisher = mq.publisher(name, key, (Class<Object>) (Class<?>) Object.class);
+            // Always confirmed: a hop acknowledges the message it came from once this returns.
+            DefaultPublisher<Object> publisher = mq.publisher(name, key, (Class<Object>) (Class<?>) Object.class,
+                    PublishOptions.defaults().alwaysConfirmed());
 
             // encodedAs configures how a step publishes its own output, so the format for a
             // message arriving at D is the one configured on the step before D — not on D

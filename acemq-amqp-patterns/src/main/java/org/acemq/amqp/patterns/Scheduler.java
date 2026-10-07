@@ -81,6 +81,13 @@ public final class Scheduler implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(Scheduler.class);
 
+    /**
+     * Confirmed and checked for a return whatever the connection was made with: what is done
+     * next is decided on this publish's answer, and without a confirm it is always "routed".
+     */
+    private static final org.acemq.amqp.core.PublishOptions ALWAYS_CONFIRMED = org.acemq.amqp.core.PublishOptions
+            .defaults().alwaysConfirmed();
+
     /** Where a message waits, and where it comes back to be re-examined. */
     static final String EXCHANGE = "acemq.schedule";
 
@@ -214,7 +221,7 @@ public final class Scheduler implements AutoCloseable {
                 .orElse(RUNGS.get(RUNGS.size() - 1));
 
         hops.incrementAndGet();
-        mq.publisher(EXCHANGE, rungName(rung), byte[].class)
+        mq.publisher(EXCHANGE, rungName(rung), byte[].class, ALWAYS_CONFIRMED)
                 .as(org.acemq.amqp.core.Codecs.byName("bytes"))
                 .send(payload, Envelope.of("ScheduledMessage").headers(headers).build());
     }
@@ -228,7 +235,7 @@ public final class Scheduler implements AutoCloseable {
         // The scheduler's own headers are not passed on: they are bookkeeping, and a consumer
         // that started depending on them would be depending on how a message got to it.
         delivered.incrementAndGet();
-        mq.publisher(exchange, routingKey, byte[].class)
+        mq.publisher(exchange, routingKey, byte[].class, ALWAYS_CONFIRMED)
                 .as(verbatim(contentType == null ? "application/json" : String.valueOf(contentType)))
                 .send(payload, Envelope.of("ScheduledMessage").build());
     }

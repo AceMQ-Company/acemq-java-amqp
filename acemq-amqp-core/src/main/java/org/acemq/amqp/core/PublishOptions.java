@@ -46,9 +46,15 @@ public final class PublishOptions {
     private final boolean mandatory;
     private final @Nullable Duration expiration;
     private final @Nullable Integer priority;
+    private final boolean alwaysConfirmed;
 
     private PublishOptions(
             boolean persistent, boolean mandatory, @Nullable Duration expiration, @Nullable Integer priority) {
+        this(persistent, mandatory, expiration, priority, false);
+    }
+
+    private PublishOptions(boolean persistent, boolean mandatory, @Nullable Duration expiration,
+            @Nullable Integer priority, boolean alwaysConfirmed) {
         if (expiration != null && (expiration.isNegative() || expiration.isZero())) {
             throw new IllegalArgumentException("expiration must be positive, was " + expiration);
         }
@@ -59,6 +65,7 @@ public final class PublishOptions {
         this.mandatory = mandatory;
         this.expiration = expiration;
         this.priority = priority;
+        this.alwaysConfirmed = alwaysConfirmed;
     }
 
     /**
@@ -100,7 +107,7 @@ public final class PublishOptions {
      * @return options that accept unroutable messages
      */
     public PublishOptions allowUnroutable() {
-        return new PublishOptions(persistent, false, expiration, priority);
+        return new PublishOptions(persistent, false, expiration, priority, alwaysConfirmed);
     }
 
     /**
@@ -119,7 +126,7 @@ public final class PublishOptions {
      * @return options with that expiry
      */
     public PublishOptions expiringAfter(Duration expiration) {
-        return new PublishOptions(persistent, mandatory, expiration, priority);
+        return new PublishOptions(persistent, mandatory, expiration, priority, alwaysConfirmed);
     }
 
     /**
@@ -146,7 +153,27 @@ public final class PublishOptions {
      * @throws IllegalArgumentException if the priority is negative
      */
     public PublishOptions withPriority(int priority) {
-        return new PublishOptions(persistent, mandatory, expiration, priority);
+        return new PublishOptions(persistent, mandatory, expiration, priority, alwaysConfirmed);
+    }
+
+    /**
+     * Confirms every publish and checks it for a return, even on a connection made
+     * {@code withoutPublisherConfirms()}.
+     *
+     * <p>What the library uses for everything it publishes on a caller's behalf — a pipeline
+     * hop, a scheduled delivery, an outbox record, a reply — because each settles something on
+     * the answer, and without a confirm the answer is always "routed". Use it for a publisher
+     * whose result you act on in the same way on a connection that otherwise skips confirms.
+     *
+     * @return options whose publishes are always confirmed
+     */
+    public PublishOptions alwaysConfirmed() {
+        return new PublishOptions(persistent, mandatory, expiration, priority, true);
+    }
+
+    /** @return whether every publish is confirmed whatever the connection's mode */
+    public boolean isAlwaysConfirmed() {
+        return alwaysConfirmed;
     }
 
     /** @return whether the broker is asked to write these messages to disk */
@@ -172,6 +199,6 @@ public final class PublishOptions {
     @Override
     public String toString() {
         return "PublishOptions{persistent=" + persistent + ", mandatory=" + mandatory
-                + ", expiration=" + expiration + "}";
+                + ", expiration=" + expiration + ", alwaysConfirmed=" + alwaysConfirmed + "}";
     }
 }

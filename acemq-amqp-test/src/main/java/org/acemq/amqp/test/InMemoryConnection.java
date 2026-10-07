@@ -44,12 +44,14 @@ final class InMemoryConnection implements TransportConnection {
 
     private final InMemoryBroker broker;
     private final Duration blockedTimeout;
+    private final boolean publisherConfirms;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final java.util.List<InMemorySubscription> subscriptions = new java.util.concurrent.CopyOnWriteArrayList<>();
 
-    InMemoryConnection(InMemoryBroker broker, Duration blockedTimeout) {
+    InMemoryConnection(InMemoryBroker broker, Duration blockedTimeout, boolean publisherConfirms) {
         this.broker = broker;
         this.blockedTimeout = blockedTimeout;
+        this.publisherConfirms = publisherConfirms;
     }
 
     @Override
@@ -93,6 +95,12 @@ final class InMemoryConnection implements TransportConnection {
         long startedAt = System.nanoTime();
         Set<String> delivered = broker.route(message);
         Duration latency = Duration.ofNanos(System.nanoTime() - startedAt);
+
+        // Without confirms a real broker never says a message went nowhere, so neither does
+        // this one, unless the publish asked to be confirmed whatever the mode.
+        if (!publisherConfirms && !message.alwaysConfirmed()) {
+            return ConfirmResult.confirmed(latency);
+        }
 
         // An in-memory broker always accepts the message. Whether anything was bound to
         // receive it is a separate question, and the one that catches real mistakes — unless

@@ -29,6 +29,22 @@ try {
 }
 ```
 
+### Without confirms
+
+`ConnectionConfig.url(...).withoutPublisherConfirms()` turns confirms off for your own
+publishers: `send` returns as soon as the message is written, and reports it routed
+whether or not anything received it.
+
+What the library publishes on your behalf is still confirmed and checked for a return:
+a retry hop, a move to `{queue}.dlq` or `{queue}.parked`, a replay, a pipeline hop, a
+scheduled hop or delivery, an outbox record, a reply. Each of those acknowledges a
+message or marks a record done once the publish returns, so an unconfirmed one would
+delete the last copy of a message that went nowhere. On RabbitMQ they go out on one
+more channel, in confirm mode, used for nothing else. A retry hop costs a confirm round
+trip either way.
+
+`PublishOptions.defaults().alwaysConfirmed()` asks the same of one of your publishers.
+
 ## Naming the payload type
 
 ```java
