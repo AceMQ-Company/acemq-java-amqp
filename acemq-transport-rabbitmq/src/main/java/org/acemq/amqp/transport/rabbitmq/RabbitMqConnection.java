@@ -75,6 +75,12 @@ final class RabbitMqConnection implements TransportConnection {
     private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
+     * Every open stream subscription's position, rewound just before the client recovers its
+     * consumer. A queue subscription is not here: recovering it as it was is already right.
+     */
+    private final java.util.Set<StreamPosition> streams = ConcurrentHashMap.newKeySet();
+
+    /**
      * The pool every handler on this connection runs on.
      *
      * <p>Owned here because the client only shuts down a dispatch pool it created itself, and
@@ -131,6 +137,26 @@ final class RabbitMqConnection implements TransportConnection {
             });
         } catch (IOException e) {
             throw new TransportException("could not open the publishing channel", e);
+        }
+
+        if (connection instanceof com.rabbitmq.client.Recoverable) {
+            ((com.rabbitmq.client.Recoverable) connection)
+                    .addRecoveryListener(new com.rabbitmq.client.RecoveryListener() {
+                        @Override
+                        public void handleRecovery(com.rabbitmq.client.Recoverable recoverable) {
+                        }
+
+                        @Override
+                        public void handleRecoveryStarted(com.rabbitmq.client.Recoverable recoverable) {
+                        }
+
+                        @Override
+                        public void handleTopologyRecoveryStarted(com.rabbitmq.client.Recoverable recoverable) {
+                            // Runs on the recovery thread just before the consumers are recovered, with
+                            // the very argument maps the client recorded for them.
+                            streams.forEach(StreamPosition::rewind);
+                        }
+                    });
         }
 
         // Without this listener a memory or disk alarm is invisible: the broker stops reading
@@ -351,9 +377,14 @@ final class RabbitMqConnection implements TransportConnection {
                             + " A stream additionally requires it: the broker refuses a stream consumer with no"
                             + " prefetch, because a stream has no other way to stop.");
         }
+        // Always a map of our own: the client keeps this instance to recover the consumer with,
+        // which is what lets a stream's position be moved before it does.
         Map<String, Object> arguments = consumerArguments == null
-                ? Collections.emptyMap()
+                ? new HashMap<>()
                 : new HashMap<>(consumerArguments);
+        StreamPosition position = arguments.containsKey(StreamPosition.ARGUMENT)
+                ? new StreamPosition(arguments)
+                : null;
         try {
             Channel channel = connection.createChannel();
             channel.basicQos(prefetch);
@@ -363,6 +394,16 @@ final class RabbitMqConnection implements TransportConnection {
                 @Override
                 public void handleDelivery(
                         String tag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
+                    // Recorded before the handler sees it and settled before the broker is
+                    // told, so a recovery at any point finds it either pending or done.
+                    Runnable settle = null;
+                    Long offset = position == null ? null : StreamPosition.offsetOf(properties.getHeaders());
+                    if (position != null && offset != null) {
+                        StreamPosition tracked = position;
+                        long at = offset;
+                        int token = tracked.delivered(at);
+                        settle = () -> tracked.settle(at, token);
+                    }
                     InboundDelivery delivery = new InboundDelivery(
                             queue,
                             envelope.getExchange(),
@@ -373,10 +414,15 @@ final class RabbitMqConnection implements TransportConnection {
                             properties.getContentType(),
                             envelope.isRedeliver(),
                             properties.getReplyTo());
-                    listener.onDelivery(delivery, new ChannelAcknowledger(channel, envelope.getDeliveryTag()));
+                    listener.onDelivery(delivery, new ChannelAcknowledger(channel, envelope.getDeliveryTag(), settle));
                 }
             });
-            return new ChannelSubscription(queue, channel, consumerTag, consumerChannels);
+            if (position == null) {
+                return new ChannelSubscription(queue, channel, consumerTag, consumerChannels, null);
+            }
+            streams.add(position);
+            return new ChannelSubscription(queue, channel, consumerTag, consumerChannels,
+                    () -> streams.remove(position));
         } catch (IOException e) {
             throw new TransportException("could not consume queue " + queue, e);
         }
@@ -824,20 +870,27 @@ final class RabbitMqConnection implements TransportConnection {
         private final Channel channel;
         private final long deliveryTag;
         private final AtomicBoolean settled = new AtomicBoolean();
+        private final @Nullable Runnable onSettle;
 
-        ChannelAcknowledger(Channel channel, long deliveryTag) {
+        ChannelAcknowledger(Channel channel, long deliveryTag, @Nullable Runnable onSettle) {
             this.channel = channel;
             this.deliveryTag = deliveryTag;
+            this.onSettle = onSettle;
         }
 
         @Override
         public void accept() {
             if (settled.compareAndSet(false, true)) {
+                if (onSettle != null) {
+                    onSettle.run();
+                }
                 try {
                     channel.basicAck(deliveryTag, false);
-                } catch (IOException e) {
+                } catch (IOException | ShutdownSignalException e) {
                     // The delivery will be redelivered when the channel closes. Failing loudly
-                    // here would be worse: the message is not lost, only unsettled.
+                    // here would be worse: the message is not lost, only unsettled. That
+                    // includes a channel already lost to a dropped connection, whose late
+                    // acknowledgement once escaped into the handler and stopped a stream reader.
                     log.warn("could not acknowledge delivery {}", deliveryTag, e);
                 }
             }
@@ -846,9 +899,12 @@ final class RabbitMqConnection implements TransportConnection {
         @Override
         public void reject(boolean requeue) {
             if (settled.compareAndSet(false, true)) {
+                if (onSettle != null) {
+                    onSettle.run();
+                }
                 try {
                     channel.basicNack(deliveryTag, false, requeue);
-                } catch (IOException e) {
+                } catch (IOException | ShutdownSignalException e) {
                     log.warn("could not reject delivery {}", deliveryTag, e);
                 }
             }
@@ -863,12 +919,21 @@ final class RabbitMqConnection implements TransportConnection {
         private final String consumerTag;
         private final List<Channel> registry;
         private final AtomicBoolean active = new AtomicBoolean(true);
+        private final @Nullable Runnable forget;
 
-        ChannelSubscription(String queue, Channel channel, String consumerTag, List<Channel> registry) {
+        ChannelSubscription(String queue, Channel channel, String consumerTag, List<Channel> registry,
+                @Nullable Runnable forget) {
             this.queue = queue;
             this.channel = channel;
             this.consumerTag = consumerTag;
             this.registry = registry;
+            this.forget = forget;
+        }
+
+        private void forget() {
+            if (forget != null) {
+                forget.run();
+            }
         }
 
         @Override
@@ -881,6 +946,7 @@ final class RabbitMqConnection implements TransportConnection {
             if (!active.compareAndSet(true, false)) {
                 return;
             }
+            forget();
             try {
                 // basic.cancel stops delivery and leaves the channel open, so anything already
                 // dispatched can still be acknowledged on it.
@@ -916,6 +982,7 @@ final class RabbitMqConnection implements TransportConnection {
             if (!active.compareAndSet(true, false)) {
                 return;
             }
+            forget();
             try {
                 if (channel.isOpen()) {
                     // Cancelling before closing lets deliveries already dispatched finish

@@ -74,6 +74,15 @@ Resume from one more than `lastHandledOffset()`. Saving the checkpoint in the
 same transaction as the projection's own writes is what makes the pair exactly
 once; anywhere else is at-least-once, which is fine if the handler is idempotent.
 
+## A lost connection
+
+The client reconnects on its own, and a reader carries on from where it was rather
+than from where it began. A recovered reader starts at the oldest entry it was given
+and had not finished, or just after the newest it finished: the same entries a queue
+would redeliver, and no others. So a `fromFirst()` reader does not read the stream
+again from the start, and a `fromNext()` reader does not skip what was appended while
+it was away. One that had been given nothing yet still starts where you told it to.
+
 ## What a stream cannot do
 
 A stream never removes a message, and nearly every failure-handling tool in this

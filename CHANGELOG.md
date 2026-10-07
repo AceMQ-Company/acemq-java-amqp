@@ -8,6 +8,26 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A stream reader carries on from where it was after a lost connection.** The
+  client re-subscribes a recovered consumer with the arguments it was first given, so
+  a stream reader asked for its original `x-stream-offset` again. Against RabbitMQ 4,
+  with the connection closed through the management API half-way through 500 entries
+  and 50 more appended during the outage: a reader that began at `first` was handed
+  1,050 deliveries for 550 entries, and one that began at `next` never saw the 50
+  appended while it was away. The transport now records the offset of each stream
+  delivery and settles it on ack or nack; just before the consumer is recovered its
+  `x-stream-offset` is moved to the oldest offset still unsettled, or one past the
+  newest settled, which is what a queue would redeliver. A late acknowledgement of a
+  copy from before the recovery no longer moves the position. Same rule as .NET, Go
+  and Ruby. Queue consumers are unchanged.
+- **An acknowledgement on a channel lost to a dropped connection no longer stops a
+  stream reader.** The client's `AlreadyClosedException` escaped the acknowledger into
+  the handler's failure path, so a reader settling an in-flight entry as the
+  connection went down stopped itself instead of resuming after the reconnect. It is
+  now logged like any other failed acknowledgement; the entry is delivered again.
+
 ## [0.7.12] - 2026-10-07
 
 Dependency updates only; no change to the library's behaviour or API.
