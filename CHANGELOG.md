@@ -10,6 +10,17 @@ While the version is `0.x` the public API may change in any release.
 
 ### Fixed
 
+- **A stream declared from Java spells `x-max-age` the way the other libraries do.**
+  `declareStream` wrote the age in seconds, so an hour went to the broker as `3600s`
+  where Go, Python and Ruby write `1h`. The broker compares the argument as a string,
+  so the same stream declared afterwards from another language was refused with
+  `PRECONDITION_FAILED`. Java now writes the largest unit that states the age
+  exactly, as they do: whole days as `2D`, else whole hours as `1h`, else whole
+  minutes as `90m`, else whole seconds as `90s`. A stream already declared by an
+  earlier Java release still carries `3600s`, and redeclaring it now with an age is
+  refused for the same reason; so is redeclaring it without one, because the broker
+  also refuses a declaration that leaves out an argument the stream has. Delete it
+  and declare it again to pick up the new spelling.
 - **A stream reader carries on from where it was after a lost connection.** The
   client re-subscribes a recovered consumer with the arguments it was first given, so
   a stream reader asked for its original `x-stream-offset` again. Against RabbitMQ 4,

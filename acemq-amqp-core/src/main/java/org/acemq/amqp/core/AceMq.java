@@ -627,9 +627,7 @@ public final class AceMq implements AutoCloseable {
         requireStreams(name);
         Map<String, Object> arguments = new LinkedHashMap<>();
         if (maxAge != null) {
-            // The broker's own syntax. Seconds express every duration exactly, where rounding to
-            // days would quietly change how much history is kept.
-            arguments.put("x-max-age", maxAge.getSeconds() + "s");
+            arguments.put("x-max-age", maxAgeArgument(maxAge));
         }
         if (maxLengthBytes != null) {
             arguments.put("x-max-length-bytes", maxLengthBytes);
@@ -643,6 +641,28 @@ public final class AceMq implements AutoCloseable {
         }
         connection.declareQueue(name, QueueType.STREAM, true, arguments);
         return this;
+    }
+
+    /**
+     * Spells a stream's age limit the way Go, Python and Ruby do: the largest unit that states it
+     * exactly — whole days as {@code 2D}, else whole hours as {@code 1h}, else whole minutes as
+     * {@code 90m}, else whole seconds. The broker compares this argument as a string, so one hour
+     * written as {@code 3600s} here and {@code 1h} elsewhere is a {@code PRECONDITION_FAILED} for
+     * whichever declares second. Nothing is rounded, only re-spelled; a fraction of a second is
+     * dropped.
+     */
+    static String maxAgeArgument(Duration maxAge) {
+        long seconds = maxAge.getSeconds();
+        if (seconds % 86_400 == 0) {
+            return seconds / 86_400 + "D";
+        }
+        if (seconds % 3_600 == 0) {
+            return seconds / 3_600 + "h";
+        }
+        if (seconds % 60 == 0) {
+            return seconds / 60 + "m";
+        }
+        return seconds + "s";
     }
 
     /**
