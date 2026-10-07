@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-10-07
+
 ### Fixed
 
 - **A stream declared from Java spells `x-max-age` the way the other libraries do.**
