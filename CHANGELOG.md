@@ -8,6 +8,25 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-10-07
+
+Dependency updates only; no change to the library's behaviour or API.
+
+### Security
+
+- **BouncyCastle (`bcpkix-jdk18on`) 1.84 to 1.86** in `acemq-security-dev`, taking
+  upstream's defect and hardening fixes: a too-short JKS store now fails with an
+  `EOFException` instead of an unchecked `ArrayIndexOutOfBoundsException`, Argon2
+  blocks are cleared before reuse, TupleHash no longer wraps the length of a 256 MiB
+  element, and the RFC 5990 RSA-KTS CMS recipients reject a declared key length that
+  disagrees with the wrapping algorithm before deriving anything.
+
+### Changed
+
+- **SLF4J 2.0.18 to 2.0.20.**
+- Build only: `exec-maven-plugin` 3.5.0 to 3.6.4, `maven-plugin-annotations` 3.15.1 to
+  3.16.0, and the test-scope `org.postgresql:postgresql` 42.7.12 to 42.7.13.
+
 ## [0.7.11] - 2026-10-05
 
 ### Changed
