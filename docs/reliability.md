@@ -66,6 +66,12 @@ the two held the wait: a requeue would return the bytes the broker was given, so
 the count would read what the publisher wrote however many times the message had
 come round.
 
+If that republish fails — the broker declines it, or the publish itself throws
+because the publishing channel or connection is gone — only that one message is
+requeued to try again; the consumer's channel stays open and the other messages
+in flight are acknowledged normally. Earlier 0.7 releases let the exception close
+the consumer's channel, which sent every in-flight message back with it.
+
 The threshold is thirty seconds in the Go, .NET, Python and Ruby libraries too,
 so the same policy needs the same rungs whichever of them declares the topology.
 

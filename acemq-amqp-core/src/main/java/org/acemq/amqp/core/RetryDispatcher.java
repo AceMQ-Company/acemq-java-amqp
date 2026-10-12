@@ -149,7 +149,7 @@ final class RetryDispatcher {
         }
 
         Envelope advanced = envelope.nextAttempt();
-        if (!publish(rung.get(), delivery, advanced, null, false)) {
+        if (!publish(rung.get(), delivery, advanced, null)) {
             // The rung exists as far as the topology is concerned and the broker still would not
             // take the message. Reported as declined rather than fallen back to waiting here:
             // waiting would hold a delivery whose copy may or may not be on the rung.
@@ -189,7 +189,7 @@ final class RetryDispatcher {
         }
 
         Envelope advanced = envelope.nextAttempt();
-        if (!publish(topology.sourceQueue(), delivery, advanced, null, false)) {
+        if (!publish(topology.sourceQueue(), delivery, advanced, null)) {
             return Outcome.NOT_REPUBLISHED;
         }
         telemetry.messageRetried(topology.sourceQueue(), advanced, wait);
@@ -226,7 +226,7 @@ final class RetryDispatcher {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        return publish(topology.sourceQueue(), delivery, envelope, null, false);
+        return publish(topology.sourceQueue(), delivery, envelope, null);
     }
 
     /**
@@ -236,8 +236,8 @@ final class RetryDispatcher {
      * @param failure why decoding failed
      * @return {@code true} when the parking lot has the message, so the caller may acknowledge
      *     the original. {@code false} means the broker answered and declined it — the parking
-     *     lot is not there, or it refused the message — and this delivery is then the only copy
-     *     there is. Acknowledging on that answer is the moment the bytes nobody could read
+     *     lot is not there, or it refused the message — or the publish threw, and this delivery
+     *     is then the only copy there is. Acknowledging on that answer is the moment the bytes nobody could read
      *     become bytes nobody can look at either, which is the same defect the retry hop had
      *     until 0.7.4 and was still here afterwards.
      */
@@ -280,14 +280,17 @@ final class RetryDispatcher {
     }
 
     /**
-     * Republishes to a queue that sets a message aside, counting a failure to get it there.
+     * Republishes a message, counting a failure to get it there.
      *
-     * <p>Counted and then rethrown, deliberately. Counting is not a reason to change what
-     * happens to the message: the caller settles the delivery only once the copy is safely
-     * elsewhere, and swallowing this would acknowledge a message that went nowhere. What the
-     * counter buys is the ability to tell the two apart from outside, because a dead-letter
-     * queue that was never declared and a dead-letter queue doing its job look identical in
-     * every other series — one queue draining, in both cases.
+     * <p>A publish that throws is answered like one the broker declined: {@code false}, so the
+     * caller requeues this one delivery. It used to be rethrown, and the exception escaped the
+     * consumer's delivery callback, where the RabbitMQ client answers by closing the channel —
+     * the message was not lost, but every other delivery in flight on that channel came back
+     * with it and the consumer stopped. .NET and Go requeue just the one message here too.
+     *
+     * <p>What the counter buys is the ability to tell the two apart from outside, because a
+     * dead-letter queue that was never declared and a dead-letter queue doing its job look
+     * identical in every other series — one queue draining, in both cases.
      */
     private boolean send(OutboundMessage message, String target) {
         try {
@@ -295,16 +298,16 @@ final class RetryDispatcher {
         } catch (RuntimeException e) {
             telemetry.setAsideFailed(topology.sourceQueue(), target, describe(e));
             log.error(
-                    "could not set aside a message from {} in {}; it is going back to the broker",
+                    "could not republish a message from {} to {}; it is going back to the broker",
                     topology.sourceQueue(),
                     target,
                     e);
-            throw e;
+            return false;
         }
     }
 
     private boolean deadLetter(InboundDelivery delivery, Envelope envelope, String reason) {
-        if (!publish(topology.deadLetterQueue(), delivery, envelope, reason, true)) {
+        if (!publish(topology.deadLetterQueue(), delivery, envelope, reason)) {
             // Not counted as dead-lettered, because it was not: the counter an operator reads to
             // know a message reached the dead-letter queue must not be raised by one that did
             // not get there.
@@ -321,7 +324,7 @@ final class RetryDispatcher {
     }
 
     private boolean publish(
-            String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error, boolean setAside) {
+            String queue, InboundDelivery delivery, Envelope envelope, @Nullable String error) {
         // The reason travels as an envelope field, so a consumer of the dead-letter queue can
         // read it back through the API rather than having to know the wire header name.
         Envelope outgoing = error == null ? envelope : envelope.toBuilder().error(error).build();
@@ -339,7 +342,7 @@ final class RetryDispatcher {
                 .alwaysConfirmed()
                 .build();
 
-        return setAside ? send(message, queue) : landed(connection.send(message), queue);
+        return send(message, queue);
     }
 
     /**
@@ -406,8 +409,8 @@ final class RetryDispatcher {
         /**
          * The republish did not land, so the original delivery must go back to the broker.
          *
-         * <p>Reported when the broker answered and declined: nothing was bound to receive the
-         * message, or it refused to confirm it. The message is still only on the source queue, so
+         * <p>Reported when the broker answered and declined — nothing was bound to receive the
+         * message, or it refused to confirm it — and when the publish itself threw. The message is still only on the source queue, so
          * acknowledging the original would be the moment it is lost — {@code DefaultConsumer}
          * rejects it with requeue instead, and the next delivery tries the hop again.
          */

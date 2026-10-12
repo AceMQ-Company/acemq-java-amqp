@@ -16,7 +16,6 @@
 package org.acemq.amqp.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -75,17 +74,15 @@ class SetAsideTest {
     }
 
     @Test
-    @DisplayName("a parking lot that is not there is counted and then rethrown")
+    @DisplayName("a parking lot that throws is counted and reported as not taken")
     void a_failed_park_is_counted_against_its_target() {
         RecordingTelemetry telemetry = new RecordingTelemetry();
         RetryTopology topology = RetryTopology.forQueue(SOURCE, POLICY);
         RetryDispatcher dispatcher = new RetryDispatcher(new StubConnection(true), topology, telemetry);
 
-        // Rethrown, deliberately: counting is not a reason to change what happens to the
-        // message. The caller settles the delivery only once the copy is safely elsewhere, and
-        // swallowing this would acknowledge a message that went nowhere at all.
-        assertThatThrownBy(() -> dispatcher.park(delivery(), new IllegalArgumentException("nope")))
-                .isInstanceOf(IllegalStateException.class);
+        // Not taken, rather than rethrown: the caller requeues this one delivery. A throw
+        // escaped the consumer's delivery callback and closed its channel.
+        assertThat(dispatcher.park(delivery(), new IllegalArgumentException("nope"))).isFalse();
 
         assertThat(telemetry.setAsideFailures)
                 .containsExactly(SOURCE + " -> " + topology.parkingLotQueue());
@@ -103,9 +100,9 @@ class SetAsideTest {
 
         Envelope envelope = Envelope.of("order.placed").build();
 
-        assertThatThrownBy(() -> dispatcher.onFailure(
+        assertThat(dispatcher.onFailure(
                 delivery(), envelope, new IllegalStateException("downstream is down"), true))
-                .isInstanceOf(IllegalStateException.class);
+                .isEqualTo(RetryDispatcher.Outcome.NOT_REPUBLISHED);
 
         assertThat(telemetry.setAsideFailures)
                 .containsExactly(SOURCE + " -> " + topology.deadLetterQueue());
