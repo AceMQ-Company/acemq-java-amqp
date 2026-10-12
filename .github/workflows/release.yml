@@ -338,18 +338,34 @@ jobs:
         env:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
-          .github/scripts/set-documented-version.sh "$VERSION"
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "documentation already current"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Any commit landing on main while the release runs rejects this push
+          # with "fetch first". The rewrite is a pure function of the tree, so a
+          # rejected push starts again from main as it now is and re-applies it,
+          # rather than rebasing a diff onto docs the other commit may have moved.
           git config user.name "acemq-release"
           git config user.email "noreply@acemq.org"
-          git add -A
-          git commit -m "docs: point at $VERSION"
-          git push origin main
+          for attempt in 1 2 3 4 5; do
+            if [ "$attempt" -gt 1 ]; then
+              echo "::warning::push $((attempt - 1)) of 5 rejected; main moved underneath, re-applying"
+              sleep $((RANDOM % 15 + 5))
+              git fetch origin main
+              git reset --hard FETCH_HEAD
+            fi
+            .github/scripts/set-documented-version.sh "$VERSION"
+            if [ -z "$(git status --porcelain)" ]; then
+              echo "documentation already current"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git add -A
+            git commit -m "docs: point at $VERSION"
+            if git push origin HEAD:main; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::the documentation could not be pushed to main after 5 attempts"
+          exit 1
 
       # A push made with GITHUB_TOKEN does not trigger workflows. Without this the
       # docs job that already ran for the release commit is the last one, so the
