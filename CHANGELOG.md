@@ -10,6 +10,12 @@ While the version is `0.x` the public API may change in any release.
 
 ## [0.7.14] - 2026-10-12
 
+### Security
+
+- **`com.rabbitmq:amqp-client` 5.36.1**, from 5.36.0, for its JSON-RPC mapper never
+  terminating on truncated input (a denial of service). AceMQ does not use JSON-RPC,
+  but the client reaches every application that depends on AceMQ.
+
 ### Fixed
 
 - **A scheduled message that is due but reaches no queue is kept, not
