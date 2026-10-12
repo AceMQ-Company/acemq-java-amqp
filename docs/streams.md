@@ -19,6 +19,21 @@ Both retention limits may be `null`, which is legal, logs a warning, and is
 almost always a mistake — a stream with no limit grows until the disk is full,
 and a full disk is a broker-wide alarm that blocks every publisher on the node.
 
+### How the age is spelled
+
+The age goes to the broker as `x-max-age` in the largest unit that states it
+exactly: whole days as `7D`, else whole hours as `1h`, else whole minutes as
+`90m`, else whole seconds as `90s` — the spelling Go, Python and Ruby use, so the
+same stream can be declared from any of them. Releases before 0.7.13 wrote
+seconds, `3600s` for an hour.
+
+That matters for a stream that already exists. The broker compares the argument
+as a string (confirmed on RabbitMQ 3.13), so a stream first declared by an earlier
+Java release keeps `3600s`, and declaring it again from 0.7.13 is refused with
+`PRECONDITION_FAILED` — with an age, because the spelling differs, and without one,
+because the broker also refuses a declaration that leaves out an argument the
+stream has. Delete the stream and declare it again to pick up the new spelling.
+
 ### Segment size
 
 A stream is stored as a sequence of segment files, and retention happens a whole

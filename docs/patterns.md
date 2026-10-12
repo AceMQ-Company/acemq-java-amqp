@@ -269,6 +269,13 @@ try (OutboxRelay relay = new OutboxRelay(mq, outbox)) {
 The relay polls, claims a batch under a lease, publishes, and marks each row
 published. A relay that dies mid-batch loses the lease and another takes it.
 
+A row is marked published only once the broker has confirmed it and it reached a
+queue — even on a connection made `withoutPublisherConfirms()`, because the relay
+publishes on a confirmed channel of its own. A record nothing is bound to receive
+comes back unroutable, stays in the table and is tried again; after enough failed
+attempts the store stops handing it out and it waits there, visible, for someone
+to look at. It is never marked done and lost.
+
 ### What it does and does not promise
 
 It gives you **at-least-once publishing, atomic with the database write**. The
