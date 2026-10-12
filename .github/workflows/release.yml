@@ -360,11 +360,23 @@ jobs:
           version = sys.argv[1]
           page = pathlib.Path("index.html")
           text = page.read_text()
-          # Every version-shaped string on this page refers to the Java library.
-          updated = re.sub(r"\b0\.\d+\.\d+\b", version, text)
-          if updated != text:
+          # The Java card's badge and the Java library's Maven coordinates, and
+          # nothing else: other cards carry their own versions, and rewriting every
+          # 0.x.y on the page once set Go, the starter, Admin and Workloads all to
+          # the Java number. Anchored on the repository link, as the .NET job is.
+          badge = re.compile(
+              r'(acemq-java-amqp">AceMQ for Java</a>\s*\n\s*<span class="badge[^"]*">)'
+              r'[^<]*(</span>)')
+          coords = re.compile(
+              r'(&lt;artifactId&gt;acemq-(?:amqp|transport|security)-[a-z0-9-]+&lt;/artifactId&gt;'
+              r'\s*\n\s*&lt;version&gt;)[^&]*(&lt;/version&gt;)')
+          updated, nb = badge.subn(lambda m: m.group(1) + version + m.group(2), text)
+          updated, nc = coords.subn(lambda m: m.group(1) + version + m.group(2), updated)
+          if nb == 0:
+              print("::warning::the Java card was not found; leaving the page alone")
+          elif updated != text:
               page.write_text(updated)
-              print(f"landing page now shows {version}")
+              print(f"the Java card and {nc} Maven coordinate(s) now show {version}")
           else:
               print("landing page already current")
           PYTHON
