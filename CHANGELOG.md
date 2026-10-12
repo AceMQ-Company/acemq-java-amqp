@@ -8,6 +8,29 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.14] - 2026-10-12
+
+### Fixed
+
+- **A scheduled message that is due but reaches no queue is kept, not
+  dead-lettered.** When the target exchange had nothing bound for the routing key at
+  due time, the scheduler sent the message to `acemq.schedule.due.dlq` on the first
+  attempt, so a binding declared a moment late meant a message nobody delivered. It
+  now stays in the scheduler and is tried again every ten seconds, through the
+  ten-second rung, until it is delivered, with a warning logged each time. There is
+  no attempt limit, as in .NET (every five seconds) and Ruby (through the one-second
+  rung). `Scheduler.in` and `Scheduler.at` with a time already due no longer throw
+  `PublishFailedException` for an unroutable target; the message is kept the same
+  way. `delivered()` now counts only messages that actually arrived.
+- **A retry hop that fails no longer closes the consumer's channel.** When the
+  publish that moves a failed message to its retry rung, back onto its queue, or to
+  `<queue>.dlq` or `<queue>.parked` threw — a lost publishing channel or connection —
+  the exception escaped the delivery callback and the RabbitMQ client closed the
+  consumer's channel. Nothing was lost, but every other message in flight on that
+  channel was redelivered and the consumer stopped. Now only that one message is
+  requeued; the others are acknowledged normally and the consumer keeps running, as
+  in .NET and Go.
+
 ## [0.7.13] - 2026-10-11
 
 ### Fixed

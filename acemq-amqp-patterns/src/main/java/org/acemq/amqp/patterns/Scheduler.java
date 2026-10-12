@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.PublishFailedException;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
@@ -127,6 +128,15 @@ public final class Scheduler implements AutoCloseable {
             Duration.ofHours(1), Duration.ofMinutes(10), Duration.ofMinutes(1),
             Duration.ofSeconds(10), Duration.ofSeconds(1));
 
+    /**
+     * How long a due message that could not be delivered waits before the next try.
+     *
+     * <p>Unbounded in attempts, as in .NET and Ruby: a target that is not bound yet is a
+     * deployment-order problem that fixes itself, and the message is the one thing that must
+     * survive it. Ten seconds keeps a permanently unroutable target from spinning.
+     */
+    private static final Duration RETRY_RUNG = Duration.ofSeconds(10);
+
     private final AceMq mq;
     private final MessageConsumer due;
     private final AtomicLong scheduled = new AtomicLong();
@@ -220,6 +230,10 @@ public final class Scheduler implements AutoCloseable {
                 .findFirst()
                 .orElse(RUNGS.get(RUNGS.size() - 1));
 
+        hop(payload, headers, rung);
+    }
+
+    private void hop(byte[] payload, Map<String, Object> headers, Duration rung) {
         hops.incrementAndGet();
         mq.publisher(EXCHANGE, rungName(rung), byte[].class, ALWAYS_CONFIRMED)
                 .as(org.acemq.amqp.core.Codecs.byName("bytes"))
@@ -234,10 +248,22 @@ public final class Scheduler implements AutoCloseable {
 
         // The scheduler's own headers are not passed on: they are bookkeeping, and a consumer
         // that started depending on them would be depending on how a message got to it.
+        try {
+            mq.publisher(exchange, routingKey, byte[].class, ALWAYS_CONFIRMED)
+                    .as(verbatim(contentType == null ? "application/json" : String.valueOf(contentType)))
+                    .send(payload, Envelope.of("ScheduledMessage").build());
+        } catch (PublishFailedException e) {
+            // Unroutable or refused at due time. The message stays in the scheduler and is tried
+            // again after one more trip through a rung, for as long as it takes -- the way .NET
+            // retries it every five seconds and Ruby re-hops it. Dead-lettering it on the first
+            // refusal turned "the target queue is not bound yet" into a message nobody delivers.
+            // A rung rather than a sleep: the wait holds no prefetch slot and survives a restart.
+            log.warn("scheduled message for {}/{} could not be delivered; trying again in {}: {}",
+                    exchange, routingKey, RETRY_RUNG, e.getMessage());
+            hop(payload, headers, RETRY_RUNG);
+            return;
+        }
         delivered.incrementAndGet();
-        mq.publisher(exchange, routingKey, byte[].class, ALWAYS_CONFIRMED)
-                .as(verbatim(contentType == null ? "application/json" : String.valueOf(contentType)))
-                .send(payload, Envelope.of("ScheduledMessage").build());
     }
 
     private void declareTopology() {

@@ -195,10 +195,12 @@ abstract class OnBehalfPublishContract {
     void a_scheduled_delivery_that_goes_nowhere_is_kept() throws Exception {
         try (AceMq mq = connect(); Scheduler scheduler = Scheduler.on(mq)) {
             long before = mq.messageCount("acemq.schedule.due.dlq");
-            // Through a rung and back to the scheduler's own consumer, which then delivers.
+            // Through a rung and back to the scheduler's own consumer, which finds nothing bound
+            // and puts it back in a rung to try again rather than dead-lettering it.
             scheduler.in(Duration.ofSeconds(2), "", unique("nowhere"), "later");
-            await().atMost(Duration.ofSeconds(30))
-                    .until(() -> mq.messageCount("acemq.schedule.due.dlq") == before + 1);
+            await().atMost(Duration.ofSeconds(30)).until(() -> scheduler.hops() >= 2);
+            assertThat(scheduler.delivered()).isZero();
+            assertThat(mq.messageCount("acemq.schedule.due.dlq")).isEqualTo(before);
         }
     }
 

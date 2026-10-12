@@ -362,6 +362,12 @@ The cost, stated plainly: a long delay is several round trips rather than one,
 and accuracy is about the smallest rung. A scheduler that must fire at
 09:00:00.000 is a scheduler, not a message broker.
 
+A message that is due but reaches no queue — the target exchange has nothing
+bound for its routing key yet — is not dead-lettered. It stays in the scheduler
+and is tried again every ten seconds until it is delivered, logging a warning each
+time, as the .NET and Ruby schedulers do. Earlier 0.7 releases sent it to
+`acemq.schedule.due.dlq` on the first attempt.
+
 ## Saga
 
 ```java

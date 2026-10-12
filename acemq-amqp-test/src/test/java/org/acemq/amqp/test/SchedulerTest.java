@@ -148,6 +148,35 @@ class SchedulerTest {
     }
 
     @Test
+    @Timeout(90)
+    @DisplayName("a due message that reaches no queue waits in the scheduler and is delivered once it can be")
+    void unroutableDeliveryIsKeptAndRetried() throws Exception {
+        connect("scheduler-unroutable");
+        List<String> arrived = new CopyOnWriteArrayList<>();
+
+        try (MessageConsumer consumer = mq.consume(
+                "later.arrivals", String.class, message -> arrived.add(message.payload()));
+                Scheduler scheduler = Scheduler.on(mq)) {
+
+            // Nothing is bound for this routing key yet, so the delivery at due time is returned.
+            scheduler.at(Instant.now(), "later", "not-yet-bound", "kept");
+
+            await().atMost(Duration.ofSeconds(20)).until(() -> scheduler.hops() >= 1);
+            assertThat(scheduler.delivered()).isZero();
+            assertThat(mq.messageCount("acemq.schedule.due.dlq"))
+                    .as("an unroutable delivery is retried in place, as .NET and Ruby do, not dead-lettered")
+                    .isZero();
+
+            mq.bind("later.arrivals", "later", "not-yet-bound");
+
+            await().atMost(Duration.ofSeconds(45)).until(() -> arrived.size() == 1);
+            assertThat(arrived).containsExactly("kept");
+            assertThat(scheduler.delivered()).isEqualTo(1);
+            assertThat(mq.messageCount("acemq.schedule.due.dlq")).isZero();
+        }
+    }
+
+    @Test
     @Timeout(60)
     @DisplayName("the payload arrives unchanged, whatever it was")
     void payloadSurvives() throws Exception {
