@@ -12,7 +12,7 @@ While the version is `0.x` the public API may change in any release.
 
 ### Security
 
-- **`com.rabbitmq:amqp-client` 5.36.1**, from 5.36.0, for its JSON-RPC mapper never
+- **`com.rabbitmq:amqp-client` 5.37.0**, from 5.36.0, past its JSON-RPC mapper never
   terminating on truncated input (a denial of service). AceMQ does not use JSON-RPC,
   but the client reaches every application that depends on AceMQ.
 
