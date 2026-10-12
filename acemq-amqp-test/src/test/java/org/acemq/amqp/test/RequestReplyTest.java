@@ -258,7 +258,7 @@ class RequestReplyTest {
 
         @Test
         @Timeout(30)
-        void the_answer_is_counted_before_the_reply_can_be_seen() {
+        void the_answer_is_counted_before_the_reply_can_be_seen() throws InterruptedException {
             connect("rr-counted-first");
 
             // The ordering driven rather than waited for. afterConfirm runs inside the
@@ -271,6 +271,10 @@ class RequestReplyTest {
             // sleep anywhere makes that untrue.
             AtomicReference<Responder> serving = new AtomicReference<>();
             AtomicLong countedWhenTheReplyExisted = new AtomicLong(-1);
+            // The hook runs on the responder's thread once its confirm returns, and the broker may
+            // already have delivered the reply by then: request() can return here first. Reading
+            // the value is ordered after the hook by this latch, not by luck.
+            CountDownLatch replyConfirmed = new CountDownLatch(1);
 
             try (Responder responder = mq.respond("pricing", Quote.class,
                     quote -> new Price(quote.getSku(), quote.getQuantity() * 2.5));
@@ -283,6 +287,7 @@ class RequestReplyTest {
                     public void afterConfirm(PublishContext context, PublishResult result) {
                         if (replies.equals(context.routingKey())) {
                             countedWhenTheReplyExisted.compareAndSet(-1, serving.get().answered());
+                            replyConfirmed.countDown();
                         }
                     }
                 });
@@ -291,6 +296,9 @@ class RequestReplyTest {
                         Duration.ofSeconds(10));
 
                 assertThat(price).isEqualTo(new Price("WIDGET", 10.0));
+                assertThat(replyConfirmed.await(10, TimeUnit.SECONDS))
+                        .as("the responder's reply was confirmed")
+                        .isTrue();
                 assertThat(countedWhenTheReplyExisted)
                         .as("answered(), read from inside the responder's own publish with the reply"
                                 + " already at the broker")
