@@ -180,8 +180,31 @@ jobs:
           fi
           git add -A
           git commit -m "Publish $VERSION"
-          git push origin HEAD
-          echo "published=true" >> "$GITHUB_OUTPUT"
+          # Every Java release pushes to this one repository, so another one can
+          # land between the checkout and this push: on 12 October 2026 the
+          # starter's push was rejected because the admin tool's had gone in
+          # seven seconds earlier. A rebase is the whole fix here. Each release
+          # writes only its own artifacts' directories, maven-metadata.xml
+          # included, so the two commits never touch the same file; a conflict
+          # means something else is wrong, and it stops the release rather than
+          # being resolved blind.
+          branch="$(git rev-parse --abbrev-ref HEAD)"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$attempt" = 5 ] && break
+            echo "::warning::push $attempt of 5 rejected; another release got there first, rebasing onto it"
+            sleep $((RANDOM % 15 + 5))
+            if ! git pull --rebase origin "$branch"; then
+              git rebase --abort || true
+              echo "::error::$VERSION conflicts with what is now on the feed; nothing was pushed"
+              exit 1
+            fi
+          done
+          echo "::error::$VERSION could not be pushed to the feed after 5 attempts; nothing was pushed"
+          exit 1
 
       # The step that would have caught the bad 0.2.1. That release was published
       # from a working tree whose fix had never been committed, so the artifacts
@@ -355,6 +378,12 @@ jobs:
         env:
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
+          # The Java and .NET releases both rewrite this page, each its own card,
+          # and two releases can push within seconds of each other. The edit is
+          # a pure function of the page, so a rejected push starts again from
+          # the page as it now is and re-applies it, rather than rebasing a diff
+          # whose context the other card may have moved.
+          edit_page() {
           python3 - "$VERSION" <<'PYTHON'
           import pathlib, re, sys
           version = sys.argv[1]
@@ -380,13 +409,28 @@ jobs:
           else:
               print("landing page already current")
           PYTHON
-          if [ -z "$(git status --porcelain)" ]; then
-            exit 0
-          fi
+          }
+          branch="$(git rev-parse --abbrev-ref HEAD)"
           git config user.name "acemq-release"
           git config user.email "noreply@acemq.org"
-          git commit -am "Show $VERSION on the Java card"
-          git push
+          for attempt in 1 2 3 4 5; do
+            if [ "$attempt" -gt 1 ]; then
+              echo "::warning::push $((attempt - 1)) of 5 rejected; the page moved underneath, re-applying"
+              sleep $((RANDOM % 15 + 5))
+              git fetch origin "$branch"
+              git reset --hard FETCH_HEAD
+            fi
+            edit_page
+            if [ -z "$(git status --porcelain)" ]; then
+              exit 0
+            fi
+            git commit -am "Show $VERSION on the Java card"
+            if git push origin HEAD; then
+              exit 0
+            fi
+          done
+          echo "::error::the landing page could not be pushed after 5 attempts"
+          exit 1
 
   # Announced only when something actually reached the Maven repository.
   #
