@@ -89,7 +89,7 @@
          an unbounded frame allocation when connection.tune negotiates an
          unlimited frame_max. 5.36.0 is the head of the line and adds two further
          hardening fixes to the same negotiation and table-parsing paths. -->
-    <rabbitmq.amqp.client.version>5.36.0</rabbitmq.amqp.client.version>
+    <rabbitmq.amqp.client.version>5.37.0</rabbitmq.amqp.client.version>
     <!-- 1.15.x rather than 1.14.x because of CVE-2026-40984 (GHSA-g3pr-3p32-fp23),
          a denial of service in Micrometer's HTTP server instrumentation. The 1.14
          line has no patched release at all; the fixes are 1.15.12 and 1.16.6, so
