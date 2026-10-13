@@ -34,7 +34,7 @@ While the version is `0.x` the public API may change in any release.
   failure ends as before: an older responder sends no reply (a timeout), and an
   older requester raises `AceFatalException` on the empty body.
 
-- Runs the AceMQ TCK v0.1.0: a `tck` CI job drives the library through
+- Runs the AceMQ TCK v0.2.0: a `tck` CI job drives the library through
   `org.acemq.amqp.tck.TckDriver`, under the test sources of `acemq-amqp-test`.
 - **`Message.redelivered()`**, the broker's `redelivered` flag on a delivery, which
   Python exposes and Java had no way to read.
