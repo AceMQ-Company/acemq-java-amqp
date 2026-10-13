@@ -89,11 +89,11 @@ public final class ConnectionConfig {
     }
 
     /**
-     * @return how long a publish waits for a blocked broker to resume before giving up.
-     *     Waiting rather than failing at once is deliberate: a memory alarm is usually brief,
-     *     and turning every one of them into an immediate application error would replace a
-     *     pause with an outage. Waiting forever, which is what happens without this, is worse
-     *     than both
+     * @return how long a publish waits for a blocked broker to resume before it is refused.
+     *     Zero by default: a publish made while the broker is blocked is refused at once, as
+     *     in the other AceMQ libraries, so the caller decides whether to wait. A positive value
+     *     waits up to that long instead, for an application that would rather ride out a brief
+     *     memory alarm than handle the refusal
      */
     public Duration blockedTimeout() {
         return blockedTimeout;

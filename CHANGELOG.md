@@ -8,6 +8,11 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Documentation
+
+- The Javadoc on `ConnectionConfig.blockedTimeout()` described the old 30-second
+  wait; it now says the default is zero, refusing at once.
+
 ## [0.7.15] - 2026-10-13
 
 ### Changed
