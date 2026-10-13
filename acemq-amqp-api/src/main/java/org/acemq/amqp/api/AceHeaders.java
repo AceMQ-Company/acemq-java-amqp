@@ -113,6 +113,17 @@ public final class AceHeaders {
     public static final String REPLY_TO = SHARED_PREFIX + "reply-to";
 
     /**
+     * A responder's failure, carried back to the requester on the reply.
+     *
+     * <p>Its value is the failure as text ({@code ExceptionType: message} from this library,
+     * Python and Ruby; the error's text from Go). A requester reads it before decoding the body
+     * and raises it as the responder's failure, so an answer that failed is never mistaken for an
+     * answer, nor for an undecodable one. Not to be confused with {@link #ERROR}, which says why
+     * a message was dead-lettered.
+     */
+    public static final String RESPONDER_ERROR = SHARED_PREFIX + "error";
+
+    /**
      * A self-describing itinerary: the stops a message still has to make, as JSON.
      *
      * <p>The other half of {@link RoutingSlip#ROUTE}, which names steps and leaves a declared

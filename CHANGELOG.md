@@ -8,7 +8,19 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-10-13
+
 ### Added
+
+- **A responder's failure reaches the caller as `ResponderFailedException`.** A
+  `Responder` whose handler throws now replies with the failure in the shared
+  `acemq-error` header (`ExceptionType: message`, empty body) and rejects the
+  request instead of retrying it, and a `Requester` reads that header before
+  decoding the body and throws `ResponderFailedException` at once rather than
+  waiting out its timeout. Go, Python and Ruby already did both, so a failure now
+  crosses between Java and any of them (TCK RR-004). With an older Java peer a
+  failure ends as before: an older responder sends no reply (a timeout), and an
+  older requester raises `AceFatalException` on the empty body.
 
 - Runs the AceMQ TCK v0.1.0: a `tck` CI job drives the library through
   `org.acemq.amqp.tck.TckDriver`, under the test sources of `acemq-amqp-test`.

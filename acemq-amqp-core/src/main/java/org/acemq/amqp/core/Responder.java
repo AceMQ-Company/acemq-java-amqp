@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
+import org.acemq.amqp.api.AceFatalException;
 import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.Message;
@@ -39,6 +40,12 @@ import org.slf4j.LoggerFactory;
  * {@code acemq-reply-to} header and AMQP's own {@code reply-to} property, always the same value —
  * and this reads the header first and the property second, so a caller that wrote only one of
  * them is still answered.
+ *
+ * <p>A handler that throws is answered too: the reply carries the failure in the
+ * {@code acemq-error} header, the caller's {@link Requester} raises
+ * {@link ResponderFailedException} at once instead of waiting out its timeout, and the request is
+ * rejected to the dead-letter queue rather than retried. The other four libraries do the same, so
+ * the pairing works whichever language either end is written in.
  */
 public final class Responder implements AutoCloseable {
 
@@ -79,7 +86,32 @@ public final class Responder implements AutoCloseable {
                 return;
             }
 
-            A answer = handler.apply(message.payload());
+            A answer;
+            try {
+                answer = handler.apply(message.payload());
+            } catch (RuntimeException failed) {
+                // The failure goes back to the caller in acemq-error, as Go, Python and Ruby send
+                // it, and the request is then rejected rather than retried: replying and then
+                // retrying would answer the same question twice. Not counted as answered -- a
+                // service that fails every request would otherwise report a healthy rate. A
+                // reply that cannot be sent throws from here instead, and that is retried,
+                // because the caller has not been told.
+                //
+                // The body is empty. The requester reads the header before the body, so what
+                // the body holds does not matter to a current one; an empty body makes a Java
+                // requester from before this header existed raise a decode error rather than
+                // hand its caller a null.
+                Envelope failure = Envelope.of("Failure")
+                        .correlationId(message.envelope().correlationId())
+                        .header(AceHeaders.RESPONDER_ERROR,
+                                failed.getClass().getSimpleName() + ": " + failed.getMessage())
+                        .build();
+                mq.<byte[]>publisher("", replyTo).as("bytes")
+                        .with(PublishOptions.defaults().alwaysConfirmed())
+                        .send(new byte[0], failure);
+                throw new AceFatalException("the responder on " + queue + " failed, and said so to the caller: "
+                        + failed.getMessage(), failed);
+            }
 
             // The empty exchange: reply-to names a queue directly. The correlation id is the
             // caller's, carried back unchanged -- it is the only thing tying the answer to the

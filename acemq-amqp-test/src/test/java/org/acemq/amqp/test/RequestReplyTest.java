@@ -39,6 +39,7 @@ import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.core.Responder;
+import org.acemq.amqp.core.ResponderFailedException;
 import org.acemq.amqp.transport.ConnectionConfig;
 import org.acemq.amqp.transport.OutboundMessage;
 import org.acemq.amqp.transport.PulledMessage;
@@ -368,6 +369,86 @@ class RequestReplyTest {
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return false;
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("when the responder fails")
+    class ResponderFailure {
+
+        @Test
+        @Timeout(30)
+        void the_caller_is_told_at_once_rather_than_left_to_time_out() {
+            connect("rr-fails");
+            try (Responder responder = mq.respond("pricing", Quote.class, quote -> {
+                throw new IllegalStateException("out of stock");
+            });
+                    Requester requester = mq.requester()) {
+
+                long started = System.nanoTime();
+                assertThatThrownBy(() -> requester.request("", "pricing", new Quote("WIDGET", 4), Price.class,
+                        Duration.ofSeconds(20)))
+                        .isInstanceOfSatisfying(ResponderFailedException.class, failed -> assertThat(failed.failure())
+                                .isEqualTo("IllegalStateException: out of stock"));
+                assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+                // A failure reaching the caller is not an answer.
+                assertThat(responder.answered()).isZero();
+            }
+        }
+
+        @Test
+        @Timeout(30)
+        void the_failure_goes_back_in_the_shared_header_with_an_empty_body() {
+            connect("rr-fails-wire");
+            mq.declareQueue("replies", QueueType.CLASSIC, Collections.emptyMap());
+
+            try (TransportConnection raw = new InMemoryTransport()
+                    .connect(ConnectionConfig.url("memory://rr-fails-wire").build());
+                    Responder responder = mq.respond("pricing", Quote.class, quote -> {
+                        throw new IllegalStateException("out of stock");
+                    })) {
+
+                String id = ask(raw, "replies", true, true);
+
+                PulledMessage reply = await().atMost(Duration.ofSeconds(10))
+                        .until(() -> raw.receive("replies", Duration.ofMillis(200)).orElse(null),
+                                java.util.Objects::nonNull);
+                assertThat(reply.delivery().headers())
+                        .containsEntry(AceHeaders.CORRELATION, id)
+                        .containsEntry("acemq-error", "IllegalStateException: out of stock");
+                assertThat(reply.delivery().body()).isEmpty();
+                reply.acknowledger().accept();
+            }
+        }
+
+        @Test
+        @Timeout(30)
+        void a_foreign_failure_is_raised_before_its_body_is_decoded() {
+            // What a Go, Python or Ruby responder sends, with a body no codec can read: the
+            // header is checked first, so this is the responder's failure and not a decode error.
+            connect("rr-foreign-failure");
+            try (TransportConnection raw = new InMemoryTransport()
+                    .connect(ConnectionConfig.url("memory://rr-foreign-failure").build());
+                    Requester requester = mq.requester()) {
+
+                CompletableFuture<Price> call = requester.requestAsync("", "pricing", new Quote("WIDGET", 4),
+                        Price.class);
+                PulledMessage request = raw.receive("pricing", Duration.ofSeconds(10))
+                        .orElseThrow(() -> new AssertionError("the request never arrived"));
+                request.acknowledger().accept();
+                assertThat(raw.send(OutboundMessage
+                        .body("not json".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        .exchange("")
+                        .routingKey(requester.replyQueue())
+                        .contentType("application/json")
+                        .header(AceHeaders.CORRELATION, request.delivery().headers().get(AceHeaders.CORRELATION))
+                        .header("acemq-error", "out of stock")
+                        .build()).isConfirmed()).isTrue();
+
+                assertThatThrownBy(() -> call.get(10, TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(ResponderFailedException.class)
+                        .hasMessageContaining("out of stock");
             }
         }
     }

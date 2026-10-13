@@ -43,6 +43,7 @@ import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.MicrometerSupport;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
+import org.acemq.amqp.core.ResponderFailedException;
 import org.acemq.amqp.patterns.Scheduler;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -405,6 +406,9 @@ public final class TckDriver {
             }
             if (at instanceof RequestTimedOutException) {
                 return "timeout";
+            }
+            if (at instanceof ResponderFailedException) {
+                return "responder";
             }
             if (at instanceof PublishingPausedException
                     || (at instanceof ConnectionBlockedException

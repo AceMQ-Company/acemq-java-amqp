@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.acemq.amqp.api.AceFatalException;
+import org.acemq.amqp.api.AceHeaders;
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
@@ -115,6 +116,7 @@ public final class Requester implements AutoCloseable {
      * @param <A> response type
      * @return the reply
      * @throws RequestTimedOutException if no reply arrives in time
+     * @throws ResponderFailedException if the responder answered with a failure
      */
     public <Q, A> A request(
             String exchange, String routingKey, Q request, Class<A> responseType, Duration timeout) {
@@ -155,6 +157,9 @@ public final class Requester implements AutoCloseable {
             waiting.remove(correlationId);
             Throwable cause = e.getCause();
             scope.failed(cause == null ? e : cause);
+            if (cause instanceof ResponderFailedException) {
+                throw (ResponderFailedException) cause;
+            }
             if (cause instanceof AceFatalException) {
                 // A reply that cannot be decoded will not decode on a second asking either.
                 throw (AceFatalException) cause;
@@ -198,6 +203,13 @@ public final class Requester implements AutoCloseable {
 
         Codec codec = Codecs.forConsuming();
         return raw.thenApply(message -> {
+            // Before decoding, so a failure whose body is unreadable still reads as the
+            // responder's failure rather than as a codec error.
+            Object failure = message.envelope().headers().get(AceHeaders.RESPONDER_ERROR);
+            if (failure != null) {
+                throw new ResponderFailedException(
+                        "the responder on '" + routingKey + "' failed: " + failure, failure.toString());
+            }
             try {
                 return codec.decode(message.payload(), responseType, message.contentType().orElse(null));
             } catch (RuntimeException undecodable) {

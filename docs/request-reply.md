@@ -76,6 +76,21 @@ or for a [shared idempotency store](reliability.md), not for a retry loop.
 `requestAsync` hands back a `CompletableFuture` with no timeout attached, because
 the timeout belongs to the caller. `orTimeout` is the usual way to add one.
 
+## When the responder fails
+
+A responder whose handler throws answers anyway: the reply carries the failure in
+the `acemq-error` header, as `ExceptionType: message`, with an empty body, and the
+request is then rejected to its dead-letter queue rather than retried. The caller
+gets `ResponderFailedException` at once, with the responder's text in `failure()`,
+instead of waiting out its timeout. The header is checked before the body is
+decoded, so a failure from a Go, Python or Ruby responder reads the same way
+whatever its body holds.
+
+Since 0.7 a Java responder and requester both speak this; Go, Python and Ruby
+always have. Paired with an older Java peer, a failed request still ends the old
+way: an older responder sends no reply, so the caller times out; an older
+requester cannot decode the empty body and raises `AceFatalException`.
+
 ## The numbers worth graphing
 
 | | |
