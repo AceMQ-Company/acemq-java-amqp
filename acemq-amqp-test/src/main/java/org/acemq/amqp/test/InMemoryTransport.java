@@ -75,8 +75,9 @@ public final class InMemoryTransport implements Transport {
      * InMemoryTransport.unblock("orders");
      * }</pre>
      *
-     * <p>Publishers wait up to {@code ConnectionConfig.blockedTimeout()} before throwing, so a
-     * test that expects the exception should either shorten that timeout or not unblock.
+     * <p>Publishers wait up to {@code ConnectionConfig.blockedTimeout()} before throwing, which is
+     * zero by default, so a publish while blocked throws at once. A test that wants a publish to
+     * wait for {@code unblock} sets a timeout.
      *
      * <p>One deliberate difference from RabbitMQ, worth knowing before writing a test around it:
      * here {@code isBlocked()} becomes true as soon as this is called, whereas RabbitMQ tells a

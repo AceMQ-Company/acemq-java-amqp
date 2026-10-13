@@ -155,7 +155,8 @@ public final class ConnectionConfig {
         private String clientName = "acemq";
         private Duration connectionTimeout = Duration.ofSeconds(10);
         private Duration confirmTimeout = Duration.ofSeconds(10);
-        private Duration blockedTimeout = Duration.ofSeconds(30);
+        // Zero: a publish into a known alarm is refused at once, as in Python, .NET and Ruby.
+        private Duration blockedTimeout = Duration.ZERO;
         private boolean publisherConfirms = true;
 
         /**
@@ -200,7 +201,14 @@ public final class ConnectionConfig {
         }
 
         /**
-         * @param blockedTimeout how long a publish waits for a blocked broker to resume
+         * How long a publish waits for a blocked broker to resume before it is refused.
+         *
+         * <p>Zero by default: while the broker is blocking publishes (a memory or disk alarm), a
+         * publish is refused at once with {@code ConnectionBlockedException} and nothing is
+         * written. A positive value waits up to that long for the alarm to clear first, which was
+         * the default (30 seconds) before 0.7.
+         *
+         * @param blockedTimeout how long a publish waits for a blocked broker to resume; zero to refuse at once
          * @return this builder
          */
         public Builder blockedTimeout(Duration blockedTimeout) {

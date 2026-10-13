@@ -359,8 +359,8 @@ public final class AceMq implements AutoCloseable {
      * Whether the broker is currently refusing publishes.
      *
      * <p>RabbitMQ blocks publishing connections when it runs low on memory or disk. Publishing
-     * while blocked does not fail — it waits, up to {@code blockedTimeout}, and then throws
-     * {@link org.acemq.amqp.transport.ConnectionBlockedException}.
+     * while blocked throws {@link org.acemq.amqp.transport.ConnectionBlockedException} at once,
+     * or after waiting up to {@code blockedTimeout} when one is set.
      *
      * <p>Useful in a readiness probe, and deliberately not in a liveness one. A blocked broker is
      * under pressure, not broken, and a service that reports itself dead every time an alarm

@@ -114,6 +114,22 @@ class BlockedConnectionTest {
     }
 
     @Test
+    @DisplayName("by default a publish into a known block is refused at once")
+    void publishIsRefusedAtOnceByDefault() {
+        String broker = "blocked-default";
+        try (AceMq mq = AceMq.connect(ConnectionConfig.url("memory://" + broker).build())) {
+            mq.declareQueue("orders.new", QueueType.CLASSIC, java.util.Map.of());
+            InMemoryTransport.block(broker, "low on memory");
+
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> mq.publisher("", "orders.new", String.class).send("one"))
+                    .isInstanceOfSatisfying(ConnectionBlockedException.class,
+                            refused -> assertThat(refused.mayHaveBeenPublished()).isFalse());
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+        }
+    }
+
+    @Test
     @DisplayName("nothing is published when the wait times out")
     void nothingIsPublishedWhenTheWaitTimesOut() throws Exception {
         String broker = "blocked-no-send";

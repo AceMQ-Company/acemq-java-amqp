@@ -109,6 +109,29 @@ class BlockedConnectionIT {
 
     @Test
     @Timeout(120)
+    @DisplayName("by default the first publish fails within the confirm timeout and the next is refused at once")
+    void byDefaultNothingWaitsForTheAlarm() throws Exception {
+        connect(null);
+        raiseAlarm();
+
+        // Written before the block was known, so it gets the confirm wait any message gets and
+        // then fails as possibly published, rather than hanging until the alarm clears.
+        long startedAt = System.nanoTime();
+        Throwable first = catchPublish("one");
+        assertThat(first).isInstanceOf(ConnectionBlockedException.class);
+        assertThat(((ConnectionBlockedException) first).mayHaveBeenPublished()).isTrue();
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(20));
+
+        // Known to be blocked now: refused before anything is written, without waiting.
+        startedAt = System.nanoTime();
+        Throwable second = catchPublish("two");
+        assertThat(second).isInstanceOf(ConnectionBlockedException.class);
+        assertThat(((ConnectionBlockedException) second).mayHaveBeenPublished()).isFalse();
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(2));
+    }
+
+    @Test
+    @Timeout(120)
     @DisplayName("a publish gives up when the alarm outlasts the timeout, and names the alarm")
     void publishGivesUpWhenTheAlarmOutlastsTheTimeout() throws Exception {
         connect(Duration.ofSeconds(5));
@@ -139,10 +162,13 @@ class BlockedConnectionIT {
                 .isFalse();
     }
 
+    /** @param blockedTimeout the timeout to set, or {@code null} for the default */
     private void connect(Duration blockedTimeout) {
-        mq = AceMq.connect(ConnectionConfig.url(BROKER.getAmqpUrl())
-                .blockedTimeout(blockedTimeout)
-                .build());
+        ConnectionConfig.Builder config = ConnectionConfig.url(BROKER.getAmqpUrl());
+        if (blockedTimeout != null) {
+            config.blockedTimeout(blockedTimeout);
+        }
+        mq = AceMq.connect(config.build());
         mq.declareExchange("orders", "topic");
         mq.declareQueue("orders.new");
         mq.bind("orders.new", "orders", "order.*");

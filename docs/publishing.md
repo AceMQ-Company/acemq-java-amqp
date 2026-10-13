@@ -168,12 +168,10 @@ RabbitMQ blocks publishing connections when it runs low on memory or disk. It
 does not close them and does not return an error — the socket simply stops
 draining, and an unguarded publisher waits forever with nothing in the logs.
 
-This library waits, bounded, and then tells you:
+This library refuses the publish and tells you, at once by default:
 
 ```java
-AceMq mq = AceMq.connect(ConnectionConfig.url("amqp://broker")
-        .blockedTimeout(Duration.ofSeconds(30))     // the default
-        .build());
+AceMq mq = AceMq.connect(ConnectionConfig.url("amqp://broker").build());
 
 try {
     orders.send(order);
@@ -183,8 +181,20 @@ try {
 }
 ```
 
-Waiting rather than failing immediately because a memory alarm is usually brief,
-and turning every one into an application error replaces a pause with an outage.
+A publish made while the broker is known to be blocked is refused before anything
+is written (`mayHaveBeenPublished()` is `false`), as in Python, .NET and Ruby. The
+first publish into an alarm cannot be refused that way: RabbitMQ only says it is
+blocked once that connection publishes, so the message is already written. It
+waits for its confirm like any other, up to `confirmTimeout`, and then fails with
+`mayHaveBeenPublished()` `true` rather than hanging until the alarm clears.
+
+To ride out a brief alarm instead, set `blockedTimeout`, and a publish waits up to
+that long for the broker to resume before it is refused. Thirty seconds was the
+default before 0.7:
+
+```java
+ConnectionConfig.url("amqp://broker").blockedTimeout(Duration.ofSeconds(30)).build();
+```
 
 `mq.isBlocked()` belongs in a **readiness** probe, never a liveness one. A
 blocked broker is under pressure, not broken, and a service that reports itself

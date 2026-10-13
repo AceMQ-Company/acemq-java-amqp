@@ -187,9 +187,11 @@ final class RabbitMqConnection implements TransportConnection {
                         blockedReason = reason == null ? "the broker did not say" : reason;
                         blockedLock.notifyAll();
                     }
-                    log.error("the broker has blocked this connection: {}. Publishing will wait up to {} before"
-                            + " failing. This is a broker capacity problem, not a client one.",
-                            blockedReason, config.blockedTimeout());
+                    log.error("the broker has blocked this connection: {}. Publishing is refused{} until it"
+                            + " unblocks. This is a broker capacity problem, not a client one.",
+                            blockedReason, config.blockedTimeout().isZero()
+                                    ? ""
+                                    : " after waiting up to " + config.blockedTimeout());
                 },
                 () -> {
                     synchronized (blockedLock) {
@@ -224,11 +226,13 @@ final class RabbitMqConnection implements TransportConnection {
     }
 
     /**
-     * Waits for the broker to start accepting publishes again.
+     * Refuses a publish while the broker is blocking them, after waiting up to
+     * {@code blockedTimeout} for it to resume.
      *
-     * <p>Waiting rather than failing at once, because a memory alarm is usually brief and
-     * turning every one into an immediate application error replaces a pause with an outage.
-     * Waiting without a bound is what this exists to fix.
+     * <p>The timeout is zero by default, so a publish into a known alarm is refused at once and
+     * nothing is written -- what Python, .NET and Ruby do, and what the AceMQ TCK requires. A
+     * caller that would rather ride out a brief alarm sets a timeout and waits instead. Waiting
+     * without a bound is what this exists to prevent.
      */
     private void awaitUnblocked() {
         if (blockedReason == null) {
@@ -239,10 +243,12 @@ final class RabbitMqConnection implements TransportConnection {
             while (blockedReason != null) {
                 long remaining = deadline - System.nanoTime();
                 if (remaining <= 0) {
-                    throw new ConnectionBlockedException("the broker has been refusing publishes for "
-                            + config.blockedTimeout() + " (" + blockedReason + "), so nothing was sent."
-                            + " This is broker capacity, not this message: back off rather than retrying"
-                            + " immediately.", blockedReason);
+                    throw new ConnectionBlockedException("the broker is refusing publishes (" + blockedReason + ")"
+                            + (config.blockedTimeout().isZero()
+                                    ? ""
+                                    : " and did not resume within " + config.blockedTimeout())
+                            + ", so nothing was sent. This is broker capacity, not this message: back off"
+                            + " rather than retrying immediately.", blockedReason);
                 }
                 try {
                     blockedLock.wait(Math.max(1L, remaining / 1_000_000L));
@@ -370,21 +376,26 @@ final class RabbitMqConnection implements TransportConnection {
      * and its confirm simply never arrives. Left to the ordinary confirm timeout, the caller is
      * told "no publisher confirm within 10s" — true, useless, and pointing at the wrong system.
      *
-     * <p>While the connection is blocked the confirm timeout is not applied, because a broker
-     * under an alarm is not a slow broker and failing the message would not help it recover. The
-     * total wait is bounded by {@code blockedTimeout} instead.
+     * <p>While the connection is blocked the total wait is bounded by the longer of
+     * {@code confirmTimeout} and {@code blockedTimeout}. With the default zero blocked timeout that
+     * is the confirm timeout: the message was written before the alarm was known, so it gets the
+     * confirm wait any message gets and then fails as possibly published, rather than hanging
+     * until the alarm clears.
      */
     private boolean awaitConfirm(Channel channel, OutboundMessage message)
             throws InterruptedException, java.util.concurrent.TimeoutException {
-        long blockedDeadline = System.nanoTime() + config.blockedTimeout().toNanos();
+        Duration bound = config.blockedTimeout().compareTo(config.confirmTimeout()) > 0
+                ? config.blockedTimeout()
+                : config.confirmTimeout();
+        long blockedDeadline = System.nanoTime() + bound.toNanos();
         while (true) {
             long confirmWaitMillis = config.confirmTimeout().toMillis();
             if (isBlocked()) {
                 long remainingMillis = (blockedDeadline - System.nanoTime()) / 1_000_000L;
                 if (remainingMillis <= 0) {
-                    throw new ConnectionBlockedException("the broker has been refusing publishes for "
-                            + config.blockedTimeout() + " (" + blockedReason().orElse("no reason given")
-                            + ") and never confirmed " + message + ". It may or may not have arrived; this is a"
+                    throw new ConnectionBlockedException("the broker blocked publishing ("
+                            + blockedReason().orElse("no reason given") + ") and did not confirm " + message
+                            + " within " + bound + ". It may or may not have arrived; this is a"
                             + " broker capacity problem, so back off rather than retrying immediately.",
                             blockedReason().orElse("unknown"), true);
                 }

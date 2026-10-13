@@ -10,6 +10,18 @@ While the version is `0.x` the public API may change in any release.
 
 ## [0.7.15] - 2026-10-13
 
+### Changed
+
+- **A publish into a blocked broker is refused at once by default.**
+  `ConnectionConfig.blockedTimeout` now defaults to zero, from 30 seconds: while
+  the broker is blocking publishes (a memory or disk alarm) a publish throws
+  `ConnectionBlockedException` with `mayHaveBeenPublished()` `false`, counted as
+  `refused`, without writing anything, as Python, .NET and Ruby do (TCK TEL-003).
+  The first publish into an alarm, written before the block was known, now fails
+  within `confirmTimeout` as possibly published (counted `failed`) instead of
+  waiting out the blocked timeout. **Migration:** to keep the old wait, set
+  `.blockedTimeout(Duration.ofSeconds(30))` on the `ConnectionConfig`.
+
 ### Added
 
 - **A responder's failure reaches the caller as `ResponderFailedException`.** A
