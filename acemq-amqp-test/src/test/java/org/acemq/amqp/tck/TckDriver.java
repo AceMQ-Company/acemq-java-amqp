@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.acemq.amqp.api.AceFatalException;
@@ -33,17 +34,24 @@ import org.acemq.amqp.api.AceRetryableException;
 import org.acemq.amqp.api.ApplyMode;
 import org.acemq.amqp.api.Envelope;
 import org.acemq.amqp.api.PublishFailedException;
+import org.acemq.amqp.api.PublishingPausedException;
 import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.Topology;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
+import org.acemq.amqp.core.MicrometerSupport;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.patterns.Scheduler;
+import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 /**
  * The AceMQ TCK driver for this library.
@@ -64,15 +72,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public final class TckDriver {
 
     private static final List<String> OPS = List.of("hello", "begin", "end", "publish", "consume", "handled",
-            "schedule", "request");
+            "schedule", "request", "declareStream", "readStream", "metrics");
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final String url;
     private AceMq mq;
-    private final Map<String, MessageConsumer> consumers = new LinkedHashMap<>();
+    private final Map<String, AutoCloseable> consumers = new LinkedHashMap<>();
     private final Map<String, ConcurrentMap<String, AtomicInteger>> counts = new ConcurrentHashMap<>();
     private final Map<String, ConcurrentMap<String, AtomicInteger>> redelivered = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> order = new ConcurrentHashMap<>();
+    private SimpleMeterRegistry recorder = new SimpleMeterRegistry();
     private Scheduler scheduler;
     private Requester requester;
 
@@ -133,6 +143,12 @@ public final class TckDriver {
                 return schedule(args);
             case "request" :
                 return request(args);
+            case "declareStream" :
+                return declareStream(args);
+            case "readStream" :
+                return readStream(args);
+            case "metrics" :
+                return metrics();
             default :
                 throw new UnsupportedOperationException(op);
         }
@@ -158,7 +174,14 @@ public final class TckDriver {
     private Map<String, Object> begin(Map<String, Object> args) throws Exception {
         end();
         String clientName = String.valueOf(args.getOrDefault("clientName", "tck"));
-        mq = AceMq.connect(ConnectionConfig.url(url).clientName(clientName).build());
+        ConnectionConfig.Builder config = ConnectionConfig.url(url).clientName(clientName);
+        if (Boolean.FALSE.equals(args.get("confirms"))) {
+            config.withoutPublisherConfirms();
+        }
+        // The telemetry seam, recorded by the library's own Micrometer binding into a registry
+        // that starts empty with each case.
+        recorder = new SimpleMeterRegistry();
+        mq = AceMq.connect(config.build(), MicrometerSupport.telemetry(recorder, "rabbitmq"));
         return Map.of();
     }
 
@@ -171,12 +194,13 @@ public final class TckDriver {
             scheduler.close();
             scheduler = null;
         }
-        for (MessageConsumer consumer : consumers.values()) {
+        for (AutoCloseable consumer : consumers.values()) {
             consumer.close();
         }
         consumers.clear();
         counts.clear();
         redelivered.clear();
+        order.clear();
         if (mq != null) {
             mq.close();
             mq = null;
@@ -228,6 +252,7 @@ public final class TckDriver {
         long sleepMs = intOf(behaviour.get("sleepMs"), 0);
         ConcurrentMap<String, AtomicInteger> seen = new ConcurrentHashMap<>();
         ConcurrentMap<String, AtomicInteger> again = new ConcurrentHashMap<>();
+        List<String> arrived = new CopyOnWriteArrayList<>();
 
         // The source queue with its dead-letter and parked queues, as the library's topology
         // declares a consumed queue; the consumer declares the retry rungs its policy needs.
@@ -240,6 +265,7 @@ public final class TckDriver {
                     Object payload = message.payload();
                     String id = String.valueOf(payload instanceof Map ? ((Map<?, ?>) payload).get("id") : null);
                     int delivery = seen.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
+                    arrived.add(id);
                     if (message.redelivered()) {
                         again.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
                     }
@@ -253,7 +279,60 @@ public final class TckDriver {
         consumers.put(handle, consumer);
         counts.put(handle, seen);
         redelivered.put(handle, again);
+        order.put(handle, arrived);
         return Map.of();
+    }
+
+    private Map<String, Object> declareStream(Map<String, Object> args) {
+        Object maxAgeMs = args.get("maxAgeMs");
+        mq().declareStream(
+                String.valueOf(args.get("queue")),
+                maxAgeMs instanceof Number ? Duration.ofMillis(((Number) maxAgeMs).longValue()) : null,
+                null);
+        return Map.of();
+    }
+
+    private Map<String, Object> readStream(Map<String, Object> args) {
+        String handle = String.valueOf(args.get("handle"));
+        ConcurrentMap<String, AtomicInteger> seen = new ConcurrentHashMap<>();
+        List<String> arrived = new CopyOnWriteArrayList<>();
+        var reader = mq().stream(String.valueOf(args.get("queue")), Object.class);
+        reader = "next".equals(args.get("offset")) ? reader.fromNext() : reader.fromFirst();
+        AutoCloseable consumer = reader.consume(message -> {
+            Object payload = message.payload();
+            String id = String.valueOf(payload instanceof Map ? ((Map<?, ?>) payload).get("id") : null);
+            seen.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
+            arrived.add(id);
+        });
+        consumers.put(handle, consumer);
+        counts.put(handle, seen);
+        redelivered.put(handle, new ConcurrentHashMap<>());
+        order.put(handle, arrived);
+        return Map.of();
+    }
+
+    /**
+     * Every meter the library reported since {@code begin}. Micrometer keeps one meter per name
+     * and tag set rather than one entry per report, so each distinct pair is one sample.
+     */
+    private Map<String, Object> metrics() {
+        List<Map<String, Object>> samples = new ArrayList<>();
+        java.util.SortedSet<String> names = new java.util.TreeSet<>();
+        for (Meter meter : recorder.getMeters()) {
+            Map<String, String> tags = new LinkedHashMap<>();
+            for (Tag tag : meter.getId().getTags()) {
+                tags.put(tag.getKey(), tag.getValue());
+            }
+            names.add(meter.getId().getName());
+            Map<String, Object> sample = new LinkedHashMap<>();
+            sample.put("name", meter.getId().getName());
+            sample.put("tags", tags);
+            samples.add(sample);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("names", new ArrayList<>(names));
+        result.put("samples", samples);
+        return result;
     }
 
     private Map<String, Object> handled(Map<String, Object> args) {
@@ -261,6 +340,7 @@ public final class TckDriver {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("counts", snapshot(counts.get(handle)));
         result.put("redelivered", snapshot(redelivered.get(handle)));
+        result.put("order", new ArrayList<>(order.getOrDefault(handle, List.of())));
         return result;
     }
 
@@ -309,8 +389,10 @@ public final class TckDriver {
      * Normalises a failure into the contract's closed list of kinds.
      *
      * <p>The cause chain is walked because the requester wraps a reply's decode failure in a
-     * plain {@code AceMqException}. Unroutable and refused publishes are the same exception
-     * type in this library, so they are told apart by the message the publisher writes.
+     * plain {@code AceMqException}. Unroutable and nacked publishes are the same exception
+     * type in this library, so they are told apart by the message the publisher writes. A
+     * publish declined under back pressure is a blocked connection known before the write, the
+     * same test the publisher makes when it counts the outcome as refused.
      */
     static String kindOf(Throwable failure) {
         List<Throwable> chain = new ArrayList<>();
@@ -324,8 +406,13 @@ public final class TckDriver {
             if (at instanceof RequestTimedOutException) {
                 return "timeout";
             }
+            if (at instanceof PublishingPausedException
+                    || (at instanceof ConnectionBlockedException
+                            && !((ConnectionBlockedException) at).mayHaveBeenPublished())) {
+                return "paused";
+            }
             if (at instanceof PublishFailedException) {
-                return String.valueOf(at.getMessage()).contains("could not be routed") ? "unroutable" : "refused";
+                return String.valueOf(at.getMessage()).contains("could not be routed") ? "unroutable" : "nacked";
             }
             if (at instanceof AceFatalException) {
                 return "decode";
