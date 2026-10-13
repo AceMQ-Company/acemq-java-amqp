@@ -149,6 +149,33 @@ jobs:
           path: '**/target/failsafe-reports/**'
           retention-days: 7
 
+  # The cross-library contract, checked by the one checker all five libraries
+  # share. The driver lives in acemq-amqp-test's test sources and goes through
+  # the public API only; the action starts its own broker on 5682/15682 and
+  # hands the driver ACEMQ_TCK_AMQP_URL. The pin below is the TCK version this
+  # library passes. Not a release gate.
+  tck:
+    name: AceMQ TCK
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # The classpath is resolved once into a file, so the driver starts as a
+      # plain java process with nothing but the protocol on its stdout.
+      - name: Build the driver
+        run: >-
+          mvn -B --no-transfer-progress -q -pl acemq-amqp-test -am -Djacoco.skip=true
+          test-compile dependency:build-classpath
+          -Dmdep.outputFile=target/tck.classpath -Dmdep.includeScope=test
+      - uses: AceMQ-Company/acemq-amqp-tck@v0.1.0
+        with:
+          driver: java -cp "acemq-amqp-test/target/test-classes:$(cat acemq-amqp-test/target/tck.classpath)" org.acemq.amqp.tck.TckDriver
+
   # Snapshots are published to GitHub Packages on every green push to main.
   # Tagged releases go to the Git-hosted Maven repository; see RELEASING.md.
   publish-snapshot:

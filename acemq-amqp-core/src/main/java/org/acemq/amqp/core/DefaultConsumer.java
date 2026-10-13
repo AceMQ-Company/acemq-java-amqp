@@ -136,7 +136,9 @@ final class DefaultConsumer<T> implements MessageConsumer {
         // Go's NoRetry() and .NET's null policy, spelled the same way.
         RetryPolicy policy = options.retryPolicy().orElseGet(RetryPolicy::none);
         RetryTopology topology = RetryTopology.forQueue(queue, policy);
-        topology.declare(connection);
+        if (options.declares()) {
+            topology.declare(connection);
+        }
         this.retries = new RetryDispatcher(connection, topology, telemetry);
     }
 
@@ -441,7 +443,8 @@ final class DefaultConsumer<T> implements MessageConsumer {
                 delivery.routingKey(),
                 Instant.now(),
                 delivery.replyTo().orElse(null),
-                delivery.contentType());
+                delivery.contentType(),
+                delivery.redelivered());
     }
 
     @Override

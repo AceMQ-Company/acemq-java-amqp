@@ -8,6 +8,26 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- Runs the AceMQ TCK v0.1.0: a `tck` CI job drives the library through
+  `org.acemq.amqp.tck.TckDriver`, under the test sources of `acemq-amqp-test`.
+- **`Message.redelivered()`**, the broker's `redelivered` flag on a delivery, which
+  Python exposes and Java had no way to read.
+
+### Fixed
+
+- **A broker URL ending in a bare `/` connects to the default virtual host.**
+  `amqp://host:5672/` asked for the virtual host named "", which no broker has, so
+  the connection was refused. It is now read as `/`, as the AceMQ TCK's own URL
+  and the Python library expect.
+- **A reply the requester cannot decode is raised as `AceFatalException`**, at once,
+  instead of a plain `AceMqException` wrapping the codec's failure.
+- **The requester's reply queue no longer leaves a `.dlq` and a `.parked` queue
+  behind.** Its consumer declared them like any other, two durable queues per
+  requester under a name that changes every restart; it now declares nothing, as in
+  Python.
+
 ## [0.7.14] - 2026-10-12
 
 ### Security

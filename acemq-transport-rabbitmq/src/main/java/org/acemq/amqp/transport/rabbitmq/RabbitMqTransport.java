@@ -154,6 +154,12 @@ public final class RabbitMqTransport implements Transport {
         } catch (URISyntaxException | java.security.NoSuchAlgorithmException | java.security.KeyManagementException e) {
             throw new TransportException("invalid broker URL: " + config.url(), e);
         }
+        // "amqp://host/" names the empty virtual host by the letter of the URI spec, which a
+        // broker cannot have, so the connection was refused. Every other AceMQ library reads a
+        // bare trailing slash as the default virtual host, and so does this one.
+        if (factory.getVirtualHost().isEmpty()) {
+            factory.setVirtualHost("/");
+        }
 
         config.security().credentials().ifPresent(provider -> {
             // Consulted here, on every connect, rather than once at start-up: a token has an

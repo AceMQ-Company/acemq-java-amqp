@@ -79,6 +79,14 @@ class RoundTripIT {
 
     @Test
     @Timeout(60)
+    void reads_a_bare_trailing_slash_as_the_default_virtual_host() {
+        try (AceMq slashed = AceMq.connect(BROKER.getAmqpUrl() + "/")) {
+            assertThat(slashed.isOpen()).isTrue();
+        }
+    }
+
+    @Test
+    @Timeout(60)
     void reports_what_the_broker_can_do() {
         assertThat(mq.transportName()).isEqualTo("rabbitmq");
         assertThat(mq.capabilities())

@@ -28,13 +28,15 @@ public final class ConsumerOptions {
     private final @Nullable RetryPolicy retryPolicy;
     private final @Nullable IdempotencyStore idempotencyStore;
     private final @Nullable Codec codec;
+    private final boolean declares;
 
     private ConsumerOptions(
             int prefetch,
             boolean requeueOnFailure,
             @Nullable RetryPolicy retryPolicy,
             @Nullable IdempotencyStore idempotencyStore,
-            @Nullable Codec codec) {
+            @Nullable Codec codec,
+            boolean declares) {
         if (prefetch < 1) {
             throw new IllegalArgumentException("prefetch must be at least 1, was " + prefetch);
         }
@@ -43,6 +45,7 @@ public final class ConsumerOptions {
         this.retryPolicy = retryPolicy;
         this.idempotencyStore = idempotencyStore;
         this.codec = codec;
+        this.declares = declares;
     }
 
     /**
@@ -53,7 +56,7 @@ public final class ConsumerOptions {
      *     behaviour: the message goes to a dead-letter queue if one is configured.
      */
     public static ConsumerOptions defaults() {
-        return new ConsumerOptions(50, false, null, null, null);
+        return new ConsumerOptions(50, false, null, null, null, true);
     }
 
     /**
@@ -61,7 +64,7 @@ public final class ConsumerOptions {
      * @return options with that prefetch
      */
     public static ConsumerOptions prefetch(int prefetch) {
-        return new ConsumerOptions(prefetch, false, null, null, null);
+        return new ConsumerOptions(prefetch, false, null, null, null, true);
     }
 
     /**
@@ -73,7 +76,7 @@ public final class ConsumerOptions {
      * @return options that requeue on failure
      */
     public ConsumerOptions requeueOnFailure() {
-        return new ConsumerOptions(prefetch, true, retryPolicy, idempotencyStore, codec);
+        return new ConsumerOptions(prefetch, true, retryPolicy, idempotencyStore, codec, declares);
     }
 
     /**
@@ -95,7 +98,7 @@ public final class ConsumerOptions {
      */
     public ConsumerOptions withRetry(RetryPolicy retryPolicy) {
         return new ConsumerOptions(prefetch, requeueOnFailure,
-                java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"), idempotencyStore, codec);
+                java.util.Objects.requireNonNull(retryPolicy, "retryPolicy"), idempotencyStore, codec, declares);
     }
 
     /**
@@ -116,7 +119,8 @@ public final class ConsumerOptions {
      */
     public ConsumerOptions idempotent(IdempotencyStore store) {
         return new ConsumerOptions(
-                prefetch, requeueOnFailure, retryPolicy, java.util.Objects.requireNonNull(store, "store"), codec);
+                prefetch, requeueOnFailure, retryPolicy, java.util.Objects.requireNonNull(store, "store"), codec,
+                declares);
     }
 
     /**
@@ -137,7 +141,7 @@ public final class ConsumerOptions {
     public ConsumerOptions as(Codec codec) {
         return new ConsumerOptions(
                 prefetch, requeueOnFailure, retryPolicy, idempotencyStore,
-                java.util.Objects.requireNonNull(codec, "codec"));
+                java.util.Objects.requireNonNull(codec, "codec"), declares);
     }
 
     /** @return the format this consumer was told to read, if it was told one */
@@ -161,5 +165,22 @@ public final class ConsumerOptions {
 
     public boolean isRequeueOnFailure() {
         return requeueOnFailure;
+    }
+
+    /**
+     * The same options for a consumer that declares nothing of its own: no dead-letter or parked
+     * queue, no retry exchanges.
+     *
+     * <p>For the requester's reply queue only. It is a mailbox for one process under a name that
+     * changes every restart, so the two durable queues a consumer usually declares would be left
+     * behind by every requester, unread and never deleted. Nothing on it is ever dead-lettered or
+     * parked either: replies are read as bytes and every one is accepted.
+     */
+    ConsumerOptions withoutDeclaring() {
+        return new ConsumerOptions(prefetch, requeueOnFailure, retryPolicy, idempotencyStore, codec, false);
+    }
+
+    boolean declares() {
+        return declares;
     }
 }

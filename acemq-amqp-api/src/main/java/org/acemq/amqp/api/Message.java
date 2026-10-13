@@ -91,6 +91,19 @@ public interface Message<T> {
     }
 
     /**
+     * Whether the broker set the AMQP {@code redelivered} flag on this delivery.
+     *
+     * <p>Set when the broker has handed this message out before and it came back unsettled, for
+     * example after a requeue or a closed channel. Unlike {@link #attempt()}, which counts the
+     * library's own retries, this is the broker's word on it.
+     *
+     * @return {@code true} when the broker marked the delivery as redelivered
+     */
+    default boolean redelivered() {
+        return false;
+    }
+
+    /**
      * Returns a view of this message with a different payload, preserving all metadata.
      *
      * <p>Used by decoding and upcasting, which change the payload while leaving the delivery

@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.acemq.amqp.api.AceFatalException;
 import org.acemq.amqp.api.AceMqException;
 import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
@@ -87,7 +88,7 @@ public final class Requester implements AutoCloseable {
         this.replies = mq.consume(
                 replyQueue,
                 byte[].class,
-                ConsumerOptions.prefetch(100).as(Codecs.byName("bytes")),
+                ConsumerOptions.prefetch(100).as(Codecs.byName("bytes")).withoutDeclaring(),
                 message -> {
                     String id = message.envelope().correlationId();
                     CompletableFuture<Message<byte[]>> caller = waiting.remove(id);
@@ -154,6 +155,10 @@ public final class Requester implements AutoCloseable {
             waiting.remove(correlationId);
             Throwable cause = e.getCause();
             scope.failed(cause == null ? e : cause);
+            if (cause instanceof AceFatalException) {
+                // A reply that cannot be decoded will not decode on a second asking either.
+                throw (AceFatalException) cause;
+            }
             throw new AceMqException("the request to '" + routingKey + "' failed", cause == null ? e : cause);
         } finally {
             scope.close();
@@ -192,8 +197,16 @@ public final class Requester implements AutoCloseable {
         }
 
         Codec codec = Codecs.forConsuming();
-        return raw.thenApply(
-                message -> codec.decode(message.payload(), responseType, message.contentType().orElse(null)));
+        return raw.thenApply(message -> {
+            try {
+                return codec.decode(message.payload(), responseType, message.contentType().orElse(null));
+            } catch (RuntimeException undecodable) {
+                // Raised to the caller at once, as every AceMQ library does, rather than being
+                // mistaken for a failure worth asking again about.
+                throw new AceFatalException("the reply from '" + routingKey + "' could not be decoded as "
+                        + responseType.getSimpleName() + ": " + undecodable.getMessage(), undecodable);
+            }
+        });
     }
 
     /** @return the queue replies arrive on; useful in a log line, and nowhere else */

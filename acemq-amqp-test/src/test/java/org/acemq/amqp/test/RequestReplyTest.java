@@ -216,6 +216,22 @@ class RequestReplyTest {
 
         @Test
         @Timeout(30)
+        void a_reply_that_cannot_be_decoded_is_raised_at_once_as_fatal() {
+            connect("rr-undecodable");
+            try (Responder responder = mq.respond("pricing", Quote.class, quote -> "not a price");
+                    Requester requester = mq.requester()) {
+
+                long started = System.nanoTime();
+                assertThatThrownBy(() -> requester.request("", "pricing", new Quote("WIDGET", 4), Price.class,
+                        Duration.ofSeconds(20)))
+                        .isInstanceOf(org.acemq.amqp.api.AceFatalException.class)
+                        .hasMessageContaining("could not be decoded");
+                assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(10));
+            }
+        }
+
+        @Test
+        @Timeout(30)
         void several_questions_in_flight_get_their_own_answers() {
             connect("rr-concurrent");
             try (Responder responder = mq.respond("pricing", Quote.class,
@@ -245,6 +261,11 @@ class RequestReplyTest {
             try (Requester requester = mq.requester()) {
                 replyQueue = requester.replyQueue();
                 assertThat(mq.messageCount(replyQueue)).isZero();
+                // And never had a dead-letter or parked queue: those would be durable, under a
+                // name that changes every restart, and nothing would ever delete them.
+                assertThatThrownBy(() -> mq.messageCount(replyQueue + ".dlq")).isInstanceOf(RuntimeException.class);
+                assertThatThrownBy(() -> mq.messageCount(replyQueue + ".parked"))
+                        .isInstanceOf(RuntimeException.class);
             }
             // Gone, not merely empty. A reply queue outliving its owner holds answers
             // nobody will ever read.

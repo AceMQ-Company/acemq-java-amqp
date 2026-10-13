@@ -32,9 +32,10 @@ final class ReceivedMessage<T> implements Message<T> {
     private final Instant receivedAt;
     private final @org.jspecify.annotations.Nullable String replyTo;
     private final @org.jspecify.annotations.Nullable String contentType;
+    private final boolean redelivered;
 
     ReceivedMessage(T payload, Envelope envelope, String queue, String routingKey, Instant receivedAt) {
-        this(payload, envelope, queue, routingKey, receivedAt, null, null);
+        this(payload, envelope, queue, routingKey, receivedAt, null, null, false);
     }
 
     ReceivedMessage(
@@ -44,7 +45,8 @@ final class ReceivedMessage<T> implements Message<T> {
             String routingKey,
             Instant receivedAt,
             @org.jspecify.annotations.Nullable String replyTo,
-            @org.jspecify.annotations.Nullable String contentType) {
+            @org.jspecify.annotations.Nullable String contentType,
+            boolean redelivered) {
         this.payload = payload;
         this.envelope = envelope;
         this.queue = queue;
@@ -52,6 +54,12 @@ final class ReceivedMessage<T> implements Message<T> {
         this.receivedAt = receivedAt;
         this.replyTo = replyTo;
         this.contentType = contentType;
+        this.redelivered = redelivered;
+    }
+
+    @Override
+    public boolean redelivered() {
+        return redelivered;
     }
 
     @Override
@@ -96,7 +104,8 @@ final class ReceivedMessage<T> implements Message<T> {
 
     @Override
     public <R> Message<R> withPayload(R newPayload) {
-        return new ReceivedMessage<>(newPayload, envelope, queue, routingKey, receivedAt, replyTo, contentType);
+        return new ReceivedMessage<>(newPayload, envelope, queue, routingKey, receivedAt, replyTo, contentType,
+                redelivered);
     }
 
     @Override
