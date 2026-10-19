@@ -128,7 +128,7 @@
          does. WorkloadIT is the suite that notices if that stops being true. -->
     <testcontainers.version>2.0.5</testcontainers.version>
     <awaitility.version>4.3.0</awaitility.version>
-    <logback.version>1.5.15</logback.version>
+    <logback.version>1.6.5</logback.version>
     <!-- Databases for the outbox tests. H2 answers "is the SQL correct?" in
          milliseconds; PostgreSQL in a container answers "does the claim hold
          under two relays?", which H2 cannot be trusted to reproduce. -->
