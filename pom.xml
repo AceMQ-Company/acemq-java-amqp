@@ -105,7 +105,7 @@
          manage the version itself. 1.16/1.17's breaking changes are in the
          Prometheus registry's naming, and no acemq.* metric is affected. -->
     <micrometer.version>1.17.1</micrometer.version>
-    <opentelemetry.version>1.66.0</opentelemetry.version>
+    <opentelemetry.version>1.67.0</opentelemetry.version>
     <jackson.version>2.22.3</jackson.version>
     <avro.version>1.12.2</avro.version>
     <protobuf.version>4.29.3</protobuf.version>
