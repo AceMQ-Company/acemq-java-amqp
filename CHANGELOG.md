@@ -8,6 +8,15 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A filtered replay no longer returns before the passed-over message is back.**
+  `Replay.replay(max, filter)` requeues the first message the filter rejects; on a
+  quorum queue that requeue lands asynchronously, so `pending()` or
+  `messageCount()` called straight after could read one short (zero for a queue
+  whose only remaining message was the one left behind). The replay now waits,
+  bounded at five seconds, until the queue holds that message again.
+
 ### Documentation
 
 - The Javadoc on `ConnectionConfig.blockedTimeout()` described the old 30-second

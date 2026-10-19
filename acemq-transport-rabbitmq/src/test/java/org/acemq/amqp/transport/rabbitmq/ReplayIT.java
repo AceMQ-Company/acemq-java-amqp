@@ -18,7 +18,9 @@ package org.acemq.amqp.transport.rabbitmq;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,6 +32,7 @@ import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.Replay;
+import org.acemq.amqp.transport.QueueType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -201,5 +204,52 @@ class ReplayIT {
         }
 
         assertThat(mq.replay("orders.new").replayAll()).isZero();
+    }
+
+    @Test
+    @Timeout(180)
+    @DisplayName("a filtered replay of a classic queue returns with the passed-over message already back")
+    void filteredReplayOfClassicQueueSettlesBeforeReturning() {
+        filteredReplaySettlesBeforeReturning(QueueType.CLASSIC);
+    }
+
+    @Test
+    @Timeout(180)
+    @DisplayName("a filtered replay of a quorum queue returns with the passed-over message already back")
+    void filteredReplayOfQuorumQueueSettlesBeforeReturning() {
+        filteredReplaySettlesBeforeReturning(QueueType.QUORUM);
+    }
+
+    /**
+     * The depth is read the instant replay returns, with no wait in between, and many times over:
+     * a requeue the broker finishes after the call has returned shows up here as a dead-letter
+     * queue one message short. That is what an operator sees when they check the count straight
+     * after a filtered replay and find the message they deliberately left behind missing.
+     */
+    private void filteredReplaySettlesBeforeReturning(QueueType type) {
+        for (int round = 0; round < 25; round++) {
+            String queue = "filtered." + type.name().toLowerCase() + "." + round;
+            mq.declareQueue(queue, type, Collections.emptyMap());
+            mq.declareQueue(queue + ".dlq", type, Collections.emptyMap());
+            try {
+                for (String body : new String[]{"move-0", "move-1", "keep-0", "keep-1"}) {
+                    mq.publisher("", queue + ".dlq", String.class).send(body);
+                }
+
+                int moved = mq.replay(queue).replay(10,
+                        delivery -> new String(delivery.body(), StandardCharsets.UTF_8).contains("move"));
+
+                assertThat(moved).isEqualTo(2);
+                assertThat(mq.messageCount(queue + ".dlq"))
+                        .as("round %d: the messages the filter passed over must be back before replay returns", round)
+                        .isEqualTo(2L);
+                assertThat(mq.messageCount(queue))
+                        .as("round %d: each matched message is replayed exactly once", round)
+                        .isEqualTo(2L);
+            } finally {
+                mq.deleteQueue(queue);
+                mq.deleteQueue(queue + ".dlq");
+            }
+        }
     }
 }

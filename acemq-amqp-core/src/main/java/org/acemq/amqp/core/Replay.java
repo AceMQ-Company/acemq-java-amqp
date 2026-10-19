@@ -91,6 +91,16 @@ public final class Replay {
      */
     private static final Duration EMPTY_QUEUE_TIMEOUT = Duration.ofMillis(200);
 
+    /**
+     * How long to wait for the broker to put back a message the filter passed over.
+     *
+     * <p>A quorum queue applies a requeue through its log, after the nack that asked for it has
+     * already been sent, so the message can be missing from the queue for a moment after the
+     * call that requeued it returns. Bounded so a queue someone else is draining at the same time
+     * cannot hold a replay forever.
+     */
+    private static final Duration REQUEUE_TIMEOUT = Duration.ofSeconds(5);
+
     private final TransportConnection connection;
     private final String sourceQueue;
     private final String fromQueue;
@@ -196,6 +206,9 @@ public final class Replay {
      * into memory. Stopping means a filter that rejects the first message moves nothing, which is
      * visible, rather than quietly reordering the queue, which is not.
      *
+     * <p>It does not return until the broker has that message back: a count taken straight after
+     * this call includes it, on a quorum queue as well, where the requeue lands asynchronously.
+     *
      * @param max most messages to move
      * @param filter decides whether a message should be moved
      * @return how many were moved
@@ -206,6 +219,9 @@ public final class Replay {
         }
         Objects.requireNonNull(filter, "filter");
 
+        // What the queue held before anything was taken, so the requeue of a passed-over message
+        // can be seen to have landed: the queue is back to this, less what was moved.
+        long before = connection.messageCount(fromQueue);
         int moved = 0;
         while (moved < max) {
             PulledMessage pulled = connection.receive(fromQueue, EMPTY_QUEUE_TIMEOUT).orElse(null);
@@ -214,6 +230,7 @@ public final class Replay {
             }
             if (!filter.test(pulled.delivery())) {
                 pulled.acknowledger().reject(true);
+                awaitRequeued(before - moved);
                 log.debug("stopping the replay of {}: a message did not match the filter", fromQueue);
                 break;
             }
@@ -225,6 +242,32 @@ public final class Replay {
             log.info("replayed {} message(s) from {} back to {}", moved, fromQueue, sourceQueue);
         }
         return moved;
+    }
+
+    /**
+     * Waits until the queue holds at least {@code expected} messages again.
+     *
+     * <p>Returning before the requeue lands would let a {@link #pending()} straight afterwards
+     * read one short — zero, for a queue whose only remaining message was the one passed over —
+     * and an operator would conclude a message they deliberately left behind had vanished.
+     */
+    private void awaitRequeued(long expected) {
+        // ponytail: polls the count, so another consumer draining this queue at the same moment
+        // makes it wait out REQUEUE_TIMEOUT; a broker-side settle confirmation would remove that.
+        long deadline = System.nanoTime() + REQUEUE_TIMEOUT.toNanos();
+        while (connection.messageCount(fromQueue) < expected) {
+            if (System.nanoTime() - deadline >= 0) {
+                log.warn("{} still holds fewer than {} message(s) {} after a requeue; returning anyway",
+                        fromQueue, expected, REQUEUE_TIMEOUT);
+                return;
+            }
+            try {
+                Thread.sleep(10L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 
     private void moveOne(PulledMessage pulled) {
