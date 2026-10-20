@@ -329,6 +329,15 @@ final class RetryDispatcher {
         // read it back through the API rather than having to know the wire header name.
         Envelope outgoing = error == null ? envelope : envelope.toBuilder().error(error).build();
         Map<String, Object> headers = new LinkedHashMap<>(EnvelopeHeaders.toHeaders(outgoing));
+        // An x-acemq- header this version has no field for -- written by a newer library, or by
+        // another language -- is carried as it arrived. The envelope only knows its own fields,
+        // so rebuilding from it alone dropped every such header on each retry hop and
+        // dead-letter (AMQP-ENV-014).
+        delivery.headers().forEach((name, value) -> {
+            if (name.startsWith(AceHeaders.PREFIX)) {
+                headers.putIfAbsent(name, value);
+            }
+        });
 
         OutboundMessage message = OutboundMessage.body(delivery.body())
                 // Published through the default exchange, which routes straight to the named

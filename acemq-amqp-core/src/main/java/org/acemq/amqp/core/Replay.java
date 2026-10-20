@@ -59,8 +59,9 @@ import org.slf4j.LoggerFactory;
  * retry ladder again rather than being dead-lettered immediately by the count that put it here:
  * a message dead-lettered on the last attempt of a five-attempt policy would otherwise be
  * dead-lettered again before any handler saw it, and the operator who had just fixed the bug
- * would have moved two thousand messages from one queue to the same queue.
- * {@link #keepingAttempts()} turns that off for the cases that want exactly what was there.
+ * would have moved two thousand messages from one queue to the same queue. The
+ * {@code x-acemq-error} that explained the last attempt is removed with it.
+ * {@link #keepingAttempts()} turns both off for the cases that want exactly what was there.
  * Three headers are added: where it came from, when it was replayed, and how many times it has
  * been replayed before — the last one because a message on its fifth trip through a dead-letter
  * queue is telling you something that a fresh-looking message would not.
@@ -134,7 +135,8 @@ public final class Replay {
     }
 
     /**
-     * Returns a replay that leaves each message's attempt counter exactly as it was.
+     * Returns a replay that leaves each message's attempt counter, and its
+     * {@code x-acemq-error}, exactly as they were.
      *
      * <p>Off by default, and the default is the one almost everybody wants: a replayed message
      * goes back on attempt one, because a message dead-lettered on its last attempt would
@@ -361,17 +363,20 @@ public final class Replay {
         // fails validation the moment a consumer reads it.
         if (!keepAttempts) {
             headers.put(AceHeaders.ATTEMPT, 1);
+            // And the error goes with the attempt count it explained (AMQP-REPLAY-003): a message
+            // starting over carries no reason for a failure it has not had yet, and a consumer
+            // reading x-acemq-error on attempt one would be told something false. The reason is
+            // still in the log line and the dead-letter metric that recorded it.
+            headers.remove(AceHeaders.ERROR);
         }
 
         headers.put(AceHeaders.REPLAYED_FROM, fromQueue);
-        // RFC 3339, the one encoding all five libraries write now. Java wrote epoch
-        // milliseconds under the same header name, which made the value unreadable without
-        // knowing which library had produced it.
+        // Millisecond ISO-8601 in UTC, the one encoding all five libraries write (AMQP-ENV-013).
+        // Java wrote epoch milliseconds under the same header name once, which made the value
+        // unreadable without knowing which library had produced it.
         headers.put(AceHeaders.REPLAYED_AT, EnvelopeHeaders.rfc3339(Instant.now()));
         headers.put(AceHeaders.REPLAY_COUNT, previousReplays(delivery) + 1);
 
-        // The error that put it here stays readable. Clearing it would hide the one piece of
-        // context that explains why this message looks different from its neighbours.
         return headers;
     }
 

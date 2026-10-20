@@ -108,8 +108,10 @@ bound queue and hand duplicate work to consumers that never failed.
 The body is returned byte for byte. The attempt counter resets so the message
 gets the whole ladder again instead of arriving exhausted — a message
 dead-lettered on the last attempt of a five-attempt policy would otherwise be
-dead-lettered again before any handler saw it. `keepingAttempts()` turns that
-off, for an audit or for a queue read by something that counts attempts itself.
+dead-lettered again before any handler saw it. The `x-acemq-error` that explained
+the last attempt is removed with it, because a message on attempt one has not
+failed yet. `keepingAttempts()` turns both off, for an audit or for a queue read
+by something that counts attempts itself.
 Provenance is recorded on the envelope either way:
 
 ```java
@@ -131,11 +133,11 @@ prefix and was the only library that did. Correcting that changed the bytes on
 the wire, so anything matching on the old names — a shovel policy, a dashboard, a
 firehose consumer — needs the new ones.
 
-`acemq-replayed-at` is **RFC 3339** — `2026-02-03T04:05:06Z` — which is what Go,
-Python and Ruby write. Java wrote epoch milliseconds under the same name, so one
+`acemq-replayed-at` is **millisecond ISO-8601 in UTC** — `2026-02-03T04:05:06.789Z`,
+always three fraction digits — the form the TCK pins for all five libraries. Java wrote epoch milliseconds under the same name, so one
 header carried two encodings and nothing on the wire said which. It no longer
 does. Reading still accepts all of it: the number an older Java publisher wrote,
-the `Z` form Go and Ruby write, and the explicit `+00:00` offset Python writes.
+any `Z` form, and the explicit `+00:00` offset Python writes.
 **A dashboard or a shovel policy comparing that header as a number needs to
 compare it as a timestamp instead.**
 

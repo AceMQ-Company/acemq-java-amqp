@@ -27,11 +27,38 @@ public class PublishFailedException extends AceMqException {
 
     private static final long serialVersionUID = 1L;
 
+    private final boolean unroutable;
+
     public PublishFailedException(String message) {
-        super(message);
+        this(message, false);
     }
 
     public PublishFailedException(String message, Throwable cause) {
         super(message, cause);
+        this.unroutable = false;
+    }
+
+    /**
+     * @param message what happened
+     * @param unroutable {@code true} when the broker returned the message because nothing was
+     *     bound to receive it, rather than refusing or failing to confirm it
+     */
+    public PublishFailedException(String message, boolean unroutable) {
+        super(message);
+        this.unroutable = unroutable;
+    }
+
+    /**
+     * Whether the broker took the message and returned it as unroutable.
+     *
+     * <p>{@code false} for a {@code basic.nack}, a publish that was never confirmed and one that
+     * could not be written: the broker would not keep the message, or it may not have reached
+     * it. The two need different fixes — a missing binding against a broker in trouble — so the
+     * difference is a field rather than wording to match.
+     *
+     * @return {@code true} when nothing was bound to receive the message
+     */
+    public boolean isUnroutable() {
+        return unroutable;
     }
 }

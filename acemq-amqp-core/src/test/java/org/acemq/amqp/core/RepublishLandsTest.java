@@ -138,6 +138,30 @@ class RepublishLandsTest {
         assertThat(telemetry.setAsideFailures).isEmpty();
     }
 
+    @Test
+    @DisplayName("carries an x-acemq- header it has no field for, on a retry hop and on a dead-letter")
+    void unknown_envelope_headers_survive_the_hop() {
+        AnsweringConnection connection = new AnsweringConnection(ConfirmResult.confirmed(Duration.ZERO));
+        RetryDispatcher dispatcher = new RetryDispatcher(
+                connection, RetryTopology.forQueue(SOURCE, POLICY), new RecordingTelemetry());
+        Map<String, Object> headers = new LinkedHashMap<>(delivery().headers());
+        headers.put("x-acemq-future", "kept");
+        InboundDelivery delivery = new InboundDelivery(SOURCE, "orders", "order.placed",
+                "{}".getBytes(StandardCharsets.UTF_8), headers, "m-1", "application/json", false);
+
+        dispatcher.onFailure(delivery, envelope(), new IllegalStateException("downstream is down"), false);
+        // AMQP-ENV-014: written by a newer library or another language, and so not one of the
+        // envelope's fields -- rebuilding the headers from those alone dropped it.
+        assertThat(connection.sent.headers()).containsEntry("x-acemq-future", "kept");
+        assertThat(connection.sent.headers()).containsEntry("x-acemq-attempt", 2);
+
+        dispatcher.onFailure(delivery, envelope().toBuilder().attempt(3).build(),
+                new IllegalStateException("downstream is down"), false);
+        assertThat(connection.sent.routingKey()).isEqualTo(SOURCE + ".dlq");
+        assertThat(connection.sent.headers()).containsEntry("x-acemq-future", "kept");
+        assertThat(connection.sent.headers()).containsEntry("x-acemq-attempt", 3);
+    }
+
     private static InboundDelivery delivery() {
         Map<String, Object> headers = new LinkedHashMap<>();
         headers.put("x-acemq-type", "OrderPlaced");
@@ -160,6 +184,7 @@ class RepublishLandsTest {
     private static final class AnsweringConnection implements TransportConnection {
 
         private final ConfirmResult answer;
+        private OutboundMessage sent;
 
         AnsweringConnection(ConfirmResult answer) {
             this.answer = answer;
@@ -167,6 +192,7 @@ class RepublishLandsTest {
 
         @Override
         public ConfirmResult send(OutboundMessage message) {
+            sent = message;
             return answer;
         }
 

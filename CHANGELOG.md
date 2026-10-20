@@ -8,6 +8,39 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- **`PublishFailedException.isUnroutable()`.** `true` when the broker returned a
+  mandatory publish because nothing was bound to receive it, `false` for a
+  `basic.nack`, a publish never confirmed or one that could not be written.
+  Callers no longer have to match the message text to tell a missing binding
+  from a broker that would not keep the message (AMQP-PUB-003).
+
+### Changed
+
+- **A default replay removes `x-acemq-error`.** `Replay` with attempts restarted
+  (the default) now removes the `x-acemq-error` header along with resetting
+  `x-acemq-attempt` to 1, so a message starting over no longer carries the
+  reason for a failure it has not had (AMQP-REPLAY-003). It used to keep it on
+  purpose. `keepingAttempts()` keeps both, as before.
+- **`acemq-replayed-at` is always millisecond precision.** The replay timestamp
+  is written as `2026-02-03T04:05:06.789Z`, exactly three fraction digits and a
+  `Z` (AMQP-ENV-013). It was `Instant.toString()`: no fraction on a whole
+  second and six or nine digits on a fine clock. Every encoding is still read.
+
+### Fixed
+
+- **A retry hop or a dead-letter keeps an `x-acemq-` header the library has no
+  field for.** The republished message's headers were rebuilt from the
+  envelope's own fields, which dropped any envelope header written by a newer
+  library or another language (`x-acemq-future`, say) on the first retry or
+  dead-letter. Such headers are now carried unchanged (AMQP-ENV-014); the park
+  and the replay already copied them.
+- **A pipeline hop in the route form sets `x-acemq-causation`.** A step following
+  `x-acemq-route` published to the next step with the causation it arrived with,
+  none at all on a run's first hop. It is now the id of the message the step
+  handled, as the itinerary form already did (AMQP-SLIP-003).
+
 ## [0.7.16] - 2026-10-20
 
 ### Changed

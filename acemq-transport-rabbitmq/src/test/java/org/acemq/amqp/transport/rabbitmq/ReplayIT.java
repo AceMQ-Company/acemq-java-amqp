@@ -129,7 +129,7 @@ class ReplayIT {
 
     @Test
     @Timeout(180)
-    @DisplayName("the replayed message carries its provenance and a reset attempt count")
+    @DisplayName("the replayed message carries its provenance, a reset attempt count and no error")
     void replayedMessagesCarryProvenance() {
         RetryPolicy policy = RetryPolicy.fixed(2, Duration.ofSeconds(1)).withJitter(0);
         AtomicBoolean serviceIsDown = new AtomicBoolean(true);
@@ -159,8 +159,8 @@ class ReplayIT {
                     .as("a replayed message must get the whole ladder again, not arrive exhausted")
                     .isEqualTo(1);
             assertThat(envelope.error())
-                    .as("the reason it was dead-lettered is the context that explains this message")
-                    .isPresent();
+                    .as("a message starting over carries no error for a failure it has not had (AMQP-REPLAY-003)")
+                    .isEmpty();
         }
     }
 

@@ -54,7 +54,7 @@ applications can consume the library; see ADR-015.
 | `x-acemq-route-position` | **integer** | Which of them this message is for, from 0. |
 | `x-acemq-route-id` | string | One run through that route, across every hop. |
 | `acemq-replayed-from` | string | Queue it was replayed out of. |
-| `acemq-replayed-at` | **string** | RFC 3339 instant, when last replayed. |
+| `acemq-replayed-at` | **string** | Millisecond ISO-8601 UTC instant, when last replayed. |
 | `acemq-replay-count` | integer | How many times. Omitted when zero. |
 
 Values are written as strings and integers only, because those are the two types
@@ -62,7 +62,7 @@ every AMQP client's mapping carries intact.
 
 **The two timestamps are encoded differently and that is the contract.**
 `x-acemq-first-seen` is an integer of epoch milliseconds; `acemq-replayed-at` is
-an RFC 3339 string — `2026-02-03T04:05:06.789Z`. Tidying either one up in a port
+a millisecond ISO-8601 string — `2026-02-03T04:05:06.789Z`, always three digits. Tidying either one up in a port
 produces messages the other four libraries misread.
 
 `x-acemq-claim` is **set by the application, never by the engine**. It is there

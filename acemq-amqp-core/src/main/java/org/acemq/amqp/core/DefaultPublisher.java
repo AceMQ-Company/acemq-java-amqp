@@ -478,7 +478,7 @@ public final class DefaultPublisher<T> implements Publisher<T> {
             PublishFailedException failure = new PublishFailedException("message " + id + " was accepted by the"
                     + " broker but could not be routed: nothing is bound to exchange '" + exchange + "' for"
                     + " routing key '" + routingKey + "'. The message has been discarded. Declare the binding, or"
-                    + " publish with an explicit allowance for unroutable messages if that is intended.");
+                    + " publish with an explicit allowance for unroutable messages if that is intended.", true);
             interceptors.onPublishError(prepared.context, failure);
             throw failure;
         }

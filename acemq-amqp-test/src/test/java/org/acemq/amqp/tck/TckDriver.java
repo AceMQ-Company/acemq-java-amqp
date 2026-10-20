@@ -41,10 +41,14 @@ import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.MicrometerSupport;
+import org.acemq.amqp.core.PipelineBuilder;
+import org.acemq.amqp.core.PublishOptions;
 import org.acemq.amqp.core.Replay;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.core.ResponderFailedException;
+import org.acemq.amqp.core.StreamReader;
+import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
 import org.acemq.amqp.patterns.Scheduler;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -74,7 +78,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 public final class TckDriver {
 
     private static final List<String> OPS = List.of("hello", "begin", "end", "publish", "consume", "handled",
-            "schedule", "request", "declareStream", "readStream", "metrics", "replay");
+            "schedule", "request", "declareStream", "readStream", "metrics", "replay", "pipeline");
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -153,6 +157,8 @@ public final class TckDriver {
                 return metrics();
             case "replay" :
                 return replay(args);
+            case "pipeline" :
+                return pipeline(args);
             default :
                 throw new UnsupportedOperationException(op);
         }
@@ -218,6 +224,12 @@ public final class TckDriver {
         Object body = args.get("body");
         Map<?, ?> fields = (Map<?, ?>) args.get("envelope");
         var publisher = mq().publisher(exchange, routingKey);
+        // Absent is the library's default, which is mandatory; true and false are explicit.
+        if (Boolean.TRUE.equals(args.get("mandatory"))) {
+            publisher = publisher.with(PublishOptions.defaults());
+        } else if (Boolean.FALSE.equals(args.get("mandatory"))) {
+            publisher = publisher.with(PublishOptions.defaults().allowUnroutable());
+        }
         if (fields == null || fields.isEmpty()) {
             return Map.of("messageId", publisher.send(body).messageId());
         }
@@ -246,17 +258,22 @@ public final class TckDriver {
     private Map<String, Object> consume(Map<String, Object> args) {
         String queue = String.valueOf(args.get("queue"));
         String handle = String.valueOf(args.get("handle"));
-        Map<?, ?> retry = (Map<?, ?>) args.getOrDefault("retry", Map.of());
-        RetryPolicy policy = RetryPolicy.fixed(
-                intOf(retry.get("maxAttempts"), 3), Duration.ofMillis(intOf(retry.get("delayMs"), 1000)));
         Map<?, ?> behaviour = (Map<?, ?>) args.getOrDefault("behaviour", Map.of());
-        Map<?, ?> failFirst = behaviour.get("failFirst") instanceof Map
-                ? (Map<?, ?>) behaviour.get("failFirst")
-                : Map.of();
+        Map<?, ?> failFirst = failFirst(behaviour);
         long sleepMs = intOf(behaviour.get("sleepMs"), 0);
-        ConcurrentMap<String, AtomicInteger> seen = new ConcurrentHashMap<>();
-        ConcurrentMap<String, AtomicInteger> again = new ConcurrentHashMap<>();
-        List<String> arrived = new CopyOnWriteArrayList<>();
+        Counter counter = track(handle);
+
+        // No retry argument is no retry policy: the consumer exactly as the library builds it
+        // when the caller configures none.
+        ConsumerOptions options = ConsumerOptions.prefetch(intOf(args.get("prefetch"), 10));
+        if (args.get("retry") instanceof Map) {
+            Map<?, ?> retry = (Map<?, ?>) args.get("retry");
+            options = options.withRetry(RetryPolicy.fixed(
+                    intOf(retry.get("maxAttempts"), 3), Duration.ofMillis(intOf(retry.get("delayMs"), 1000))));
+        }
+        if (Boolean.TRUE.equals(args.get("idempotent"))) {
+            options = options.idempotent(InMemoryIdempotencyStore.forOneDay());
+        }
 
         // The source queue with its dead-letter and parked queues, as the library's topology
         // declares a consumed queue; the consumer declares the retry rungs its policy needs.
@@ -264,27 +281,53 @@ public final class TckDriver {
         MessageConsumer consumer = mq().consume(
                 queue,
                 Object.class,
-                ConsumerOptions.prefetch(intOf(args.get("prefetch"), 10)).withRetry(policy),
+                options,
                 message -> {
-                    Object payload = message.payload();
-                    String id = String.valueOf(payload instanceof Map ? ((Map<?, ?>) payload).get("id") : null);
-                    int delivery = seen.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
-                    arrived.add(id);
-                    if (message.redelivered()) {
-                        again.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
-                    }
+                    String id = idOf(message.payload());
+                    int delivery = counter.count(id, message.redelivered());
                     if (sleepMs > 0) {
                         Thread.sleep(sleepMs);
                     }
-                    if (delivery <= intOf(failFirst.get(id), 0)) {
-                        throw new AceRetryableException("tck: failing " + id + " on purpose, delivery " + delivery);
-                    }
+                    failIfAsked(failFirst, id, delivery);
                 });
         consumers.put(handle, consumer);
+        return Map.of();
+    }
+
+    /** Counts deliveries under one handle, read back by {@code handled}. */
+    private interface Counter {
+        int count(String id, boolean redelivered);
+    }
+
+    private Counter track(String handle) {
+        ConcurrentMap<String, AtomicInteger> seen = new ConcurrentHashMap<>();
+        ConcurrentMap<String, AtomicInteger> again = new ConcurrentHashMap<>();
+        List<String> arrived = new CopyOnWriteArrayList<>();
         counts.put(handle, seen);
         redelivered.put(handle, again);
         order.put(handle, arrived);
-        return Map.of();
+        return (id, wasRedelivered) -> {
+            int delivery = seen.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
+            arrived.add(id);
+            if (wasRedelivered) {
+                again.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
+            }
+            return delivery;
+        };
+    }
+
+    private static Map<?, ?> failFirst(Map<?, ?> behaviour) {
+        return behaviour.get("failFirst") instanceof Map ? (Map<?, ?>) behaviour.get("failFirst") : Map.of();
+    }
+
+    private static void failIfAsked(Map<?, ?> failFirst, String id, int delivery) {
+        if (delivery <= intOf(failFirst.get(id), 0)) {
+            throw new AceRetryableException("tck: failing " + id + " on purpose, delivery " + delivery);
+        }
+    }
+
+    private static String idOf(Object payload) {
+        return String.valueOf(payload instanceof Map ? ((Map<?, ?>) payload).get("id") : null);
     }
 
     private Map<String, Object> declareStream(Map<String, Object> args) {
@@ -298,20 +341,18 @@ public final class TckDriver {
 
     private Map<String, Object> readStream(Map<String, Object> args) {
         String handle = String.valueOf(args.get("handle"));
-        ConcurrentMap<String, AtomicInteger> seen = new ConcurrentHashMap<>();
-        List<String> arrived = new CopyOnWriteArrayList<>();
-        var reader = mq().stream(String.valueOf(args.get("queue")), Object.class);
+        Map<?, ?> failFirst = args.get("behaviour") instanceof Map
+                ? failFirst((Map<?, ?>) args.get("behaviour"))
+                : Map.of();
+        Counter counter = track(handle);
+        StreamReader<Object> reader = mq().stream(String.valueOf(args.get("queue")), Object.class);
         reader = "next".equals(args.get("offset")) ? reader.fromNext() : reader.fromFirst();
+        // The library's default handling of a failed handler, which stops the reader.
         AutoCloseable consumer = reader.consume(message -> {
-            Object payload = message.payload();
-            String id = String.valueOf(payload instanceof Map ? ((Map<?, ?>) payload).get("id") : null);
-            seen.computeIfAbsent(id, key -> new AtomicInteger()).incrementAndGet();
-            arrived.add(id);
+            String id = idOf(message.payload());
+            failIfAsked(failFirst, id, counter.count(id, false));
         });
         consumers.put(handle, consumer);
-        counts.put(handle, seen);
-        redelivered.put(handle, new ConcurrentHashMap<>());
-        order.put(handle, arrived);
         return Map.of();
     }
 
@@ -358,6 +399,24 @@ public final class TckDriver {
             }
         });
         return Map.of("replayed", replayed);
+    }
+
+    /**
+     * A pipeline whose every step is the identity on the JSON body, counting {@code body.id}.
+     * The library's builder declares the exchange, the step queues and their bindings itself.
+     */
+    private Map<String, Object> pipeline(Map<String, Object> args) {
+        String name = String.valueOf(args.get("name"));
+        Counter counter = track(String.valueOf(args.get("handle")));
+        PipelineBuilder<Object, Object> builder = mq().pipeline(name, Object.class);
+        for (Object step : (List<?>) args.getOrDefault("steps", List.of())) {
+            builder = builder.step(String.valueOf(step), Object.class, message -> {
+                counter.count(idOf(message.payload()), message.redelivered());
+                return message.payload();
+            });
+        }
+        consumers.put("pipeline:" + name, builder.build());
+        return Map.of();
     }
 
     private Map<String, Object> handled(Map<String, Object> args) {
@@ -415,7 +474,7 @@ public final class TckDriver {
      *
      * <p>The cause chain is walked because the requester wraps a reply's decode failure in a
      * plain {@code AceMqException}. Unroutable and nacked publishes are the same exception
-     * type in this library, so they are told apart by the message the publisher writes. A
+     * type in this library, told apart by its {@code isUnroutable()} field. A
      * publish declined under back pressure is a blocked connection known before the write, the
      * same test the publisher makes when it counts the outcome as refused.
      */
@@ -440,7 +499,7 @@ public final class TckDriver {
                 return "paused";
             }
             if (at instanceof PublishFailedException) {
-                return String.valueOf(at.getMessage()).contains("could not be routed") ? "unroutable" : "nacked";
+                return ((PublishFailedException) at).isUnroutable() ? "unroutable" : "nacked";
             }
             if (at instanceof AceFatalException) {
                 return "decode";

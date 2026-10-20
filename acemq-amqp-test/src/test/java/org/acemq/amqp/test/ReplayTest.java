@@ -267,13 +267,12 @@ class ReplayTest {
                 assertThat(headers.get("acemq-replayed-from")).isEqualTo("orders.new.dlq");
                 assertThat(headers.get("acemq-replay-count")).isEqualTo(1);
 
-                // RFC 3339, not epoch milliseconds. Java wrote the number and was the only one
-                // of the five that did, which left one header name carrying two encodings and
-                // every reader guessing which it had. What Go and Ruby write for a whole second
-                // is exactly this, character for character.
+                // Millisecond ISO-8601 with a Z (AMQP-ENV-013), not epoch milliseconds and not
+                // as many fraction digits as the clock happens to have: exactly three, even on a
+                // whole second, so every library writes the one shape the fixture pins.
                 assertThat(headers.get("acemq-replayed-at"))
                         .asString()
-                        .matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z");
+                        .matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z");
 
                 replayed.acknowledger().accept();
             }
@@ -332,14 +331,25 @@ class ReplayTest {
         }
 
         @Test
-        @DisplayName("keeps the error that put the message there")
-        void keepsTheOriginalError() throws Exception {
+        @DisplayName("clears the error along with the attempt it explained")
+        void clearsTheOriginalError() throws Exception {
             seedDead("one");
 
             mq.replay("orders.new").replayAll();
 
-            // The one piece of context explaining why this message looks different from its
-            // neighbours. Clearing it on the way back would throw it away.
+            // AMQP-REPLAY-003: a message back on attempt one has not failed yet, so an
+            // x-acemq-error on it would tell its consumer something false.
+            assertThat(firstEnvelopeOn("orders.new").error()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("keeps the error when the attempts are kept")
+        void keepingAttemptsKeepsTheError() throws Exception {
+            seedDead("one");
+
+            mq.replay("orders.new").keepingAttempts().replayAll();
+
+            // Exactly what was there, for an audit: the count and the reason together.
             assertThat(firstEnvelopeOn("orders.new").error()).contains("the payment service was down");
         }
 

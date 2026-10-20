@@ -210,15 +210,21 @@ final class EnvelopeHeaders {
         }
     }
 
+    /** Millisecond ISO-8601 in UTC, always three fraction digits: {@code 2026-02-03T04:05:06.789Z}. */
+    private static final java.time.format.DateTimeFormatter MILLIS = java.time.format.DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+            .withZone(java.time.ZoneOffset.UTC);
+
     /**
-     * Renders an instant the way the other four libraries render one.
+     * Renders an instant the way AMQP-ENV-013 spells a replay timestamp.
      *
-     * <p>{@code Instant.toString} is RFC 3339 and prints sub-second digits only when there are
-     * any, so a whole second comes out as {@code 2026-02-03T04:05:06Z} — byte for byte what Go's
-     * {@code time.RFC3339} and Ruby's {@code strftime} produce for the same moment.
+     * <p>Exactly millisecond precision with a {@code Z}, the {@code replayed} fixture's form. It
+     * was {@code Instant.toString}, which prints as many fraction digits as the clock has --
+     * none for a whole second, six or nine on a fine clock -- so one header had as many shapes
+     * as there were clocks writing it.
      */
     static String rfc3339(Instant at) {
-        return at.toString();
+        return MILLIS.format(at);
     }
 
     /**

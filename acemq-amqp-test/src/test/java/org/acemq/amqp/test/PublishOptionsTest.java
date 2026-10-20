@@ -77,7 +77,16 @@ class PublishOptionsTest {
             // Nothing is bound for this key. Silence here is how a routing-key typo loses every
             // message it touches while the logs stay clean.
             assertThatThrownBy(() -> mq.publisher("orders", "nothing.listens", String.class).send("one"))
-                    .isInstanceOf(PublishFailedException.class);
+                    .isInstanceOf(PublishFailedException.class)
+                    // A field the caller can test, not wording to match (AMQP-PUB-003).
+                    .matches(failure -> ((PublishFailedException) failure).isUnroutable());
+        }
+
+        @Test
+        @DisplayName("a failure that is not a return is not reported as unroutable")
+        void otherFailuresAreNotUnroutable() {
+            assertThat(new PublishFailedException("the broker did not confirm message m-1").isUnroutable()).isFalse();
+            assertThat(new PublishFailedException("matched no queue", true).isUnroutable()).isTrue();
         }
     }
 

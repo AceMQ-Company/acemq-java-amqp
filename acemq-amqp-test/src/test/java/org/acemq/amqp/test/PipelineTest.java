@@ -237,6 +237,33 @@ class PipelineTest {
                 assertThat(runIds).containsExactly(runId, runId);
             }
         }
+
+        @Test
+        @Timeout(60)
+        void a_hop_is_caused_by_the_message_it_came_from_and_keeps_its_correlation() {
+            connect("pipeline-causation");
+            List<Envelope> arrived = new CopyOnWriteArrayList<>();
+
+            try (Pipeline<String> pipeline = mq.pipeline("caused", String.class)
+                    .step("one", String.class, message -> {
+                        arrived.add(message.envelope());
+                        return message.payload();
+                    })
+                    .step("two", String.class, message -> {
+                        arrived.add(message.envelope());
+                        return null;
+                    })
+                    .build()) {
+
+                pipeline.send("x", Envelope.of("caused").correlationId("corr-1").build());
+
+                await().atMost(Duration.ofSeconds(30)).until(() -> arrived.size() == 2);
+                // AMQP-SLIP-003: the route form hop used to carry no causation at all.
+                assertThat(arrived.get(0).causationId()).isEmpty();
+                assertThat(arrived.get(1).causationId()).contains(arrived.get(0).id());
+                assertThat(arrived.get(1).correlationId()).isEqualTo("corr-1");
+            }
+        }
     }
 
     /**

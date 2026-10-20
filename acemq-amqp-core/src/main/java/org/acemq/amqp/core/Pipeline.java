@@ -214,7 +214,11 @@ public final class Pipeline<T> implements AutoCloseable {
             return;
         }
 
-        publishTo(following.get(), next, message.envelope(), slip.advance());
+        // Caused by the message this step handled (AMQP-SLIP-003), as the itinerary hop below
+        // already was; a route hop used to leave the causation it arrived with, none at all on a
+        // run's first hop.
+        publishTo(following.get(), next,
+                message.envelope().toBuilder().causationId(message.envelope().id()).build(), slip.advance());
     }
 
     /**
