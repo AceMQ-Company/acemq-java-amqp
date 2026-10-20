@@ -39,6 +39,11 @@ While the version is `0.x` the public API may change in any release.
 - The Javadoc on `ConnectionConfig.blockedTimeout()` described the old 30-second
   wait; it now says the default is zero, refusing at once.
 
+### Added
+
+- Runs the AceMQ TCK v0.3.0 (was v0.2.0), which adds REPLAY-001 to the
+  default run: 20 cases.
+
 ## [0.7.15] - 2026-10-13
 
 ### Changed
