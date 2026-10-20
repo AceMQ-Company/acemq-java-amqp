@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.16] - 2026-10-20
+
 ### Changed
 
 - **A filtered replay skips a rejected message and keeps going, instead of
@@ -24,15 +26,19 @@ While the version is `0.x` the public API may change in any release.
   unacknowledged at once. `RabbitMqConnection.receive` now pulls on one shared
   channel rather than one channel per message, so holding many does not hit the
   broker's `channel_max`.
+- Dependencies: OpenTelemetry 1.67.0 (was 1.66.0). Build and test only, nothing
+  a consumer resolves: Logback 1.6.5 (tests), the PostgreSQL driver 42.7.14
+  (tests), the japicmp plugin 0.26.3, and `maven-plugin-api` 3.10.0 (`provided`, for the
+  `acemq-security-dev` plugin).
 
 ### Fixed
 
-- **A filtered replay no longer returns before the passed-over message is back.**
-  `Replay.replay(max, filter)` requeues the first message the filter rejects; on a
-  quorum queue that requeue lands asynchronously, so `pending()` or
-  `messageCount()` called straight after could read one short (zero for a queue
-  whose only remaining message was the one left behind). The replay now waits,
-  bounded at five seconds, until the queue holds that message again.
+- **A filtered replay no longer returns before the passed-over messages are back.**
+  On a quorum queue a requeue lands asynchronously, so `pending()` or
+  `messageCount()` called straight after a filtered replay could read short
+  (zero for a queue whose only remaining message was the one left behind). The
+  replay now waits, bounded at five seconds, until the queue holds every
+  passed-over message again.
 
 ### Documentation
 
