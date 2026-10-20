@@ -252,4 +252,80 @@ class ReplayIT {
             }
         }
     }
+
+    @Test
+    @Timeout(180)
+    @DisplayName("a filtered replay of a classic queue skips past rejects and keeps the rest in order")
+    void interleavedFilterOnClassicQueue() {
+        interleavedFilter(QueueType.CLASSIC);
+    }
+
+    @Test
+    @Timeout(180)
+    @DisplayName("a filtered replay of a quorum queue skips past rejects and keeps the rest in order")
+    void interleavedFilterOnQuorumQueue() {
+        interleavedFilter(QueueType.QUORUM);
+    }
+
+    /**
+     * Every third message matches, and the first does not: the drain has to look past a reject
+     * on its very first read to move anything at all.
+     */
+    private void interleavedFilter(QueueType type) {
+        // The target is itself named like a dead-letter queue, so it can be read back in order
+        // with the same reject-everything pass as the source, without a consumer that would
+        // declare a classic dead-letter queue of its own beside a quorum one.
+        String base = "interleaved." + type.name().toLowerCase();
+        String target = base + ".dlq";
+        String dlq = target + ".dlq";
+        mq.declareQueue(target, type, Collections.emptyMap());
+        mq.declareQueue(dlq, type, Collections.emptyMap());
+        List<String> matches = new java.util.ArrayList<>();
+        List<String> rest = new java.util.ArrayList<>();
+        try {
+            for (int i = 0; i < 24; i++) {
+                String body = (i % 3 == 2 ? "move-" : "keep-") + i;
+                (i % 3 == 2 ? matches : rest).add(body);
+                mq.publisher("", dlq, String.class).send(body);
+            }
+
+            int moved = mq.replay(target).replay(Integer.MAX_VALUE, delivery -> body(delivery).startsWith("move"));
+
+            assertThat(moved).isEqualTo(matches.size());
+            assertThat(mq.messageCount(dlq))
+                    .as("every passed-over message is back the moment replay returns")
+                    .isEqualTo(rest.size());
+            assertThat(mq.messageCount(target)).isEqualTo(matches.size());
+
+            assertThat(readInOrder(target))
+                    .as("the messages left behind keep their order")
+                    .containsExactlyElementsOf(rest);
+            assertThat(readInOrder(base))
+                    .as("the target holds exactly the matches, each once")
+                    .containsExactlyElementsOf(matches);
+        } finally {
+            mq.deleteQueue(target);
+            mq.deleteQueue(dlq);
+        }
+    }
+
+    /**
+     * Reads {@code source + ".dlq"} front to back without moving anything: a filtered pass that
+     * rejects everything sees each message once and puts them all back.
+     */
+    private List<String> readInOrder(String source) {
+        List<String> seen = new java.util.ArrayList<>();
+        long before = mq.messageCount(source + ".dlq");
+        assertThat(mq.replay(source).replay(Integer.MAX_VALUE, delivery -> {
+            seen.add(body(delivery));
+            return false;
+        })).isZero();
+        assertThat(mq.messageCount(source + ".dlq")).isEqualTo(before);
+        return seen;
+    }
+
+    private static String body(org.acemq.amqp.transport.InboundDelivery delivery) {
+        // Without the quotes a JSON-encoded string arrives in.
+        return new String(delivery.body(), StandardCharsets.UTF_8).replace("\"", "");
+    }
 }

@@ -124,6 +124,11 @@ final class RabbitMqConnection implements TransportConnection {
 
     private final Object asyncLock = new Object();
 
+    /** Carries every {@link #receive} and its settlement; opened on first pull. */
+    private @Nullable Channel pullChannel;
+
+    private final Object pullLock = new Object();
+
     /**
      * Publishes waiting for a confirm, keyed by delivery sequence number.
      *
@@ -562,6 +567,12 @@ final class RabbitMqConnection implements TransportConnection {
             closeQuietly(channel);
         }
         consumerChannels.clear();
+        synchronized (pullLock) {
+            Channel pulling = pullChannel;
+            if (pulling != null) {
+                closeQuietly(pulling);
+            }
+        }
         closeQuietly(publishChannel);
         if (confirmedChannel != publishChannel) {
             closeQuietly(confirmedChannel);
@@ -798,16 +809,13 @@ final class RabbitMqConnection implements TransportConnection {
 
     @Override
     public java.util.Optional<org.acemq.amqp.transport.PulledMessage> receive(String queue, Duration timeout) {
-        // Its own channel, kept open past the return. basicGet leaves the message unsettled and
-        // an acknowledgement is only valid on the channel that delivered it, so the usual
-        // open-use-close helper cannot be used here: closing would requeue the message the
-        // caller is holding.
-        Channel channel;
-        try {
-            channel = connection.createChannel();
-        } catch (IOException e) {
-            throw new TransportException("could not open a channel to read from '" + queue + "'", e);
-        }
+        // One channel for every pull, kept open past the return. basicGet leaves the message
+        // unsettled and an acknowledgement is only valid on the channel that delivered it, so
+        // the usual open-use-close helper cannot be used here: closing would requeue the
+        // message the caller is holding. Shared rather than one per message, because a drain
+        // that passes messages over holds them all at once, and a channel each would hit the
+        // broker's channel_max (2047) long before a large queue ran out.
+        Channel channel = pullChannel();
 
         long deadline = System.nanoTime() + timeout.toNanos();
         try {
@@ -817,7 +825,6 @@ final class RabbitMqConnection implements TransportConnection {
                     return java.util.Optional.of(pulled(queue, channel, response));
                 }
                 if (System.nanoTime() - deadline >= 0) {
-                    closeQuietly(channel);
                     return java.util.Optional.empty();
                 }
                 // basicGet answers immediately, so an empty queue has to be re-asked rather than
@@ -826,12 +833,32 @@ final class RabbitMqConnection implements TransportConnection {
                 Thread.sleep(Math.min(50L, Math.max(1L, (deadline - System.nanoTime()) / 1_000_000L)));
             }
         } catch (InterruptedException e) {
-            closeQuietly(channel);
             Thread.currentThread().interrupt();
             throw new TransportException("interrupted while reading from '" + queue + "'", e);
         } catch (IOException | ShutdownSignalException e) {
-            closeQuietly(channel);
+            // A failed basicGet (a missing queue, say) has already closed the channel on the
+            // broker side; the next receive opens a fresh one.
             throw new TransportException("could not read from '" + queue + "'", e);
+        }
+    }
+
+    /** Opens the pull channel on first use, and again after the broker closed it. */
+    private Channel pullChannel() {
+        synchronized (pullLock) {
+            Channel existing = pullChannel;
+            if (existing != null && existing.isOpen()) {
+                return existing;
+            }
+            try {
+                Channel channel = connection.createChannel();
+                if (channel == null) {
+                    throw new TransportException("no channel left on this connection to read with");
+                }
+                pullChannel = channel;
+                return channel;
+            } catch (IOException e) {
+                throw new TransportException("could not open a channel to read with", e);
+            }
         }
     }
 
@@ -864,18 +891,15 @@ final class RabbitMqConnection implements TransportConnection {
             }
 
             private void settle(SettleOperation operation) {
-                // The channel closes with the settlement, because it exists only to carry it.
-                // Leaking one channel per pulled message would exhaust the connection during
-                // exactly the operation this was written for: draining a large queue.
+                // The channel stays open: it is the shared pull channel, and other pulled
+                // messages may still be waiting on it to be settled.
                 if (!settled.compareAndSet(false, true)) {
                     throw new IllegalStateException("this message has already been settled");
                 }
                 try {
                     operation.run();
-                } catch (IOException e) {
+                } catch (IOException | ShutdownSignalException e) {
                     throw new TransportException("could not settle a message pulled from '" + queue + "'", e);
-                } finally {
-                    closeQuietly(channel);
                 }
             }
         };

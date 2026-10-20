@@ -401,17 +401,63 @@ class ReplayTest {
         }
 
         @Test
-        @DisplayName("stops at the first message it rejects, leaving it in place")
-        void stopsAtTheFirstRejection() {
+        @DisplayName("a filter that rejects everything moves nothing and leaves every message in place")
+        void rejectingEverythingLeavesTheQueueAlone() {
             seedDead("keep-me");
             seedDead("and-me");
 
             int moved = mq.replay("orders.new").replay(10, delivery -> false);
 
             assertThat(moved).isZero();
-            // Requeued rather than consumed. Holding every rejected message in order to look
-            // past it would pull the whole queue into memory, so the drain stops instead.
             assertThat(mq.messageCount("orders.new.dlq")).isEqualTo(2L);
+            assertThat(mq.messageCount("orders.new")).isZero();
+        }
+
+        @Test
+        @DisplayName("skips a rejected message and keeps going, so later matches still move")
+        void skipsPastARejection() {
+            seedDead("skip-1");
+            seedDead("move-1");
+            seedDead("skip-2");
+            seedDead("move-2");
+
+            int moved = mq.replay("orders.new").replay(10, delivery -> body(delivery).startsWith("move"));
+
+            assertThat(moved).isEqualTo(2);
+            assertThat(mq.messageCount("orders.new")).isEqualTo(2L);
+            assertThat(dlqInOrder()).containsExactly("skip-1", "skip-2");
+        }
+
+        @Test
+        @DisplayName("stops once the limit is moved, leaving the rest in order")
+        void limitStillApplies() {
+            for (int i = 0; i < 6; i++) {
+                seedDead((i % 2 == 0 ? "skip-" : "move-") + i);
+            }
+
+            int moved = mq.replay("orders.new").replay(2, delivery -> body(delivery).startsWith("move"));
+
+            assertThat(moved).isEqualTo(2);
+            assertThat(dlqInOrder()).containsExactly("skip-0", "skip-2", "skip-4", "move-5");
+        }
+
+        /**
+         * Reads the dead-letter queue in order without moving anything: a filtered pass that
+         * rejects everything sees each message once and puts them all back.
+         */
+        private java.util.List<String> dlqInOrder() {
+            java.util.List<String> seen = new java.util.ArrayList<>();
+            mq.replay("orders.new").replay(Integer.MAX_VALUE, delivery -> {
+                seen.add(body(delivery));
+                return false;
+            });
+            assertThat(mq.messageCount("orders.new.dlq")).isEqualTo(seen.size());
+            return seen;
+        }
+
+        private String body(org.acemq.amqp.transport.InboundDelivery delivery) {
+            // Without the quotes a JSON-encoded string arrives in.
+            return new String(delivery.body(), StandardCharsets.UTF_8).replace("\"", "");
         }
     }
 

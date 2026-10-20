@@ -395,6 +395,9 @@ final class InMemoryBroker {
 
         private final String name;
         private final LinkedBlockingDeque<OutboundMessage> messages = new LinkedBlockingDeque<>();
+
+        /** Requeued messages, delivered before {@link #messages} in the order they came back. */
+        private final LinkedBlockingDeque<OutboundMessage> returned = new LinkedBlockingDeque<>();
         private volatile long timeToLiveMillis = -1;
         private volatile @Nullable String deadLetterExchange;
         private volatile @Nullable String deadLetterRoutingKey;
@@ -461,7 +464,7 @@ final class InMemoryBroker {
                 EXPIRY.schedule(
                         () -> {
                             try {
-                                if (messages.remove(message) && owner != null) {
+                                if ((messages.remove(message) || returned.remove(message)) && owner != null) {
                                     owner.routeExpired(deadLetterExchange, deadLetterRoutingKey, message);
                                 }
                             } catch (RuntimeException e) {
@@ -491,22 +494,34 @@ final class InMemoryBroker {
             return messageTtl < 0 ? queueTtl : Math.min(queueTtl, messageTtl);
         }
 
-        /** Returns the message to the front of the queue, as a requeue does. */
+        /**
+         * Returns the message ahead of everything not yet delivered, as a requeue does.
+         *
+         * <p>Behind any message requeued before it, though, not in front: several requeued
+         * together come back in the order they were requeued, as they do on RabbitMQ. Pushing
+         * each onto the front would hand a batch back reversed.
+         */
         void requeue(OutboundMessage message) {
-            messages.addFirst(message);
+            returned.addLast(message);
         }
 
+        @Nullable
         OutboundMessage poll(long timeoutMillis) throws InterruptedException {
+            OutboundMessage back = returned.pollFirst();
+            if (back != null) {
+                return back;
+            }
             return messages.pollFirst(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
         }
 
         /** @return how many messages are waiting; the assertion most tests actually want */
         int depth() {
-            return messages.size();
+            return returned.size() + messages.size();
         }
 
         List<OutboundMessage> drain() {
             List<OutboundMessage> drained = new ArrayList<>();
+            returned.drainTo(drained);
             messages.drainTo(drained);
             return drained;
         }

@@ -8,6 +8,23 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A filtered replay skips a rejected message and keeps going, instead of
+  stopping at it.** `Replay.replay(max, filter)` used to requeue the first
+  message the filter rejected and end the drain there, so a filter that rejected
+  the first message moved nothing. It now holds each passed-over message
+  unacknowledged, carries on draining until the queue is empty or `max` have
+  moved, and then requeues every held message with an explicit nack, so a filter
+  that rejects the first message still moves the later matches. The messages
+  left behind keep their order and are back before the call returns; an explicit
+  requeue does not count towards a quorum queue's delivery limit. This matches
+  the other four AceMQ libraries. Every passed-over message is held until the
+  drain ends, so a filter that matches little holds up to the whole queue
+  unacknowledged at once. `RabbitMqConnection.receive` now pulls on one shared
+  channel rather than one channel per message, so holding many does not hit the
+  broker's `channel_max`.
+
 ### Fixed
 
 - **A filtered replay no longer returns before the passed-over message is back.**

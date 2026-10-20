@@ -167,8 +167,8 @@ final class InMemoryConnection implements TransportConnection {
             public void reject(boolean requeue) {
                 settleOnce();
                 if (requeue) {
-                    // Front of the queue, so a drain that rejects a message and stops leaves
-                    // the queue in the order it found it rather than rotating it.
+                    // Ahead of everything undelivered, so a drain that passes messages over and
+                    // returns them leaves the queue in the order it found it.
                     queue.requeue(message);
                 }
             }

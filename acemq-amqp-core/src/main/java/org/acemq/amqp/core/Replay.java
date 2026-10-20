@@ -17,7 +17,9 @@ package org.acemq.amqp.core;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Predicate;
@@ -199,15 +201,20 @@ public final class Replay {
      * particular error, or what came from a particular origin, and leave the genuinely broken
      * messages to be looked at by a person.
      *
-     * <p>A message the filter rejects is <strong>requeued, and the drain stops there</strong>.
-     * That is deliberate and is the honest behaviour available: AMQP has no way to look past a
-     * message without taking it, so skipping one means holding it while reading the next, and a
-     * drain that holds every rejected message would run the queue's worth of unsettled deliveries
-     * into memory. Stopping means a filter that rejects the first message moves nothing, which is
-     * visible, rather than quietly reordering the queue, which is not.
+     * <p>A message the filter rejects is <strong>skipped, and the drain carries on</strong> past
+     * it, the same as the other four AceMQ libraries: a filter that rejects the first message
+     * still moves every later one that matches. AMQP has no way to look past a message without
+     * taking it, so a skipped message is held, unacknowledged, until the drain ends — when the
+     * queue is empty at that moment or {@code max} have been moved — and then handed back with
+     * an explicit requeue. Held rather than returned at once, because a requeued message goes
+     * back to the head of the queue and the next read would simply hand it over again.
      *
-     * <p>It does not return until the broker has that message back: a count taken straight after
-     * this call includes it, on a quorum queue as well, where the requeue lands asynchronously.
+     * <p>The messages left behind keep their order, and they are back before this returns: a
+     * count taken straight after this call includes them, on a quorum queue as well, where the
+     * requeue lands asynchronously. A requeue asked for explicitly does not count towards a
+     * quorum queue's delivery limit, so passing a message over any number of times never drops
+     * it. A matching message is still moved exactly as {@link #replay(int)} moves it: published,
+     * confirmed, and only then acknowledged.
      *
      * @param max most messages to move
      * @param filter decides whether a message should be moved
@@ -219,29 +226,66 @@ public final class Replay {
         }
         Objects.requireNonNull(filter, "filter");
 
-        // What the queue held before anything was taken, so the requeue of a passed-over message
-        // can be seen to have landed: the queue is back to this, less what was moved.
+        // What the queue held before anything was taken, so the requeue of the passed-over
+        // messages can be seen to have landed: the queue is back to this, less what was moved.
         long before = connection.messageCount(fromQueue);
         int moved = 0;
-        while (moved < max) {
-            PulledMessage pulled = connection.receive(fromQueue, EMPTY_QUEUE_TIMEOUT).orElse(null);
-            if (pulled == null) {
-                break;
+        // ponytail: every passed-over message is held unacknowledged until the drain ends, so a
+        // filter that matches little holds up to the whole queue in memory (and in the broker's
+        // unacked count) at once — the same trade-off the other four libraries make. Draining in
+        // bounded passes would cap it, at the price of re-reading the skipped head every pass.
+        List<PulledMessage> passedOver = new ArrayList<>();
+        try {
+            while (moved < max) {
+                PulledMessage pulled = connection.receive(fromQueue, EMPTY_QUEUE_TIMEOUT).orElse(null);
+                if (pulled == null) {
+                    break;
+                }
+                boolean matches;
+                try {
+                    matches = filter.test(pulled.delivery());
+                } catch (RuntimeException e) {
+                    passedOver.add(pulled);
+                    throw e;
+                }
+                if (!matches) {
+                    passedOver.add(pulled);
+                    continue;
+                }
+                moveOne(pulled);
+                moved++;
             }
-            if (!filter.test(pulled.delivery())) {
-                pulled.acknowledger().reject(true);
-                awaitRequeued(before - moved);
-                log.debug("stopping the replay of {}: a message did not match the filter", fromQueue);
-                break;
+        } finally {
+            if (!passedOver.isEmpty()) {
+                returnPassedOver(passedOver, before - moved);
             }
-            moveOne(pulled);
-            moved++;
         }
 
         if (moved > 0) {
             log.info("replayed {} message(s) from {} back to {}", moved, fromQueue, sourceQueue);
         }
         return moved;
+    }
+
+    /**
+     * Requeues every passed-over message, in the order it was read, and waits for them to land.
+     *
+     * <p>An explicit nack, not a channel close: RabbitMQ counts a close with unacknowledged
+     * messages as a failed delivery towards a quorum queue's delivery limit, and a message
+     * passed over by twenty replays would be dropped. A requeue that fails is logged and left to
+     * the broker, which returns the message itself when the channel goes.
+     */
+    private void returnPassedOver(List<PulledMessage> passedOver, long expected) {
+        for (PulledMessage held : passedOver) {
+            try {
+                held.acknowledger().reject(true);
+            } catch (RuntimeException e) {
+                log.warn("could not requeue a message passed over in {}; the broker returns it when the channel closes",
+                        fromQueue, e);
+            }
+        }
+        log.debug("returned {} message(s) the filter passed over to {}", passedOver.size(), fromQueue);
+        awaitRequeued(expected);
     }
 
     /**
