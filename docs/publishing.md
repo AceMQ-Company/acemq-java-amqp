@@ -26,8 +26,16 @@ try {
 } catch (PublishFailedException e) {
     // Either the broker rejected the message, or nothing was bound to receive
     // it. The second one is nearly always a typo in a routing key.
+    if (e.isUnroutable()) {
+        // nothing was bound: check the routing key and the bindings
+    }
 }
 ```
+
+`e.isUnroutable()` tells the two apart: `true` when the broker returned the
+message because nothing was bound to receive it, `false` for a `basic.nack`, a
+publish that was never confirmed, or one that could not be written. There is no
+need to match the exception's message text.
 
 ### Without confirms
 
