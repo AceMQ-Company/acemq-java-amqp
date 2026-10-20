@@ -19,12 +19,12 @@ what each of the four lines does.
   <dependency>
     <groupId>org.acemq</groupId>
     <artifactId>acemq-amqp-core</artifactId>
-    <version>0.7.16</version>
+    <version>0.7.17</version>
   </dependency>
   <dependency>
     <groupId>org.acemq</groupId>
     <artifactId>acemq-amqp-test</artifactId>
-    <version>0.7.16</version>
+    <version>0.7.17</version>
   </dependency>
 </dependencies>
 ```
