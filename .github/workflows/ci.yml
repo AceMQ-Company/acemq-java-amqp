@@ -172,7 +172,7 @@ jobs:
           mvn -B --no-transfer-progress -q -pl acemq-amqp-test -am -Djacoco.skip=true
           test-compile dependency:build-classpath
           -Dmdep.outputFile=target/tck.classpath -Dmdep.includeScope=test
-      - uses: AceMQ-Company/acemq-amqp-tck@v0.3.0
+      - uses: AceMQ-Company/acemq-amqp-tck@v0.3.1
         with:
           driver: java -cp "acemq-amqp-test/target/test-classes:$(cat acemq-amqp-test/target/tck.classpath)" org.acemq.amqp.tck.TckDriver
 
