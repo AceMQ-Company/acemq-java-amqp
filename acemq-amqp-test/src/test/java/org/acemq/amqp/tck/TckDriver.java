@@ -41,6 +41,7 @@ import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
 import org.acemq.amqp.core.MicrometerSupport;
+import org.acemq.amqp.core.Replay;
 import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.core.ResponderFailedException;
@@ -73,7 +74,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 public final class TckDriver {
 
     private static final List<String> OPS = List.of("hello", "begin", "end", "publish", "consume", "handled",
-            "schedule", "request", "declareStream", "readStream", "metrics");
+            "schedule", "request", "declareStream", "readStream", "metrics", "replay");
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -150,6 +151,8 @@ public final class TckDriver {
                 return readStream(args);
             case "metrics" :
                 return metrics();
+            case "replay" :
+                return replay(args);
             default :
                 throw new UnsupportedOperationException(op);
         }
@@ -334,6 +337,27 @@ public final class TckDriver {
         result.put("names", new ArrayList<>(names));
         result.put("samples", samples);
         return result;
+    }
+
+    /**
+     * One filtered replay with the library's defaults, answered the moment it returns. Java's
+     * replay is addressed by the source queue and reads its {@code .dlq}, or {@code .parked}.
+     */
+    private Map<String, Object> replay(Map<String, Object> args) {
+        String from = String.valueOf(args.get("from"));
+        List<?> ids = (List<?>) args.getOrDefault("ids", List.of());
+        Replay replay = mq().replay(String.valueOf(args.get("queue")));
+        if (from.endsWith(".parked")) {
+            replay = replay.parked();
+        }
+        int replayed = replay.replay(Integer.MAX_VALUE, delivery -> {
+            try {
+                return ids.contains(JSON.readTree(delivery.body()).path("id").textValue());
+            } catch (java.io.IOException notJson) {
+                return false;
+            }
+        });
+        return Map.of("replayed", replayed);
     }
 
     private Map<String, Object> handled(Map<String, Object> args) {
