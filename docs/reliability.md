@@ -105,6 +105,19 @@ Messages go back to the **queue** they failed in, not through the exchange that
 first routed them — republishing through the exchange would deliver to every
 bound queue and hand duplicate work to consumers that never failed.
 
+A filter moves only some of them, and leaves the rest where they are:
+
+```java
+replay.replay(500, d -> "acme".equals(d.headers().get("x-tenant")));
+```
+
+A message the filter rejects is **skipped, and the drain carries on** past it,
+so a filter that rejects the first message still moves every later one that
+matches. Earlier 0.7 releases stopped at the first rejected message, which made
+that filter move nothing. The passed-over messages keep their order and are
+back on the queue before `replay` returns, so `pending()` straight after it
+counts them, on a quorum queue too.
+
 The body is returned byte for byte. The attempt counter resets so the message
 gets the whole ladder again instead of arriving exhausted — a message
 dead-lettered on the last attempt of a five-attempt policy would otherwise be
