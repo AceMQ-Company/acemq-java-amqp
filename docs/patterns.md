@@ -55,6 +55,11 @@ up as a queue that is deep — you can see which stage, scale that one alone, an
 retry it on its own schedule. A single consumer doing all four in sequence gives
 you none of that.
 
+A step with no `withRetry` is not retried: when its handler throws, the message
+is attempted once and dead-lettered to `<pipeline>.<step>.dlq` with every header
+it arrived with, the routing slip and any `x-acemq-` header from a newer library
+included, and nothing goes on to the next step (AMQP-SLIP-004).
+
 The type flows through the builder: `reserve` receives what `validate` returned,
 checked at compile time. A step returning `null` stops the run early, which is a
 decision rather than a failure and is counted separately.

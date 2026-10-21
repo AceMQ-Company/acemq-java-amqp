@@ -8,6 +8,22 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- **A pipeline step with no retry policy is pinned to one attempt.** A step
+  without `withRetry` whose handler throws is dead-lettered to
+  `{pipeline}.{step}.dlq` after one attempt, with every header it arrived with
+  kept, and nothing is published to the next step (AMQP-SLIP-004, TCK case
+  SLIP-003). This was already the behaviour; it is now tested here and in the
+  TCK, and the TCK driver's `pipeline` op takes the contract's `behaviour`
+  argument so a step can be made to fail.
+- **The TCK driver can keep its own log.** With `ACEMQ_TCK_DRIVER_LOG` set to a
+  file, the driver copies its stderr there and writes a line as each case
+  begins, a stack trace for any request that failed, and a line when the
+  runner closes its stdin. CI sets it and uploads the file when the TCK job
+  fails, so a run that stops without a result can be told apart: a driver that
+  died, or a runner that did.
+
 ## [0.7.17] - 2026-10-20
 
 ### Added

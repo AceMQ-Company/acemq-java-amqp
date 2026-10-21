@@ -19,8 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -34,6 +36,10 @@ import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.Itinerary;
 import org.acemq.amqp.core.Pipeline;
 import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
+import org.acemq.amqp.transport.ConnectionConfig;
+import org.acemq.amqp.transport.OutboundMessage;
+import org.acemq.amqp.transport.PulledMessage;
+import org.acemq.amqp.transport.TransportConnection;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -448,6 +454,57 @@ class PipelineTest {
                 // non-idempotent earlier step survivable when a later one is flaky.
                 assertThat(firstStepRuns).hasValue(1);
                 assertThat(secondStepAttempts).hasValue(3);
+            }
+        }
+
+        @Test
+        @Timeout(60)
+        void with_no_retry_policy_is_attempted_once_and_dead_lettered_with_every_header()
+                throws InterruptedException {
+            connect("pipeline-no-policy");
+            AtomicInteger attempts = new AtomicInteger();
+            AtomicInteger reachedThird = new AtomicInteger();
+
+            try (Pipeline<String> pipeline = mq.pipeline("plain", String.class)
+                    .step("a", String.class, m -> m.payload())
+                    .step("b", String.class, message -> {
+                        attempts.incrementAndGet();
+                        throw new IllegalStateException("this step is broken");
+                    })
+                    .step("c", Void.class, message -> {
+                        reachedThird.incrementAndGet();
+                        return null;
+                    })
+                    .build();
+                    TransportConnection raw = new InMemoryTransport()
+                            .connect(ConnectionConfig.url("memory://pipeline-no-policy").build())) {
+
+                // In at step b, as a replay into the middle of a run would arrive, carrying a
+                // header from a newer library and one of the application's own.
+                raw.send(OutboundMessage.body("\"x\"".getBytes(StandardCharsets.UTF_8))
+                        .exchange("plain").routingKey("b").messageId("m1").contentType("application/json")
+                        .header("x-acemq-id", "m1").header("x-acemq-attempt", 1)
+                        .header("x-acemq-correlation", "corr-1").header("x-acemq-route", "a,b,c")
+                        .header("x-acemq-route-position", 1).header("x-acemq-route-id", "run-1")
+                        .header("x-acemq-future", "kept").header("x-tenant", "acme")
+                        .build());
+
+                // AMQP-SLIP-004: one attempt, then the step's own dead-letter queue.
+                PulledMessage dead = raw.receive("plain.b.dlq", Duration.ofSeconds(10))
+                        .orElseThrow(() -> new AssertionError("nothing was dead-lettered to plain.b.dlq"));
+                Map<String, Object> headers = dead.delivery().headers();
+                assertThat(headers).containsEntry("x-acemq-attempt", 1)
+                        .containsEntry("x-acemq-route", "a,b,c")
+                        .containsEntry("x-acemq-route-id", "run-1")
+                        .containsEntry("x-acemq-future", "kept")
+                        .containsEntry("x-tenant", "acme")
+                        .containsKey("x-acemq-error");
+
+                Thread.sleep(1500);
+                assertThat(attempts).hasValue(1);
+                assertThat(reachedThird).hasValue(0);
+                assertThat(raw.messageCount("plain.b")).isZero();
+                assertThat(raw.messageCount("plain.b.dlq")).isZero();
             }
         }
 

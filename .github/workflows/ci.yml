@@ -173,8 +173,18 @@ jobs:
           test-compile dependency:build-classpath
           -Dmdep.outputFile=target/tck.classpath -Dmdep.includeScope=test
       - uses: AceMQ-Company/acemq-amqp-tck@v0.3.1
+        env:
+          ACEMQ_TCK_DRIVER_LOG: ${{ github.workspace }}/tck-driver.log
         with:
           driver: java -cp "acemq-amqp-test/target/test-classes:$(cat acemq-amqp-test/target/tck.classpath)" org.acemq.amqp.tck.TckDriver
+      # The driver's own log: which case it was in, and whether it or the runner went first.
+      - name: Upload the TCK driver log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tck-driver-log
+          path: tck-driver.log
+          retention-days: 7
 
   # Snapshots are published to GitHub Packages on every green push to main.
   # Tagged releases go to the Git-hosted Maven repository; see RELEASING.md.

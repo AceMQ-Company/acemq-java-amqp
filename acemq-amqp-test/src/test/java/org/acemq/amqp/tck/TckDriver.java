@@ -100,7 +100,10 @@ public final class TckDriver {
         // The protocol owns stdout. Anything else that writes there, the logger included, is
         // sent to stderr instead.
         PrintStream out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
-        System.setOut(System.err);
+        PrintStream err = logTo(System.getenv("ACEMQ_TCK_DRIVER_LOG"));
+        System.setErr(err);
+        System.setOut(err);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> err.println("tck driver: exiting")));
 
         String url = System.getenv().getOrDefault("ACEMQ_TCK_AMQP_URL", "amqp://guest:guest@localhost:5672/");
         TckDriver driver = new TckDriver(url);
@@ -110,14 +113,19 @@ public final class TckDriver {
             if (line.isBlank()) {
                 continue;
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> request = JSON.readValue(line, Map.class);
             Map<String, Object> answer = new LinkedHashMap<>();
-            answer.put("id", request.get("id"));
             try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> request = JSON.readValue(line, Map.class);
+                answer.put("id", request.get("id"));
+                if ("begin".equals(request.get("op"))) {
+                    err.println("tck driver: begin " + request.get("case"));
+                }
                 answer.put("result", driver.dispatch(String.valueOf(request.get("op")), request));
                 answer.put("ok", true);
             } catch (Exception failure) {
+                err.println("tck driver: " + line.strip() + " failed");
+                failure.printStackTrace(err);
                 Map<String, Object> error = new LinkedHashMap<>();
                 error.put("kind", kindOf(failure));
                 error.put("type", failure.getClass().getSimpleName());
@@ -127,8 +135,42 @@ public final class TckDriver {
             }
             out.println(JSON.writeValueAsString(answer));
         }
+        // The runner closed stdin: either the run is over or the runner itself died, and its
+        // own stderr says which. A driver that died says so above, in its stack trace.
+        err.println("tck driver: stdin closed by the runner");
         driver.end();
         System.exit(0);
+    }
+
+    /**
+     * Stderr, and when {@code ACEMQ_TCK_DRIVER_LOG} names a file also that file, so a run whose
+     * stderr nobody kept can still be diagnosed.
+     */
+    private static PrintStream logTo(String path) throws java.io.IOException {
+        PrintStream stderr = System.err;
+        if (path == null || path.isBlank()) {
+            return stderr;
+        }
+        java.io.OutputStream file = new java.io.FileOutputStream(path, true);
+        return new PrintStream(new java.io.OutputStream() {
+            @Override
+            public void write(int b) throws java.io.IOException {
+                stderr.write(b);
+                file.write(b);
+            }
+
+            @Override
+            public void write(byte[] b, int off, int len) throws java.io.IOException {
+                stderr.write(b, off, len);
+                file.write(b, off, len);
+            }
+
+            @Override
+            public void flush() throws java.io.IOException {
+                stderr.flush();
+                file.flush();
+            }
+        }, true, StandardCharsets.UTF_8);
     }
 
     private Map<String, Object> dispatch(String op, Map<String, Object> args) throws Exception {
@@ -404,14 +446,25 @@ public final class TckDriver {
     /**
      * A pipeline whose every step is the identity on the JSON body, counting {@code body.id}.
      * The library's builder declares the exchange, the step queues and their bindings itself.
+     * A step named in {@code behaviour} sleeps and fails inside its own handler, as {@code consume}
+     * does; no retry policy is set on any step.
      */
     private Map<String, Object> pipeline(Map<String, Object> args) {
         String name = String.valueOf(args.get("name"));
         Counter counter = track(String.valueOf(args.get("handle")));
+        Map<?, ?> behaviours = (Map<?, ?>) args.getOrDefault("behaviour", Map.of());
         PipelineBuilder<Object, Object> builder = mq().pipeline(name, Object.class);
         for (Object step : (List<?>) args.getOrDefault("steps", List.of())) {
+            Map<?, ?> behaviour = behaviours.get(step) instanceof Map ? (Map<?, ?>) behaviours.get(step) : Map.of();
+            Map<?, ?> failFirst = failFirst(behaviour);
+            long sleepMs = intOf(behaviour.get("sleepMs"), 0);
             builder = builder.step(String.valueOf(step), Object.class, message -> {
-                counter.count(idOf(message.payload()), message.redelivered());
+                String id = idOf(message.payload());
+                int delivery = counter.count(id, message.redelivered());
+                if (sleepMs > 0) {
+                    Thread.sleep(sleepMs);
+                }
+                failIfAsked(failFirst, id, delivery);
                 return message.payload();
             });
         }
