@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.20] - 2026-10-22
+
 ### Changed
 
 - **A park or dead letter the broker refuses is requeued after a one-second
