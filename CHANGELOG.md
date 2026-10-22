@@ -8,6 +8,46 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Added
+
+- **The TCK driver answers `claimCheck`, `outbox` and `consumeGroup`** (TCK
+  M7 cases CLAIM-001/002, OUTBOX-001/002, CONSUME-001), through
+  `ClaimCheckCodec` over the filesystem store, `OutboxRecord.of` with
+  `OutboxRelay`, and `mq.consumeGroup(...)`.
+- `Envelope.extensions()` and `Envelope.Builder.extensions(Map)`: the
+  `x-acemq-` headers this version has no field for, as they arrived.
+- `OutboxRecord.headers()` and a constructor that takes them.
+
+### Changed
+
+- **Closing a consumer waits for the handler that is running** (decision
+  I10, AMQP-CONSUME-002, TCK CONSUME-002). `MessageConsumer.close()` cancels
+  the subscription, waits up to 20 seconds for the running handler to finish
+  and be acknowledged, then releases the channel; `AceMq.close(Duration)`
+  drains plain consumers on the same shared budget as consumer groups.
+  Nothing new is handed to a handler after close. Up to 0.7.18 a plain
+  consumer was cancelled without waiting, so a message mid-handler was
+  redelivered and handled twice; the other four libraries always waited.
+  A consumer closed from inside its own handler does not wait for itself.
+  See `docs/consuming.md`, "Shutting down".
+
+### Fixed
+
+- **A pipeline hop keeps unknown `x-acemq-` headers** (I7, AMQP-SLIP-005,
+  TCK SLIP-004/005). Both slip forms publish the next hop from the
+  envelope, which had no place for an `x-acemq-` header written by a newer
+  library or another language, so it was dropped at the first Java step.
+  The envelope now keeps them in `extensions()` and writes them back. See
+  `docs/envelope.md` and `docs/patterns.md`, "Pipelines".
+- **The outbox relay publishes the headers the record was made with** (I9,
+  AMQP-OUTBOX-001, TCK OUTBOX-001). `OutboxRecord` had no headers, so a
+  message sent through the outbox lost its application headers.
+  `JdbcOutboxStore` keeps them in a new nullable `headers TEXT` column;
+  `createSchemaIfAbsent()` adds it to an existing table, and a table
+  without it keeps working as before, with a warning. Existing rows read
+  back with no headers. Migration: `ALTER TABLE acemq_outbox ADD COLUMN
+  headers TEXT`. See `docs/patterns.md`, "Headers travel with the record".
+
 ## [0.7.18] - 2026-10-21
 
 ### Added

@@ -20,8 +20,13 @@ CREATE TABLE IF NOT EXISTS ${table} (
     attempts       INTEGER                  NOT NULL DEFAULT 0,
     last_error     VARCHAR(1000),
     locked_by      VARCHAR(64),
-    locked_until   TIMESTAMP WITH TIME ZONE
+    locked_until   TIMESTAMP WITH TIME ZONE,
+    headers        TEXT
 );
+
+-- Added in 0.7.19: the record's headers as a JSON object, NULL for none. A table created by an
+-- earlier version gets it here; rows written before then read back with no headers.
+ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS headers TEXT;
 
 -- The relay's only query is "oldest unpublished first", so that is what is indexed.
 CREATE INDEX IF NOT EXISTS ${table}_pending ON ${table} (published_at, created_at);

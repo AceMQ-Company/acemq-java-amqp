@@ -55,6 +55,12 @@ up as a queue that is deep — you can see which stage, scale that one alone, an
 retry it on its own schedule. A single consumer doing all four in sequence gives
 you none of that.
 
+Each hop carries the message's headers on to the next step: the application's
+own (a tenant, a W3C `traceparent`) and any `x-acemq-` header a newer library or
+another language wrote, which the envelope keeps in `extensions()`. Earlier 0.7
+patches dropped those unknown `x-acemq-` headers (AMQP-SLIP-005, TCK SLIP-004 and
+SLIP-005).
+
 A step with no `withRetry` is not retried: when its handler throws, the message
 is attempted once and dead-lettered to `<pipeline>.<step>.dlq` with every header
 it arrived with, the routing slip and any `x-acemq-` header from a newer library
@@ -290,6 +296,27 @@ It does not give exactly-once publishing: the relay can publish and die before
 recording that it did, and the next relay publishes again. The duplicate is
 handled on the consuming side by the idempotency store. The pair is what people
 mean by "exactly once"; neither half is sufficient alone.
+
+### Headers travel with the record
+
+`OutboxRecord.of` keeps the envelope's headers — the application's own and any
+`x-acemq-` extensions — and the relay publishes the message with them, so what
+reaches the broker is the message that was recorded (AMQP-OUTBOX-001). Earlier 0.7
+patches kept only the id, type, correlation and causation, and the relay
+published no custom headers.
+
+`JdbcOutboxStore` keeps them as a JSON object in a `headers TEXT` column, `NULL`
+when there are none. A table created by an earlier 0.7 patch has no such column; add it
+with your migration tool:
+
+```sql
+ALTER TABLE acemq_outbox ADD COLUMN headers TEXT;
+```
+
+Rows written before the column existed read back with no headers. Until the column is there,
+the store keeps working as before — records are written and relayed without
+headers — and logs a warning saying so. `createSchemaIfAbsent()` adds the column
+to an existing table itself.
 
 ### The relay publishes bytes unchanged
 

@@ -73,12 +73,17 @@ Consumers whose share of the deadline is already gone are still **stopped**; the
 are simply not waited for. Skipping them entirely would leave consumers taking
 new work while the rest of the application shut down around them.
 
-**The budget is spent on consumer groups, and only on them.** A consumer created
-with `mq.consume(...)` on its own is cancelled without being waited for, so
-`mq.close()` does not drain it and no part of the twenty seconds is set aside for
-it. That is deliberate — one consumer is one handler, and an application that
-wants it finished says so — but it does mean a plain consumer holding a message
-when the connection closes produces a redelivery. Drain it yourself first:
+**A plain consumer waits too.** A consumer created with `mq.consume(...)` on its
+own is drained the same way: `mq.close()` cancels it, lets the handler that is
+running finish and be acknowledged within what is left of the budget, and only
+then closes the connection. `consumer.close()` does the same with a 20-second
+wait. Nothing new is handed to a handler once close is called; a message the
+handler is still holding when the time runs out is redelivered (AMQP-CONSUME-002).
+Closing a consumer from inside its own handler does not wait for that handler.
+
+Earlier 0.7 patches cancelled a plain consumer without waiting for it, so a message
+being handled at shutdown was redelivered and handled a second time. To choose the
+wait for one consumer yourself, drain it first:
 
 ```java
 consumer.drain(Duration.ofSeconds(5));   // stops taking work, waits for what it holds

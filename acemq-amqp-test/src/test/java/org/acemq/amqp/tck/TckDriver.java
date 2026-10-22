@@ -19,6 +19,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -32,11 +33,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.acemq.amqp.api.AceFatalException;
 import org.acemq.amqp.api.AceRetryableException;
 import org.acemq.amqp.api.ApplyMode;
+import org.acemq.amqp.api.Codec;
 import org.acemq.amqp.api.Envelope;
+import org.acemq.amqp.api.OutboxRecord;
+import org.acemq.amqp.api.OutboxStore;
 import org.acemq.amqp.api.PublishFailedException;
 import org.acemq.amqp.api.PublishingPausedException;
 import org.acemq.amqp.api.RetryPolicy;
 import org.acemq.amqp.api.Topology;
+import org.acemq.amqp.codec.json.JsonCodec;
 import org.acemq.amqp.core.AceMq;
 import org.acemq.amqp.core.ConsumerOptions;
 import org.acemq.amqp.core.MessageConsumer;
@@ -48,7 +53,10 @@ import org.acemq.amqp.core.RequestTimedOutException;
 import org.acemq.amqp.core.Requester;
 import org.acemq.amqp.core.ResponderFailedException;
 import org.acemq.amqp.core.StreamReader;
+import org.acemq.amqp.patterns.ClaimCheckCodec;
+import org.acemq.amqp.patterns.FilesystemClaimCheckStore;
 import org.acemq.amqp.patterns.InMemoryIdempotencyStore;
+import org.acemq.amqp.patterns.OutboxRelay;
 import org.acemq.amqp.patterns.Scheduler;
 import org.acemq.amqp.transport.ConnectionBlockedException;
 import org.acemq.amqp.transport.ConnectionConfig;
@@ -78,7 +86,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 public final class TckDriver {
 
     private static final List<String> OPS = List.of("hello", "begin", "end", "publish", "consume", "handled",
-            "schedule", "request", "declareStream", "readStream", "metrics", "replay", "pipeline");
+            "schedule", "request", "declareStream", "readStream", "metrics", "replay", "pipeline", "claimCheck",
+            "outbox", "consumeGroup");
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -91,6 +100,9 @@ public final class TckDriver {
     private SimpleMeterRegistry recorder = new SimpleMeterRegistry();
     private Scheduler scheduler;
     private Requester requester;
+    private ConnectionConfig config;
+    private OutboxStore outboxStore;
+    private OutboxRelay relay;
 
     private TckDriver(String url) {
         this.url = url;
@@ -201,6 +213,12 @@ public final class TckDriver {
                 return replay(args);
             case "pipeline" :
                 return pipeline(args);
+            case "claimCheck" :
+                return claimCheck(args);
+            case "outbox" :
+                return outbox(args);
+            case "consumeGroup" :
+                return consumeGroup(args);
             default :
                 throw new UnsupportedOperationException(op);
         }
@@ -233,7 +251,8 @@ public final class TckDriver {
         // The telemetry seam, recorded by the library's own Micrometer binding into a registry
         // that starts empty with each case.
         recorder = new SimpleMeterRegistry();
-        mq = AceMq.connect(config.build(), MicrometerSupport.telemetry(recorder, "rabbitmq"));
+        this.config = config.build();
+        mq = AceMq.connect(this.config, MicrometerSupport.telemetry(recorder, "rabbitmq"));
         return Map.of();
     }
 
@@ -245,6 +264,11 @@ public final class TckDriver {
         if (scheduler != null) {
             scheduler.close();
             scheduler = null;
+        }
+        if (relay != null) {
+            relay.close();
+            relay = null;
+            outboxStore = null;
         }
         for (AutoCloseable consumer : consumers.values()) {
             consumer.close();
@@ -333,6 +357,99 @@ public final class TckDriver {
                     failIfAsked(failFirst, id, delivery);
                 });
         consumers.put(handle, consumer);
+        return Map.of();
+    }
+
+    /**
+     * Reopens the case's connection, same origin and recorder, with the claim-check codec over the
+     * JSON codec and the filesystem store; the next {@code begin} connects plainly again.
+     */
+    private Map<String, Object> claimCheck(Map<String, Object> args) {
+        mq().close();
+        Codec codec = ClaimCheckCodec.wrapping(new JsonCodec(),
+                new FilesystemClaimCheckStore(Path.of(String.valueOf(args.get("directory")))),
+                intOf(args.get("thresholdBytes"), 0));
+        mq = AceMq.connect(config, MicrometerSupport.telemetry(recorder, "rabbitmq"), codec);
+        return Map.of();
+    }
+
+    /**
+     * Records the body through {@link OutboxRecord#of} into an in-memory store, starting the
+     * library's relay with its defaults on first use. Java ships no in-memory outbox store, so
+     * this one is a map behind {@link OutboxStore}.
+     */
+    private Map<String, Object> outbox(Map<String, Object> args) {
+        String routingKey = String.valueOf(args.get("routingKey"));
+        Map<?, ?> fields = args.get("envelope") instanceof Map ? (Map<?, ?>) args.get("envelope") : Map.of();
+        Envelope.Builder envelope = Envelope.of(routingKey);
+        if (fields.get("id") != null) {
+            envelope.id(String.valueOf(fields.get("id")));
+        }
+        if (fields.get("correlationId") != null) {
+            envelope.correlationId(String.valueOf(fields.get("correlationId")));
+        }
+        if (fields.get("causationId") != null) {
+            envelope.causationId(String.valueOf(fields.get("causationId")));
+        }
+        if (fields.get("headers") instanceof Map) {
+            ((Map<?, ?>) fields.get("headers")).forEach((name, value) -> envelope.header(String.valueOf(name), value));
+        }
+        if (relay == null) {
+            outboxStore = new MapOutboxStore();
+            relay = new OutboxRelay(mq(), outboxStore);
+            relay.start();
+        }
+        String payload = new String(new JsonCodec().encode(args.get("body")), StandardCharsets.UTF_8);
+        OutboxRecord record = OutboxRecord.of(String.valueOf(args.getOrDefault("exchange", "")), routingKey,
+                envelope.build(), payload);
+        outboxStore.add(record);
+        return Map.of("id", record.id());
+    }
+
+    /** Pending records in insertion order; the relay is the only claimant, so no lease is kept. */
+    private static final class MapOutboxStore implements OutboxStore {
+        private final Map<String, OutboxRecord> pending = new LinkedHashMap<>();
+
+        @Override
+        public synchronized void add(OutboxRecord record) {
+            pending.put(record.id(), record);
+        }
+
+        @Override
+        public synchronized List<OutboxRecord> claimBatch(int batchSize, Duration lease) {
+            return new ArrayList<>(pending.values()).subList(0, Math.min(batchSize, pending.size()));
+        }
+
+        @Override
+        public synchronized void markPublished(String id) {
+            pending.remove(id);
+        }
+
+        @Override
+        public void markFailed(String id, String reason) {
+            // Stays pending; the next pass tries it again.
+        }
+
+        @Override
+        public synchronized long pendingCount() {
+            return pending.size();
+        }
+    }
+
+    /** {@code consume} with no retry, as a consumer group of {@code size} members. */
+    private Map<String, Object> consumeGroup(Map<String, Object> args) {
+        String queue = String.valueOf(args.get("queue"));
+        String handle = String.valueOf(args.get("handle"));
+        Map<?, ?> behaviour = (Map<?, ?>) args.getOrDefault("behaviour", Map.of());
+        long sleepMs = intOf(behaviour.get("sleepMs"), 0);
+        Counter counter = track(handle);
+        mq().topology().apply(Topology.define().queueWithDeadLetter(queue).build(), ApplyMode.CREATE_ONLY);
+        consumers.put(handle, mq().consumeGroup(queue, Object.class, message -> {
+            counter.count(idOf(message.payload()), message.redelivered());
+            if (sleepMs > 0) {
+                Thread.sleep(sleepMs);
+            }
+        }).concurrency(intOf(args.get("size"), 1)).prefetch(intOf(args.get("prefetch"), 10)).start());
         return Map.of();
     }
 

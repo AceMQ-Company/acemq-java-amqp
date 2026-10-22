@@ -24,6 +24,12 @@
       <groupId>org.acemq</groupId>
       <artifactId>acemq-amqp-core</artifactId>
     </dependency>
+    <!-- Declared rather than left to arrive through the core: the JDBC outbox writes a
+         record's headers as a JSON object. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>

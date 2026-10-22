@@ -41,6 +41,13 @@ import org.jspecify.annotations.Nullable;
  */
 final class EnvelopeHeaders {
 
+    /** The {@code x-acemq-} headers this version reads into envelope fields. */
+    private static final java.util.Set<String> OWNED = java.util.Set.of(
+            AceHeaders.ID, AceHeaders.TYPE, AceHeaders.VERSION, AceHeaders.CORRELATION, AceHeaders.CAUSATION,
+            AceHeaders.ATTEMPT, AceHeaders.FIRST_SEEN, AceHeaders.ORIGIN, AceHeaders.CLAIM, AceHeaders.ERROR,
+            org.acemq.amqp.api.RoutingSlip.ROUTE, org.acemq.amqp.api.RoutingSlip.POSITION,
+            org.acemq.amqp.api.RoutingSlip.RUN_ID);
+
     private EnvelopeHeaders() {
         throw new AssertionError("EnvelopeHeaders is a utility and must not be instantiated");
     }
@@ -53,6 +60,8 @@ final class EnvelopeHeaders {
      */
     static Map<String, Object> toHeaders(Envelope envelope) {
         Map<String, Object> headers = new LinkedHashMap<>(envelope.headers());
+        // Before the fields, so a field always wins over an extension that claims its name.
+        headers.putAll(envelope.extensions());
         headers.put(AceHeaders.ID, envelope.id());
         headers.put(AceHeaders.TYPE, envelope.type());
         headers.put(AceHeaders.VERSION, envelope.version());
@@ -162,8 +171,10 @@ final class EnvelopeHeaders {
             builder.firstSeen(Instant.ofEpochMilli(firstSeen));
         }
 
-        // Application headers only: the AceMQ ones are already represented as fields, and
-        // copying them twice would let the two representations drift apart.
+        // Application headers as headers, and the AceMQ ones this version has no field for as
+        // extensions; the known AceMQ ones are already represented as fields, and copying them
+        // twice would let the two representations drift apart.
+        Map<String, Object> extensions = new LinkedHashMap<>();
         source.forEach((name, value) -> {
             // Engine-owned headers become fields on the envelope, so copying them here as well
             // would let the two representations drift apart. That includes the three route
@@ -171,8 +182,14 @@ final class EnvelopeHeaders {
             // headers rather than from these, so it survives the filter without escaping it.
             if (!AceHeaders.isAceHeader(name)) {
                 builder.header(name, value);
+            } else if (!OWNED.contains(name)) {
+                // A pipeline hop publishes from this envelope, and used to drop these: a header
+                // written by a newer library or another language died at the first Java step
+                // (AMQP-ENV-014, TCK SLIP-004/005).
+                extensions.put(name, value);
             }
         });
+        builder.extensions(extensions);
 
         org.acemq.amqp.api.RoutingSlip.from(source).ifPresent(builder::route);
 

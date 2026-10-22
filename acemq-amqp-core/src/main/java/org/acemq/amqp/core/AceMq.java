@@ -955,8 +955,11 @@ public final class AceMq implements AutoCloseable {
      * would take as long as the number of groups multiplied by it — a figure nobody chose,
      * quietly larger than whatever grace period the caller is shutting down inside.
      *
-     * <p>Consumers that are not in a group are cancelled without waiting, as they always have
-     * been; what they hold is redelivered.
+     * <p>Consumers that are not in a group wait the same way: each is cancelled, its running
+     * handler finishes and is acknowledged within what is left of the budget, and only then is
+     * the connection closed. Up to 0.7.18 they were cancelled without waiting, so a message mid-
+     * handler was redelivered and handled twice (TCK CONSUME-002). Whatever is still running when
+     * the budget is spent is redelivered.
      *
      * @param budget the whole time this close may spend waiting for work in progress
      */
@@ -972,9 +975,14 @@ public final class AceMq implements AutoCloseable {
         long deadline = System.nanoTime() + budget.toNanos();
         for (AutoCloseable closeable : managed) {
             try {
+                Duration remaining = Duration.ofNanos(Math.max(0L, deadline - System.nanoTime()));
                 if (closeable instanceof ConsumerGroup) {
-                    Duration remaining = Duration.ofNanos(Math.max(0L, deadline - System.nanoTime()));
                     ((ConsumerGroup) closeable).closeWithin(remaining);
+                } else if (closeable instanceof MessageConsumer) {
+                    // Drained on the shared budget, so close() below finds it stopped and does
+                    // not wait its own 20 seconds on top.
+                    ((MessageConsumer) closeable).drain(remaining);
+                    closeable.close();
                 } else {
                     closeable.close();
                 }

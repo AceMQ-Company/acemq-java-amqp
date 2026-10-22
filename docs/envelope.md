@@ -60,6 +60,15 @@ applications can consume the library; see ADR-015.
 Values are written as strings and integers only, because those are the two types
 every AMQP client's mapping carries intact.
 
+**An `x-acemq-` header not in this table is kept, not dropped.** A newer library
+or another language may write one this version has no field for; the envelope
+carries it in `extensions()`, and every publish that starts from that envelope —
+a pipeline hop, a retry, a dead letter, a handler republishing with
+`toBuilder()` — writes it back unchanged (AMQP-ENV-014). A field in this table
+always wins over an extension of the same name. Retries and dead letters kept
+them before; pipeline hops and `toBuilder()` keep them since the 0.7 patch that
+added `extensions()`.
+
 **The two timestamps are encoded differently and that is the contract.**
 `x-acemq-first-seen` is an integer of epoch milliseconds; `acemq-replayed-at` is
 a millisecond ISO-8601 string — `2026-02-03T04:05:06.789Z`, always three digits. Tidying either one up in a port

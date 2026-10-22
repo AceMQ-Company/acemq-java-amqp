@@ -106,6 +106,53 @@ class GracefulShutdownIT {
                 .isLessThan(Duration.ofSeconds(3));
     }
 
+    @Test
+    @Timeout(120)
+    @DisplayName("closing a consumer waits for the running handler, acknowledges it and hands out nothing new")
+    void closingAConsumerWaitsForTheRunningHandler() {
+        closeWhileHandling("orders.close-consumer", consumer -> consumer.close());
+    }
+
+    @Test
+    @Timeout(120)
+    @DisplayName("closing the connection waits for a plain consumer's running handler within the budget")
+    void closingTheConnectionWaitsForAPlainConsumer() {
+        closeWhileHandling("orders.close-connection", consumer -> mq.close(Duration.ofSeconds(10)));
+    }
+
+    /**
+     * TCK CONSUME-002, in this library's own suite: m1's handler is running when close is called,
+     * m2 waits behind prefetch 1. Up to 0.7.18 close returned at once and m1 was handled twice.
+     */
+    private void closeWhileHandling(String queue,
+            java.util.function.Consumer<org.acemq.amqp.core.MessageConsumer> close) {
+        mq = AceMq.connect(ConnectionConfig.url(BROKER.getAmqpUrl()).build());
+        mq.declareQueue(queue);
+        java.util.List<String> handled = new java.util.concurrent.CopyOnWriteArrayList<>();
+        org.acemq.amqp.core.MessageConsumer consumer = mq.consume(queue, String.class,
+                org.acemq.amqp.core.ConsumerOptions.prefetch(1), message -> {
+                    handled.add(message.payload());
+                    Thread.sleep(1500);
+                });
+        mq.publisher("", queue, String.class).send("m1");
+        mq.publisher("", queue, String.class).send("m2");
+        await().atMost(Duration.ofSeconds(30)).until(() -> handled.size() == 1);
+
+        long startedAt = System.nanoTime();
+        close.accept(consumer);
+        Duration took = Duration.ofNanos(System.nanoTime() - startedAt);
+
+        assertThat(took).as("close must wait for the handler").isGreaterThan(Duration.ofMillis(700));
+        assertThat(handled).containsExactly("m1");
+        try (AceMq again = AceMq.connect(ConnectionConfig.url(BROKER.getAmqpUrl()).build())) {
+            java.util.List<String> after = new java.util.concurrent.CopyOnWriteArrayList<>();
+            again.consume(queue, String.class, message -> after.add(message.payload()));
+            await().atMost(Duration.ofSeconds(30)).until(() -> !after.isEmpty());
+            await().pollDelay(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(5)).until(() -> true);
+            assertThat(after).as("m1 was acknowledged, m2 never handed out").containsExactly("m2");
+        }
+    }
+
     /** Holds the message until the test lets go, so every consumer is still busy at close. */
     private void hold() {
         try {

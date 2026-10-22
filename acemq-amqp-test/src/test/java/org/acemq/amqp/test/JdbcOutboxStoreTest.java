@@ -295,6 +295,55 @@ class JdbcOutboxStoreTest {
         }
 
         @Test
+        @Timeout(30)
+        void keeps_a_record_s_headers() throws SQLException {
+            store.add(OutboxRecord.of("orders", "order.placed", Envelope.of("order.placed").id("o-h")
+                    .header("x-tenant", "acme").header("x-count", 3)
+                    .extensions(java.util.Map.of("x-acemq-future", "kept")).build(), "{}"));
+            store.add(order("o-plain"));
+            transactional.commit();
+
+            List<OutboxRecord> claimed = store.claimBatch(10, Duration.ofMinutes(5));
+            OutboxRecord withHeaders = claimed.stream().filter(r -> r.id().equals("o-h")).findFirst().orElseThrow();
+            assertThat(withHeaders.headers()).containsEntry("x-tenant", "acme").containsEntry("x-count", 3)
+                    .containsEntry("x-acemq-future", "kept");
+            assertThat(withHeaders.envelope().headers()).containsEntry("x-tenant", "acme");
+            assertThat(claimed.stream().filter(r -> r.id().equals("o-plain")).findFirst().orElseThrow().headers())
+                    .isEmpty();
+        }
+
+        @Test
+        @Timeout(30)
+        void a_table_from_before_0_7_19_keeps_working_and_gets_the_column_from_create_schema() throws SQLException {
+            try (Connection setup = dataSource.getConnection();
+                    java.sql.Statement statement = setup.createStatement()) {
+                statement.execute("CREATE TABLE legacy_outbox (id VARCHAR(64) NOT NULL PRIMARY KEY,"
+                        + " exchange_name VARCHAR(255) NOT NULL, routing_key VARCHAR(255) NOT NULL,"
+                        + " message_type VARCHAR(255) NOT NULL, payload TEXT NOT NULL, correlation_id VARCHAR(64),"
+                        + " causation_id VARCHAR(64), created_at TIMESTAMP WITH TIME ZONE NOT NULL,"
+                        + " published_at TIMESTAMP WITH TIME ZONE, attempts INTEGER NOT NULL DEFAULT 0,"
+                        + " last_error VARCHAR(1000), locked_by VARCHAR(64), locked_until TIMESTAMP WITH TIME ZONE)");
+            }
+            JdbcOutboxStore legacy = new JdbcOutboxStore(() -> transactional, dataSource, "legacy_outbox", 5);
+            // No headers column: written and read as before, headers left out.
+            legacy.add(OutboxRecord.of("orders", "order.placed",
+                    Envelope.of("order.placed").id("o-old").header("x-tenant", "acme").build(), "{}"));
+            transactional.commit();
+            assertThat(legacy.claimBatch(10, Duration.ofMinutes(5))).singleElement()
+                    .satisfies(r -> assertThat(r.headers()).isEmpty());
+
+            // The migration adds the column; the row from before reads back with no headers.
+            legacy.createSchemaIfAbsent();
+            legacy.add(OutboxRecord.of("orders", "order.placed",
+                    Envelope.of("order.placed").id("o-new").header("x-tenant", "acme").build(), "{}"));
+            transactional.commit();
+            assertThat(legacy.pendingCount()).isEqualTo(2);
+            // o-old is still leased from the claim above, so only the new row comes back.
+            assertThat(legacy.claimBatch(10, Duration.ofMinutes(5))).singleElement()
+                    .satisfies(r -> assertThat(r.headers()).containsEntry("x-tenant", "acme"));
+        }
+
+        @Test
         void refuses_a_table_name_that_is_not_a_plain_identifier() {
             // The table name reaches the SQL by concatenation, because no database lets it be
             // bound. Refusing anything but an identifier is what keeps that from being a hole.

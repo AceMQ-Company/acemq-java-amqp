@@ -60,6 +60,31 @@ class OutboxRecordTest {
     }
 
     @Test
+    void keeps_the_headers_so_the_relay_publishes_the_message_that_was_recorded() {
+        Envelope recorded = Envelope.of("order.placed").id("o-1")
+                .header("x-tenant", "acme")
+                .extensions(java.util.Map.of("x-acemq-future", "kept"))
+                .build();
+
+        OutboxRecord record = OutboxRecord.of("orders", "order.placed", recorded, "{}");
+        Envelope rebuilt = record.envelope();
+
+        // TCK OUTBOX-001: up to 0.7.18 the record had no headers and the relay published none.
+        assertThat(record.headers()).containsEntry("x-tenant", "acme").containsEntry("x-acemq-future", "kept");
+        assertThat(rebuilt.headers()).containsOnlyKeys("x-tenant");
+        assertThat(rebuilt.extensions()).containsOnlyKeys("x-acemq-future");
+    }
+
+    @Test
+    void read_back_without_headers_has_none() {
+        OutboxRecord read = new OutboxRecord(
+                "o-1", "orders", "order.placed", "order.placed", "{}", null, null, Instant.now(), 0, null);
+
+        assertThat(read.headers()).isEmpty();
+        assertThat(read.envelope().headers()).isEmpty();
+    }
+
+    @Test
     void keeps_the_destination_it_was_given() {
         OutboxRecord record = OutboxRecord.of("", "orders.direct", envelope(), "{\"total\":42}");
 

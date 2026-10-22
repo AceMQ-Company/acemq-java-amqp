@@ -16,6 +16,9 @@
 package org.acemq.amqp.api;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -32,9 +35,11 @@ import org.jspecify.annotations.Nullable;
  * when that changes.
  *
  * <p>The envelope is reduced to its identifying fields — id, type, correlation and causation —
- * rather than stored whole. Arbitrary headers would need a serialisation format, and inventing
- * one here to avoid depending on a codec would be the worse trade. Until the JSON codec lands, a
- * message published through the outbox carries these four fields and no custom headers.
+ * plus its headers: the application's own and any {@code x-acemq-} extensions it carried. The
+ * relay publishes all of them, so a message sent through the outbox is the message that was
+ * recorded (TCK OUTBOX-001). Up to 0.7.18 the headers were not kept and the relay published
+ * without them. How a store persists them is the store's business; {@code JdbcOutboxStore}
+ * writes them as a JSON object in a {@code headers} column.
  */
 public final class OutboxRecord {
 
@@ -48,6 +53,7 @@ public final class OutboxRecord {
     private final Instant createdAt;
     private final int attempts;
     private final @Nullable String lastError;
+    private final Map<String, Object> headers;
 
     /**
      * Full constructor, used when reading a record back out of storage.
@@ -74,6 +80,38 @@ public final class OutboxRecord {
             Instant createdAt,
             int attempts,
             @Nullable String lastError) {
+        this(id, exchange, routingKey, type, payload, correlationId, causationId, createdAt, attempts, lastError,
+                null);
+    }
+
+    /**
+     * Full constructor with headers, used when reading a record back out of storage.
+     *
+     * @param id message identifier, unique across the outbox
+     * @param exchange exchange to publish to; empty string for the default exchange
+     * @param routingKey routing key to publish with
+     * @param type logical message type
+     * @param payload encoded message body
+     * @param correlationId correlation identifier, or {@code null}
+     * @param causationId causation identifier, or {@code null}
+     * @param createdAt when the record was written
+     * @param attempts how many publish attempts have been made
+     * @param lastError why the last attempt failed, or {@code null}
+     * @param headers headers to publish with — application headers and {@code x-acemq-}
+     *     extensions together — or {@code null} for none
+     */
+    public OutboxRecord(
+            String id,
+            String exchange,
+            String routingKey,
+            String type,
+            String payload,
+            @Nullable String correlationId,
+            @Nullable String causationId,
+            Instant createdAt,
+            int attempts,
+            @Nullable String lastError,
+            @Nullable Map<String, Object> headers) {
         this.id = Objects.requireNonNull(id, "id");
         this.exchange = Objects.requireNonNull(exchange, "exchange");
         this.routingKey = Objects.requireNonNull(routingKey, "routingKey");
@@ -84,6 +122,9 @@ public final class OutboxRecord {
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.attempts = attempts;
         this.lastError = lastError;
+        this.headers = headers == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(headers));
     }
 
     /**
@@ -107,7 +148,14 @@ public final class OutboxRecord {
                 envelope.causationId().orElse(null),
                 Instant.now(),
                 0,
-                null);
+                null,
+                headersOf(envelope));
+    }
+
+    private static Map<String, Object> headersOf(Envelope envelope) {
+        Map<String, Object> headers = new LinkedHashMap<>(envelope.headers());
+        headers.putAll(envelope.extensions());
+        return headers;
     }
 
     /**
@@ -125,6 +173,8 @@ public final class OutboxRecord {
                 .id(id)
                 .correlationId(correlationId)
                 .causationId(causationId)
+                .headers(headers)
+                .extensions(headers)
                 .build();
     }
 
@@ -161,6 +211,14 @@ public final class OutboxRecord {
     /** @return causation identifier, if the message carries one */
     public Optional<String> causationId() {
         return Optional.ofNullable(causationId);
+    }
+
+    /**
+     * @return headers the message is published with — application headers and {@code x-acemq-}
+     *     extensions together; empty when there are none, never {@code null}
+     */
+    public Map<String, Object> headers() {
+        return headers;
     }
 
     /** @return when the record was written */

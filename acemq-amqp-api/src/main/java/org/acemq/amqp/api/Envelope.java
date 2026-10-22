@@ -54,6 +54,7 @@ public final class Envelope {
     private final @Nullable Instant replayedAt;
     private final int replayCount;
     private final Map<String, Object> headers;
+    private final Map<String, Object> extensions;
 
     private Envelope(Builder builder) {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
@@ -71,6 +72,7 @@ public final class Envelope {
         this.replayedAt = builder.replayedAt;
         this.replayCount = builder.replayCount;
         this.headers = Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers));
+        this.extensions = Collections.unmodifiableMap(new LinkedHashMap<>(builder.extensions));
         if (this.version < 1) {
             throw new IllegalArgumentException("version must be at least 1, was " + this.version);
         }
@@ -217,6 +219,21 @@ public final class Envelope {
     }
 
     /**
+     * The {@code x-acemq-} headers this version of the library has no field for, as they arrived.
+     *
+     * <p>Written by a newer library or by another language, and carried on by every publish that
+     * starts from this envelope -- a pipeline hop, a retry, a handler that republishes with
+     * {@link #toBuilder()} -- so that a header one service adds is not lost at the first Java
+     * service it passes through (AMQP-ENV-014). The engine's own headers are never in here; on
+     * the wire, a field always wins over an extension of the same name.
+     *
+     * @return unknown AceMQ headers by name; empty for an envelope built locally, never {@code null}
+     */
+    public Map<String, Object> extensions() {
+        return extensions;
+    }
+
+    /**
      * Returns the age of the message, measured from its first publish.
      *
      * <p>Retry policies use this to abandon a message that has been circulating too long,
@@ -271,7 +288,8 @@ public final class Envelope {
                 .replayedFrom(replayedFrom)
                 .replayedAt(replayedAt)
                 .replayCount(replayCount)
-                .headers(headers);
+                .headers(headers)
+                .extensions(extensions);
     }
 
     @Override
@@ -296,14 +314,15 @@ public final class Envelope {
                 && Objects.equals(replayedFrom, that.replayedFrom)
                 && Objects.equals(replayedAt, that.replayedAt)
                 && replayCount == that.replayCount
-                && headers.equals(that.headers);
+                && headers.equals(that.headers)
+                && extensions.equals(that.extensions);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
                 id, type, version, correlationId, causationId, attempt, firstSeen, origin, error, claim,
-                replayedFrom, replayedAt, replayCount, headers);
+                replayedFrom, replayedAt, replayCount, headers, extensions);
     }
 
     @Override
@@ -329,6 +348,7 @@ public final class Envelope {
         private @Nullable Instant replayedAt;
         private int replayCount;
         private final Map<String, Object> headers = new LinkedHashMap<>();
+        private final Map<String, Object> extensions = new LinkedHashMap<>();
 
         /** @param id message identifier; a random UUID is generated when left unset */
         public Builder id(@Nullable String id) {
@@ -446,6 +466,24 @@ public final class Envelope {
                 headers.forEach((name, value) -> {
                     if (!AceHeaders.isAceHeader(name)) {
                         this.headers.put(name, value);
+                    }
+                });
+            }
+            return this;
+        }
+
+        /**
+         * Carries {@code x-acemq-} headers this library has no field for; see {@link Envelope#extensions()}.
+         *
+         * @param extensions headers to carry; names outside the {@code x-acemq-} prefix are ignored,
+         *     since those are application headers and belong in {@link #headers(Map)}
+         * @return this builder
+         */
+        public Builder extensions(@Nullable Map<String, Object> extensions) {
+            if (extensions != null) {
+                extensions.forEach((name, value) -> {
+                    if (AceHeaders.isAceHeader(name)) {
+                        this.extensions.put(name, value);
                     }
                 });
             }

@@ -699,4 +699,70 @@ class PipelineTest {
             assertThatThrownBy(() -> pipeline.send("x")).isInstanceOf(AceMqException.class);
         }
     }
+
+    @Nested
+    @DisplayName("a hop")
+    class HopHeaders {
+
+        /** Sends into step a by hand, with a header from a newer library and two of the application's. */
+        private void sendRaw(TransportConnection raw, String exchange, String header, String value) {
+            raw.send(OutboundMessage.body("\"x\"".getBytes(StandardCharsets.UTF_8))
+                    .exchange(exchange).routingKey("a").messageId("m1").contentType("application/json")
+                    .header("x-acemq-id", "m1").header("x-acemq-attempt", 1)
+                    .header("x-acemq-correlation", "corr-1").header(header, value)
+                    .header("x-acemq-future", "kept").header("x-tenant", "acme")
+                    .header("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+                    .build());
+        }
+
+        private void assertCarried(Envelope arrived) {
+            // AMQP-SLIP-005 / ENV-014, TCK SLIP-004 and SLIP-005: the x-acemq- header no version
+            // knows used to be dropped here, because the hop publishes from the envelope.
+            assertThat(arrived.extensions()).containsEntry("x-acemq-future", "kept");
+            assertThat(arrived.headers()).containsEntry("x-tenant", "acme");
+            assertThat(arrived.correlationId()).isEqualTo("corr-1");
+        }
+
+        @Test
+        @Timeout(60)
+        void in_the_route_form_carries_unknown_acemq_headers_and_application_headers() {
+            connect("pipeline-hop-route");
+            AtomicReference<Envelope> atB = new AtomicReference<>();
+            try (Pipeline<String> pipeline = mq.pipeline("hop", String.class)
+                    .step("a", String.class, m -> m.payload())
+                    .step("b", Void.class, message -> {
+                        atB.set(message.envelope());
+                        return null;
+                    })
+                    .build();
+                    TransportConnection raw = new InMemoryTransport()
+                            .connect(ConnectionConfig.url("memory://pipeline-hop-route").build())) {
+                sendRaw(raw, "hop", "x-acemq-route", "a,b");
+                await().atMost(Duration.ofSeconds(30)).until(() -> atB.get() != null);
+                assertCarried(atB.get());
+                assertThat(atB.get().extensions()).doesNotContainKeys("x-acemq-route", "x-acemq-id");
+            }
+        }
+
+        @Test
+        @Timeout(60)
+        void in_the_itinerary_form_carries_unknown_acemq_headers_and_application_headers() {
+            connect("pipeline-hop-itinerary");
+            AtomicReference<Envelope> atB = new AtomicReference<>();
+            try (Pipeline<String> pipeline = mq.pipeline("hopi", String.class)
+                    .step("a", String.class, m -> m.payload())
+                    .step("b", Void.class, message -> {
+                        atB.set(message.envelope());
+                        return null;
+                    })
+                    .build();
+                    TransportConnection raw = new InMemoryTransport()
+                            .connect(ConnectionConfig.url("memory://pipeline-hop-itinerary").build())) {
+                sendRaw(raw, "hopi", Itinerary.HEADER, "{\"steps\":[{\"exchange\":\"hopi\",\"routingKey\":\"a\"},"
+                        + "{\"exchange\":\"hopi\",\"routingKey\":\"b\"}]}");
+                await().atMost(Duration.ofSeconds(30)).until(() -> atB.get() != null);
+                assertCarried(atB.get());
+            }
+        }
+    }
 }

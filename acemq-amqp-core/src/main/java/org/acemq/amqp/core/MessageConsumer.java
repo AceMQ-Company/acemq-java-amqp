@@ -51,10 +51,10 @@ public interface MessageConsumer extends AutoCloseable {
     /**
      * Stops taking new messages and waits for the ones in hand to finish.
      *
-     * <p>The difference between this and {@link #close()} is what happens to work in progress.
-     * Closing cancels the subscription and lets whatever was mid-handler settle however it
-     * settles; draining cancels the subscription and then <em>waits</em>, so a consumer being
-     * removed finishes its work rather than having it redelivered somewhere else.
+     * <p>Draining cancels the subscription and then <em>waits</em>, so a consumer being removed
+     * finishes its work rather than having it redelivered somewhere else. {@link #close()} does
+     * the same with a fixed 20-second wait and then releases the channel; drain first to choose
+     * the wait yourself.
      *
      * <p>That matters whenever a handler is not idempotent, and it is the primitive a blue-green
      * deployment needs: drain the old side, then cut over.
@@ -96,7 +96,15 @@ public interface MessageConsumer extends AutoCloseable {
     /** @return whether this consumer is paused rather than stopped */
     boolean isPaused();
 
-    /** Stops consuming, letting in-flight deliveries settle. */
+    /**
+     * Stops consuming: cancels the subscription, waits up to 20 seconds for the handler that is
+     * running to finish and be acknowledged, then releases the channel.
+     *
+     * <p>Nothing new is handed to a handler once this is called. A handler still running after
+     * the wait has its message redelivered. Since 0.7.19; until then close did not wait, and a
+     * message being handled during close was redelivered and handled again. Called from inside
+     * this consumer's own handler, it does not wait for that handler.
+     */
     @Override
     void close();
 }

@@ -29,7 +29,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -42,6 +44,10 @@ import org.acemq.amqp.api.OutboxStore;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * An outbox kept in a relational table, in the same database as the work it accompanies.
@@ -81,10 +87,15 @@ public final class JdbcOutboxStore implements OutboxStore {
     private static final String COLUMNS = "id, exchange_name, routing_key, message_type, payload, correlation_id, causation_id, created_at,"
             + " attempts, last_error";
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final ConnectionSupplier transactionalConnection;
     private final DataSource relayConnections;
     private final String table;
     private final int maxAttempts;
+
+    /** Whether the table has the {@code headers} column added in 0.7.19; asked once, lazily. */
+    private volatile @Nullable Boolean headersColumn;
 
     /**
      * @param transactionalConnection where {@link #add} gets the caller's transaction from; see
@@ -133,6 +144,7 @@ public final class JdbcOutboxStore implements OutboxStore {
         // would otherwise end a statement that had not started, and the remains of an English
         // sentence would be handed to the database as SQL.
         String ddl = stripComments(readSchema()).replace("${table}", table);
+        headersColumn = null;
         try (Connection connection = relayConnections.getConnection();
                 Statement statement = connection.createStatement()) {
             for (String piece : ddl.split(";")) {
@@ -149,7 +161,9 @@ public final class JdbcOutboxStore implements OutboxStore {
     @Override
     public void add(OutboxRecord record) {
         Objects.requireNonNull(record, "record");
-        String sql = "INSERT INTO " + table + " (" + COLUMNS + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        boolean withHeaders = hasHeadersColumn();
+        String sql = "INSERT INTO " + table + " (" + COLUMNS + (withHeaders ? ", headers" : "")
+                + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?" + (withHeaders ? ", ?" : "") + ")";
 
         Connection connection;
         try {
@@ -176,6 +190,9 @@ public final class JdbcOutboxStore implements OutboxStore {
             statement.setObject(8, atUtc(record.createdAt()));
             statement.setInt(9, record.attempts());
             statement.setString(10, record.lastError().orElse(null));
+            if (withHeaders) {
+                statement.setString(11, headersJson(record));
+            }
             statement.executeUpdate();
         } catch (SQLException e) {
             throw new AceMqException("could not write outbox record " + record.id(), e);
@@ -249,21 +266,22 @@ public final class JdbcOutboxStore implements OutboxStore {
     }
 
     private List<OutboxRecord> readClaimed(Connection connection, String token) throws SQLException {
-        String sql = "SELECT " + COLUMNS + " FROM " + table
+        boolean withHeaders = hasHeadersColumn();
+        String sql = "SELECT " + COLUMNS + (withHeaders ? ", headers" : "") + " FROM " + table
                 + " WHERE locked_by = ? AND published_at IS NULL ORDER BY created_at, id";
         List<OutboxRecord> records = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, token);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
-                    records.add(readRecord(rows));
+                    records.add(readRecord(rows, withHeaders));
                 }
             }
         }
         return records;
     }
 
-    private static OutboxRecord readRecord(ResultSet rows) throws SQLException {
+    private static OutboxRecord readRecord(ResultSet rows, boolean withHeaders) throws SQLException {
         OffsetDateTime createdAt = rows.getObject(8, OffsetDateTime.class);
         return new OutboxRecord(
                 rows.getString(1),
@@ -275,7 +293,63 @@ public final class JdbcOutboxStore implements OutboxStore {
                 rows.getString(7),
                 createdAt == null ? Instant.now() : createdAt.toInstant(),
                 rows.getInt(9),
-                rows.getString(10));
+                rows.getString(10),
+                withHeaders ? headersFrom(rows.getString(11)) : null);
+    }
+
+    /**
+     * Whether the table has the {@code headers} column, asked once on a relay connection.
+     *
+     * <p>A table created before 0.7.19 has no such column, and a patch release must not break
+     * it: records are then written and relayed without headers, as they always were, and a
+     * warning says how to add it. Asked on a connection of its own rather than in the caller's
+     * transaction, because a failed statement aborts a PostgreSQL transaction.
+     */
+    private boolean hasHeadersColumn() {
+        Boolean known = headersColumn;
+        if (known != null) {
+            return known;
+        }
+        boolean present;
+        try (Connection connection = relayConnections.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.executeQuery("SELECT headers FROM " + table + " WHERE 1 = 0").close();
+            present = true;
+        } catch (SQLException e) {
+            present = false;
+            log.warn("the outbox table '{}' has no headers column, so records are relayed without their headers;"
+                    + " add it with: ALTER TABLE {} ADD COLUMN headers TEXT", table, table);
+        }
+        headersColumn = present;
+        return present;
+    }
+
+    private static @Nullable String headersJson(OutboxRecord record) {
+        if (record.headers().isEmpty()) {
+            return null;
+        }
+        // Strings, numbers and booleans as they are; anything else (a broker LongString, say)
+        // as its text, which is how every AMQP client reads it back anyway.
+        Map<String, Object> plain = new LinkedHashMap<>();
+        record.headers().forEach((name, value) -> plain.put(name,
+                value == null || value instanceof Number || value instanceof Boolean ? value : value.toString()));
+        try {
+            return JSON.writeValueAsString(plain);
+        } catch (JsonProcessingException e) {
+            throw new AceMqException("could not write the headers of outbox record " + record.id(), e);
+        }
+    }
+
+    private static @Nullable Map<String, Object> headersFrom(@Nullable String json) throws SQLException {
+        if (json == null || json.isEmpty()) {
+            return null;
+        }
+        try {
+            return JSON.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
+            });
+        } catch (JsonProcessingException e) {
+            throw new SQLException("the headers column holds something that is not a JSON object: " + json, e);
+        }
     }
 
     @Override

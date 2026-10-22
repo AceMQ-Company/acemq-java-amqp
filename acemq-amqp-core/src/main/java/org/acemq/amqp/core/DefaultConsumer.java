@@ -83,6 +83,12 @@ final class DefaultConsumer<T> implements MessageConsumer {
      */
     private final boolean requeueWithoutAPolicy;
     private final AtomicLong inFlight = new AtomicLong();
+
+    /** How long {@link #close()} waits for the handler that is running, as {@code AceMq.close()} does. */
+    private static final java.time.Duration CLOSE_TIMEOUT = java.time.Duration.ofSeconds(20);
+
+    /** The consumer whose handler this thread is running, so a handler that closes it does not wait on itself. */
+    private static final ThreadLocal<DefaultConsumer<?>> HANDLING = new ThreadLocal<>();
     private final java.util.concurrent.atomic.AtomicInteger prefetch;
     private final AtomicBoolean running = new AtomicBoolean();
     private final AtomicBoolean paused = new AtomicBoolean();
@@ -214,16 +220,18 @@ final class DefaultConsumer<T> implements MessageConsumer {
         }
         running.set(false);
 
+        // A handler draining or closing its own consumer cannot wait for itself to return.
+        long own = HANDLING.get() == this ? 1 : 0;
         long deadline = System.nanoTime() + timeout.toNanos();
-        while (inFlight.get() > 0 && System.nanoTime() < deadline) {
+        while (inFlight.get() > own && System.nanoTime() < deadline) {
             try {
                 Thread.sleep(10);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return inFlight.get() == 0;
+                return inFlight.get() <= own;
             }
         }
-        boolean quiet = inFlight.get() == 0;
+        boolean quiet = inFlight.get() <= own;
         if (!quiet) {
             log.warn("drained {} but {} message(s) are still being handled after {}", queue, inFlight.get(), timeout);
         }
@@ -232,9 +240,16 @@ final class DefaultConsumer<T> implements MessageConsumer {
 
     private void dispatch(InboundDelivery delivery, Acknowledger acknowledger) {
         inFlight.incrementAndGet();
+        DefaultConsumer<?> outer = HANDLING.get();
+        HANDLING.set(this);
         try {
             dispatchCounted(delivery, acknowledger);
         } finally {
+            if (outer == null) {
+                HANDLING.remove();
+            } else {
+                HANDLING.set(outer);
+            }
             inFlight.decrementAndGet();
         }
     }
@@ -500,9 +515,17 @@ final class DefaultConsumer<T> implements MessageConsumer {
 
     @Override
     public void close() {
-        // Not guarded on the running flag any more: drain() clears it first, and a drained
-        // consumer must still release its subscription when it is closed.
-        boolean wasRunning = running.getAndSet(false);
+        // A running consumer is drained first: the subscription is cancelled so nothing new
+        // arrives, and the handler that is running finishes and is acknowledged, up to
+        // CLOSE_TIMEOUT. Up to 0.7.18 close cut the channel under it, so the message came back
+        // and was handled a second time (TCK CONSUME-002); the other four libraries always
+        // waited. A consumer already drained -- by drain(), a group, or AceMq.close(budget) --
+        // is not running, so it is not waited for twice.
+        boolean wasRunning = running.get();
+        if (wasRunning) {
+            drain(CLOSE_TIMEOUT);
+        }
+        running.set(false);
         Subscription current = subscription;
         if (current != null) {
             current.close();
