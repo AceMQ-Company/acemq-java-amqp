@@ -92,6 +92,21 @@ class SetAsideTest {
     }
 
     @Test
+    @DisplayName("a refused park pauses before the caller requeues, so the redelivery loop is not hot")
+    void a_refused_park_pauses_before_requeue() {
+        RetryDispatcher dispatcher = new RetryDispatcher(
+                new StubConnection(true), RetryTopology.forQueue(SOURCE, POLICY), new RecordingTelemetry());
+
+        long started = System.nanoTime();
+        assertThat(dispatcher.park(delivery(), new IllegalArgumentException("nope"))).isFalse();
+
+        // Without the pause a quorum source queue spends its delivery limit (twenty) in
+        // milliseconds while the parking lot refuses, and the broker drops the message.
+        assertThat(Duration.ofNanos(System.nanoTime() - started))
+                .isGreaterThanOrEqualTo(RetryDispatcher.REFUSED_PAUSE.minusMillis(50));
+    }
+
+    @Test
     @DisplayName("a dead-letter queue that is not there is counted against the dead-letter queue")
     void a_failed_dead_letter_is_counted_against_its_target() {
         RecordingTelemetry telemetry = new RecordingTelemetry();

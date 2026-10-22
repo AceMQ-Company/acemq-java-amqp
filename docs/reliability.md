@@ -85,6 +85,15 @@ Two destinations, because the two failures need different fixes:
   identically every time until the code changes, so it never enters the ladder.
   The original bytes are kept exactly as received.
 
+If the broker refuses the copy — the queue is missing, full with
+`reject-publish`, or the publish fails — the original delivery is the only copy,
+so it is not acknowledged. The consumer waits one second, then rejects it with
+requeue, and it is set aside again when it comes back. The pause keeps the loop
+from running at broker speed: a quorum queue counts every requeue against its
+delivery limit (twenty by default on RabbitMQ 4), so about twenty seconds of
+refusal pass before the broker takes the message out of your hands. Go, .NET,
+Python and Ruby pause the same way. Earlier 0.7 patches requeued at once.
+
 ## Replay
 
 Capturing a failed message is half a feature. A dead-letter queue nobody can

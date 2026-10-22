@@ -8,6 +8,19 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A park or dead letter the broker refuses is requeued after a one-second
+  pause** (I12, AMQP-RETRY-007, TCK PARK-002). The consumer holds the
+  delivery for one second before rejecting it with requeue, as Go, .NET,
+  Python and Ruby do. Earlier 0.7 patches requeued at once, so the message
+  came straight back and was refused again at broker speed: about 1,800
+  refusals in under three seconds, enough to spend a quorum source queue's
+  delivery limit (twenty on RabbitMQ 4) and have the broker drop the message
+  before the parking lot or dead-letter queue took it. The pause holds one
+  prefetch slot while it runs. See `docs/reliability.md`, "Dead letters and
+  the parking lot".
+
 ## [0.7.19] - 2026-10-22
 
 ### Added

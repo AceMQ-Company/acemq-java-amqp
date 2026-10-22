@@ -60,6 +60,9 @@ final class RetryDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(RetryDispatcher.class);
 
+    /** How long a delivery whose park or dead letter the broker refused is held before requeue. */
+    static final Duration REFUSED_PAUSE = Duration.ofSeconds(1);
+
     private final TransportConnection connection;
     private final RetryTopology topology;
     private final RetryPolicy policy;
@@ -259,6 +262,7 @@ final class RetryDispatcher {
             // Not counted as parked, because it was not. The counter an operator reads to know
             // a message reached the parking lot must not be raised by one that did not get
             // there, and the caller has to be told so it can leave the message on the broker.
+            pauseBeforeRequeue();
             return false;
         }
         // The envelope is read from the headers rather than from the message, because the
@@ -311,6 +315,7 @@ final class RetryDispatcher {
             // Not counted as dead-lettered, because it was not: the counter an operator reads to
             // know a message reached the dead-letter queue must not be raised by one that did
             // not get there.
+            pauseBeforeRequeue();
             return false;
         }
         telemetry.messageDeadLettered(topology.sourceQueue(), envelope, reason);
@@ -384,6 +389,26 @@ final class RetryDispatcher {
                 target,
                 reason);
         return false;
+    }
+
+    /**
+     * Holds a delivery whose park or dead letter the broker refused for {@link #REFUSED_PAUSE}
+     * before the caller requeues it.
+     *
+     * <p>Not at once: the message comes straight back, is refused again, and the loop runs at
+     * broker speed — and a quorum queue counts every requeue against its delivery limit (twenty
+     * by default on RabbitMQ 4), after which the broker drops or dead-letters the message itself.
+     * Go, .NET, Python and Ruby pause here too. Up to 0.7.19 this library did not, and a parking
+     * lot refused for two seconds could spend the whole limit.
+     */
+    // ponytail: a fixed pause gives about twenty seconds of refusal before a quorum source
+    // queue's delivery limit; a backoff that grows per message if that proves short.
+    private static void pauseBeforeRequeue() {
+        try {
+            Thread.sleep(REFUSED_PAUSE.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static String describe(Throwable failure) {
