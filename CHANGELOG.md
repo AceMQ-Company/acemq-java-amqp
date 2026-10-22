@@ -23,6 +23,8 @@ While the version is `0.x` the public API may change in any release.
   runner closes its stdin. CI sets it and uploads the file when the TCK job
   fails, so a run that stops without a result can be told apart: a driver that
   died, or a runner that did.
+- Runs the AceMQ TCK v0.3.2 (was v0.3.1), which adds SLIP-003 to the
+  default run: 30 cases.
 
 ## [0.7.17] - 2026-10-20
 
