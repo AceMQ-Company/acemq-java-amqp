@@ -8,6 +8,8 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+## [0.7.18] - 2026-10-21
+
 ### Added
 
 - **A pipeline step with no retry policy is pinned to one attempt.** A step
