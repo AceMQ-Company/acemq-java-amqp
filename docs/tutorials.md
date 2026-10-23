@@ -29,12 +29,12 @@ scratch project. Nothing is left as an exercise.
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-core</artifactId>
-  <version>0.7.19</version>
+  <version>0.7.20</version>
 </dependency>
 <dependency>
   <groupId>org.acemq</groupId>
   <artifactId>acemq-amqp-test</artifactId>
-  <version>0.7.19</version>
+  <version>0.7.20</version>
 </dependency>
 ```
 
