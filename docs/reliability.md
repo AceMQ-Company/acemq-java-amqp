@@ -94,6 +94,15 @@ delivery limit (twenty by default on RabbitMQ 4), so about twenty seconds of
 refusal pass before the broker takes the message out of your hands. Go, .NET,
 Python and Ruby pause the same way. Earlier 0.7 patches requeued at once.
 
+This is deliberate, and it is kept: a park or dead letter refused for longer
+than about twenty seconds (the one-second pause times the delivery limit of
+twenty) ends in `<queue>.dlq`, not in a loop and not lost. The broker
+dead-letters the message when the limit is spent, so this needs the source queue
+declared with `queueWithDeadLetter` (see [Topology](topology.md#dead-lettering));
+on a queue without the dead-letter arguments RabbitMQ drops it at the limit. A
+longer outage of the parking lot is a broker problem to fix, not something the
+consumer should wait out holding the delivery.
+
 ## Replay
 
 Capturing a failed message is half a feature. A dead-letter queue nobody can
@@ -126,6 +135,24 @@ matches. Earlier 0.7 releases stopped at the first rejected message, which made
 that filter move nothing. The passed-over messages keep their order and are
 back on the queue before `replay` returns, so `pending()` straight after it
 counts them, on a quorum queue too.
+
+That wait has a cost, and it is configurable. Every passed-over message is held
+unacknowledged until the drain ends, so a filter that matches little holds up to
+the whole queue (in memory and in the broker's unacked count). Then they are
+requeued and `replay` polls the queue depth until they are counted again, for up
+to 5 seconds by default. A consumer reading the same queue at the same moment
+keeps the depth down, so the wait runs out and `replay` returns with a warning:
+nothing is lost, the messages are only not yet counted.
+
+```java
+replay.waitingForRequeue(Duration.ofSeconds(30)).replay(500, filter);  // slow quorum queue
+replay.waitingForRequeue(Duration.ZERO).replay(500, filter);           // do not wait
+```
+
+The Go library takes a different route to the same result: it republishes the
+passed-over messages with confirms and acknowledges the originals, so nothing is
+held, but they go to the back of the queue and their order relative to newer
+messages changes.
 
 The body is returned byte for byte. The attempt counter resets so the message
 gets the whole ladder again instead of arriving exhausted — a message

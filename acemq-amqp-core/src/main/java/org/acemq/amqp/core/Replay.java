@@ -95,7 +95,7 @@ public final class Replay {
     private static final Duration EMPTY_QUEUE_TIMEOUT = Duration.ofMillis(200);
 
     /**
-     * How long to wait for the broker to put back a message the filter passed over.
+     * How long, by default, to wait for the broker to put back a message the filter passed over.
      *
      * <p>A quorum queue applies a requeue through its log, after the nack that asked for it has
      * already been sent, so the message can be missing from the queue for a moment after the
@@ -108,16 +108,19 @@ public final class Replay {
     private final String sourceQueue;
     private final String fromQueue;
     private final boolean keepAttempts;
+    private final Duration requeueWait;
 
     Replay(TransportConnection connection, String sourceQueue, String fromQueue) {
-        this(connection, sourceQueue, fromQueue, false);
+        this(connection, sourceQueue, fromQueue, false, REQUEUE_TIMEOUT);
     }
 
-    private Replay(TransportConnection connection, String sourceQueue, String fromQueue, boolean keepAttempts) {
+    private Replay(TransportConnection connection, String sourceQueue, String fromQueue, boolean keepAttempts,
+            Duration requeueWait) {
         this.connection = connection;
         this.sourceQueue = sourceQueue;
         this.fromQueue = fromQueue;
         this.keepAttempts = keepAttempts;
+        this.requeueWait = requeueWait;
     }
 
     /**
@@ -131,7 +134,7 @@ public final class Replay {
      * @return a replay reading the parking lot instead
      */
     public Replay parked() {
-        return new Replay(connection, sourceQueue, sourceQueue + ".parked", keepAttempts);
+        return new Replay(connection, sourceQueue, sourceQueue + ".parked", keepAttempts, requeueWait);
     }
 
     /**
@@ -148,7 +151,35 @@ public final class Replay {
      * @return a replay that preserves the attempt counter
      */
     public Replay keepingAttempts() {
-        return new Replay(connection, sourceQueue, fromQueue, true);
+        return new Replay(connection, sourceQueue, fromQueue, true, requeueWait);
+    }
+
+    /**
+     * Returns a replay that waits up to {@code wait}, instead of the default 5 seconds, for the
+     * messages a filter passed over to be back on the queue before
+     * {@link #replay(int, Predicate)} returns.
+     *
+     * <p>The trade-off: a filtered replay holds every passed-over message unacknowledged until
+     * the drain ends, then requeues them and polls the queue depth until they are counted again.
+     * A consumer reading the same queue at the same moment keeps the depth down, so the wait runs
+     * out and the replay returns with a warning; nothing is lost, the messages are only not yet
+     * counted. A longer wait suits a slow quorum queue; {@link Duration#ZERO} returns as soon as
+     * the requeues are sent.
+     *
+     * @param wait the longest time to wait; zero or more
+     * @return a replay with that wait
+     */
+    public Replay waitingForRequeue(Duration wait) {
+        Objects.requireNonNull(wait, "wait");
+        if (wait.isNegative()) {
+            throw new IllegalArgumentException("wait must not be negative, was " + wait);
+        }
+        return new Replay(connection, sourceQueue, fromQueue, keepAttempts, wait);
+    }
+
+    /** @return how long a filtered replay waits for passed-over messages to be back */
+    public Duration requeueWait() {
+        return requeueWait;
     }
 
     /**
@@ -298,13 +329,16 @@ public final class Replay {
      * and an operator would conclude a message they deliberately left behind had vanished.
      */
     private void awaitRequeued(long expected) {
+        if (requeueWait.isZero()) {
+            return;
+        }
         // ponytail: polls the count, so another consumer draining this queue at the same moment
-        // makes it wait out REQUEUE_TIMEOUT; a broker-side settle confirmation would remove that.
-        long deadline = System.nanoTime() + REQUEUE_TIMEOUT.toNanos();
+        // makes it wait out requeueWait; a broker-side settle confirmation would remove that.
+        long deadline = System.nanoTime() + requeueWait.toNanos();
         while (connection.messageCount(fromQueue) < expected) {
             if (System.nanoTime() - deadline >= 0) {
                 log.warn("{} still holds fewer than {} message(s) {} after a requeue; returning anyway",
-                        fromQueue, expected, REQUEUE_TIMEOUT);
+                        fromQueue, expected, requeueWait);
                 return;
             }
             try {

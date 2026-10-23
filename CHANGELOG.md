@@ -8,6 +8,32 @@ While the version is `0.x` the public API may change in any release.
 
 ## [Unreleased]
 
+### Changed
+
+- **A pipeline or routing-slip hop is a new message** (I11, AMQP-SLIP-007,
+  TCK SLIP-008 and SLIP-009). The hop gets its own `x-acemq-id`; its
+  `x-acemq-causation` is the id of the message the step handled, and its
+  correlation is unchanged, in both slip forms. Go, Python and Ruby already
+  did this. Earlier 0.7 patches kept the handled message's id on the hop, so
+  the hop's causation was its own id. Anything that keyed on one id across a
+  whole run should use the correlation or the routing-slip run id. See
+  `docs/patterns.md`.
+
+### Added
+
+- `Replay.waitingForRequeue(Duration)` and `Replay.requeueWait()` (I5): how long
+  a filtered replay waits for the passed-over messages to be back on the queue
+  before it returns. The default stays 5 seconds; `Duration.ZERO` does not
+  wait. `docs/reliability.md`, "Replay", now spells out the trade-off: the
+  passed-over messages are held unacknowledged, a consumer on the same queue
+  can make the wait run out, and Go republishes instead (order differs).
+
+### Documentation
+
+- `docs/reliability.md` records that a park or dead letter the broker refuses
+  for longer than about twenty seconds ends in `<queue>.dlq` (I6), and that
+  this needs the source queue's dead-letter arguments.
+
 ## [0.7.20] - 2026-10-22
 
 ### Changed

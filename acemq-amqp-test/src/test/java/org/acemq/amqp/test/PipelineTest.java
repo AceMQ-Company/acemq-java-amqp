@@ -246,7 +246,7 @@ class PipelineTest {
 
         @Test
         @Timeout(60)
-        void a_hop_is_caused_by_the_message_it_came_from_and_keeps_its_correlation() {
+        void a_hop_is_a_new_message_caused_by_the_one_it_came_from_and_keeps_its_correlation() {
             connect("pipeline-causation");
             List<Envelope> arrived = new CopyOnWriteArrayList<>();
 
@@ -267,6 +267,8 @@ class PipelineTest {
                 // AMQP-SLIP-003: the route form hop used to carry no causation at all.
                 assertThat(arrived.get(0).causationId()).isEmpty();
                 assertThat(arrived.get(1).causationId()).contains(arrived.get(0).id());
+                // AMQP-SLIP-007: the hop has an id of its own.
+                assertThat(arrived.get(1).id()).isNotEqualTo(arrived.get(0).id());
                 assertThat(arrived.get(1).correlationId()).isEqualTo("corr-1");
             }
         }
@@ -298,14 +300,17 @@ class PipelineTest {
             connect("pipeline-carried");
             AtomicReference<Itinerary> atSecondStop = new AtomicReference<>();
             List<String> seen = new CopyOnWriteArrayList<>();
+            List<Envelope> envelopes = new CopyOnWriteArrayList<>();
 
             try (Pipeline<String> pipeline = mq.pipeline("carried", String.class)
                     .step("one", String.class, message -> {
                         seen.add("one");
+                        envelopes.add(message.envelope());
                         return message.payload() + "|validated";
                     })
                     .step("two", String.class, message -> {
                         seen.add("two");
+                        envelopes.add(message.envelope());
                         atSecondStop.set(Itinerary.from(message.envelope().headers()).orElse(null));
                         return null;
                     })
@@ -320,6 +325,11 @@ class PipelineTest {
 
                 Itinerary arrived = atSecondStop.get();
                 assertThat(arrived).as("the second step must have been reached through the slip").isNotNull();
+
+                // AMQP-SLIP-007: the hop is a new message caused by the one handled.
+                assertThat(envelopes.get(1).id()).isNotEqualTo(envelopes.get(0).id());
+                assertThat(envelopes.get(1).causationId()).contains(envelopes.get(0).id());
+                assertThat(envelopes.get(1).correlationId()).isEqualTo(envelopes.get(0).correlationId());
 
                 // Where it is going: the second stop, named by the slip rather than by this
                 // pipeline's declaration.

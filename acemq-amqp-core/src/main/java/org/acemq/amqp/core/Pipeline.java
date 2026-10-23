@@ -214,11 +214,17 @@ public final class Pipeline<T> implements AutoCloseable {
             return;
         }
 
-        // Caused by the message this step handled (AMQP-SLIP-003), as the itinerary hop below
-        // already was; a route hop used to leave the causation it arrived with, none at all on a
-        // run's first hop.
-        publishTo(following.get(), next,
-                message.envelope().toBuilder().causationId(message.envelope().id()).build(), slip.advance());
+        publishTo(following.get(), next, hopFrom(message.envelope()).build(), slip.advance());
+    }
+
+    /**
+     * The envelope of a hop: a new message (its own {@code x-acemq-id}) caused by the one the
+     * step handled, with the correlation, first-seen and carried headers unchanged
+     * (AMQP-SLIP-003, AMQP-SLIP-007). Earlier 0.7 patches kept the handled message's id, so a
+     * hop's causation pointed at itself.
+     */
+    private static Envelope.Builder hopFrom(Envelope handled) {
+        return handled.toBuilder().id(null).causationId(handled.id());
     }
 
     /**
@@ -255,8 +261,7 @@ public final class Pipeline<T> implements AutoCloseable {
         }
 
         Itinerary.Stop stop = following.get();
-        Envelope carrying = message.envelope().toBuilder()
-                .causationId(message.envelope().id())
+        Envelope carrying = hopFrom(message.envelope())
                 .header(Itinerary.HEADER, advanced.toHeader())
                 .build();
         mq.publisher(stop.exchange(), stop.routingKey(), (Class<Object>) (Class<?>) Object.class,

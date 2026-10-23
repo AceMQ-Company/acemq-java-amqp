@@ -65,6 +65,16 @@ Every hop also keeps the run's `x-acemq-first-seen` (AMQP-SLIP-006, TCK SLIP-006
 and SLIP-007), so `acemq.pipeline.run.duration` covers the whole run, from the
 first publish to the last step, not only the last hop.
 
+A hop is a new message (AMQP-SLIP-007, TCK SLIP-008 and SLIP-009). It gets its
+own `x-acemq-id`, its `x-acemq-causation` is the id of the message the step
+handled, and its `x-acemq-correlation` is unchanged, in both slip forms. So the
+causation chain reads step by step across the run, and the run id in
+`acemq-routing-slip` (or the correlation) is what ties the hops together. Go,
+.NET, Python and Ruby do the same. Earlier 0.7 patches kept the handled
+message's id on the hop, so its causation pointed at itself; an idempotency key
+or a trace that relied on one id across the whole run should use the
+correlation or the run id instead.
+
 A step with no `withRetry` is not retried: when its handler throws, the message
 is attempted once and dead-lettered to `<pipeline>.<step>.dlq` with every header
 it arrived with, the routing slip and any `x-acemq-` header from a newer library
