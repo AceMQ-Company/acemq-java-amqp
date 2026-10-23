@@ -61,6 +61,10 @@ another language wrote, which the envelope keeps in `extensions()`. Earlier 0.7
 patches dropped those unknown `x-acemq-` headers (AMQP-SLIP-005, TCK SLIP-004 and
 SLIP-005).
 
+Every hop also keeps the run's `x-acemq-first-seen` (AMQP-SLIP-006, TCK SLIP-006
+and SLIP-007), so `acemq.pipeline.run.duration` covers the whole run, from the
+first publish to the last step, not only the last hop.
+
 A step with no `withRetry` is not retried: when its handler throws, the message
 is attempted once and dead-lettered to `<pipeline>.<step>.dlq` with every header
 it arrived with, the routing slip and any `x-acemq-` header from a newer library
