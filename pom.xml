@@ -149,7 +149,7 @@
     <exec.plugin.version>3.6.4</exec.plugin.version>
     <maven.shade.plugin.version>3.6.2</maven.shade.plugin.version>
     <jmh.version>1.37</jmh.version>
-    <japicmp.plugin.version>0.26.3</japicmp.plugin.version>
+    <japicmp.plugin.version>0.26.5</japicmp.plugin.version>
     <!-- The released version the binary-compatibility gate compares against. -->
     <japicmp.baseline.version>0.2.10</japicmp.baseline.version>
     <errorprone.version>2.50.0</errorprone.version>
